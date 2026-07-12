@@ -19,13 +19,23 @@ CleanMuzik — personal YouTube → Jellyfin music tool. Full description, stack
 live in `CLAUDE.md` and `cleanmuzik-prd.md` (this board holds *volatile state*, not evergreen
 description — see there, don't restate here).
 
-**Phase: gate cleared — ready to write the R1 spec.** The beets spike is resolved and all three
-owner facts are locked. Next real deliverable is `docs/r1/spec.md`. See `docs/r1/architecture.md`.
+**Phase: R1 spec WRITTEN — ready to generate tickets.** The beets spike is resolved, all three
+owner facts are locked, and `docs/r1/spec.md` is now written and committed. Next real deliverable
+is `docs/r1/tickets.md` (decompose the spec into build tickets). See `docs/r1/spec.md`.
 
 ## Current State (2026-07-12)
 
-- **Branch `main`** — spike docs committed (`a77ab48`); this session's primers + board update
-  pending commit.
+- **Branch `main`** — R1 spec + ADR-008 + roadmap + `.env.example` committed this session.
+- **`docs/r1/spec.md` WRITTEN** — full 7-section build-ready spec. R1 scope locked to
+  **one YouTube song per run** (batches → R2, playlists → R2, migrate → R2). Match gate =
+  **fingerprint-trust auto-accept (ADR-006)** else review queue. App **triggers a Jellyfin scan**
+  after landing. MP3 320 → `…\Music\CleanMuzik`. Lyrics in. FastAPI routes + SSE event catalogue +
+  SQLite schema all specified. Two things left open by design: the numeric fingerprint score/gap
+  thresholds (build-time knob — measure, don't guess) and owner sign-off on the spec.
+- **`.env` created + populated** (git-ignored) — **Jellyfin API key is set**
+  (`JELLYFIN_URL=http://localhost:8096`). `LASTFM_APIKEY` still blank (genre won't fetch till the
+  owner gets one; not a failure). `ACOUSTID_APIKEY` optional (built-in key works). `.env.example`
+  committed as the template.
 - **All three owner facts LOCKED** (the spec's inputs):
   1. **Jellyfin library folder** → `C:\Users\aj_am\Music\CleanMuzik` (WSL: `/mnt/c/Users/aj_am/Music/CleanMuzik`).
      Jellyfin **installed native on Windows** this session (Phase 0), Music library pointed there,
@@ -49,7 +59,36 @@ owner facts are locked. Next real deliverable is `docs/r1/spec.md`. See `docs/r1
 
 ## Session log
 
-### 2026-07-12 — Jellyfin installed, 3 facts locked, owner-education primers started
+### 2026-07-12 (session 2) — R1 spec written, ADR-008, .env wired
+
+- **Wrote `docs/r1/spec.md`** end to end (all 7 sections; the skeleton is now real). Resolved the
+  open scope forks with the owner:
+  - **Input scope → one YouTube song per run.** Owner's call: prove base functionality first, then
+    scale up. Batches + playlists + migrate all pushed to R2. (ADR-001/003 batch rules aren't
+    exercised until then.)
+  - **Match gate → fingerprint-trust (ADR-006).** Owner: "fingerprint matches it first and
+    foremost; if it can't, send it to a review queue." Auto-accept on dominant AcoustID identity,
+    else park. Numeric score/gap thresholds left as a build-time knob (candidate: score ≥ 0.90,
+    gap ≥ 0.10 — measure, don't hard-code).
+  - **Jellyfin scan → app-triggered** (owner picked option 1). App calls the Jellyfin API after a
+    track lands so it appears in seconds; needs `JELLYFIN_URL` + `JELLYFIN_API_KEY`.
+- **Recorded ADR-008** — native Jellyfin on Windows (not Docker) for Phase 0; watched folder
+  `C:\Users\aj_am\Music\CleanMuzik` IS beets' output dir; auto-refresh-metadata = Never.
+- **Roadmap** — R1 line flipped to "scoped, spec written."
+- **`.env` wired** — created `.env.example` (committable template) + real `.env` (git-ignored);
+  owner pasted the **Jellyfin API key** in. Confirmed `.env` is git-ignored before any secret went
+  near the repo. Nothing reads it yet — captured for the build.
+- **Committed + pushed** the spec + ADR-008 + roadmap + `.env.example`.
+- **NEXT (next session):**
+  1. **Owner sign-off on `docs/r1/spec.md`** (read-through) — then generate **`docs/r1/tickets.md`**
+     from it (decompose into build tickets; this is the gate to `in-build`).
+  2. Carry-overs from session 1, still open: add "proactively flag learnable moments" to the
+     **global** `~/.claude/CLAUDE.md`; build the **artifact-visual-style skill** then drop the
+     redundant project-memory copy.
+  3. Owner to get a **Last.fm API key** (unblocks genre) — a setup ticket in R1.
+  4. Later: Track A primers 02/04/05; Tracks B/C.
+
+### 2026-07-12 (session 1) — Jellyfin installed, 3 facts locked, owner-education primers started
 
 - **Installed Jellyfin** (native Windows, Phase 0) end-to-end with the owner over screenshots.
   Recommended **native over Docker** for Phase 0 (single laptop; Docker's portability is a Phase-1

@@ -7,7 +7,7 @@ Source of truth for scope: `cleanmuzik-prd.md` (product) → `docs/rN/spec.md` (
 
 | Release | Status | One-line scope |
 |---|---|---|
-| **R1** | `specing` | Not yet scoped — writing `r1/spec.md`. Acquire flow, single track, end to end. |
+| **R1** | `specing` | Scoped — `r1/spec.md` written (2026-07-12). Single YouTube song → tagged MP3 320 in Jellyfin, end to end. |
 | R2 | `backlog` | Untouched until R1 ships. Candidate: playlists, migrate + clean existing library. |
 | R3+ | `backlog` | Untouched. Candidate: acoustic tier (BPM/key/energy), Tailscale/always-on host. |
 

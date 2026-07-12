@@ -57,3 +57,13 @@ Format: `ADR-NNN — decision. Rationale. [date]`
   `beets.plugins.load_plugins()` at startup. The FastAPI service config must therefore enable
   `plugins: musicbrainz chroma …` and load plugins on boot, or matching silently degrades to
   tag-only. (born in the spike) [2026-07-11]
+
+- **ADR-008 — Jellyfin runs native on Windows (not Docker) for Phase 0, and its Music library
+  watches `C:\Users\aj_am\Music\CleanMuzik` (WSL: `/mnt/c/Users/aj_am/Music/CleanMuzik`) — which
+  IS beets' output directory.** Rationale: Phase 0 is a single laptop, where Docker's portability
+  buys nothing and adds a moving part; native is the lighter call. The watched folder is the
+  contract between beets (writer) and Jellyfin (reader) — beets organizes into it, and the app
+  triggers a Jellyfin scan after each landing so the track appears within seconds. Jellyfin's
+  "auto-refresh metadata from internet" is set to **Never** so it never overwrites beets' tags
+  (beets is the sole tagger, ADR-005). Revisit the native-vs-Docker call at Phase 1 (dedicated
+  always-on box), not before. [2026-07-12]
