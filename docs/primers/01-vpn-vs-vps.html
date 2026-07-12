@@ -1,0 +1,283 @@
+<title>VPN vs VPS — where your music actually lives · CleanMuzik Primer 01</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    font-size: 21px;
+
+    --paper:#EFF0F4; --surface:#F9FAFC; --surface-2:#FFFFFF;
+    --ink:#16151D; --ink-soft:#4E4C5A; --ink-faint:#7C7A88;
+    --line:#DCDCE6; --line-soft:#E7E7EF;
+    --signal:#0E8577; --signal-ink:#0B6A5E; --signal-wash:#DCEFEC;
+    --home:#0E8577;                 /* "yours / at home" = teal */
+    --away:#B4761A;                 /* "rented / far away" = amber */
+    --home-wash:#DCEFEC; --away-wash:#F4E9D2;
+    --hero-a:#131219; --hero-b:#1E1B2B; --hero-ink:#F3F2F7; --hero-soft:#B7B3C6;
+
+    --serif:"Iowan Old Style","Palatino Linotype",Palatino,"Book Antiqua",Georgia,serif;
+    --sans:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    --mono:ui-monospace,"SF Mono","Cascadia Code","JetBrains Mono",Menlo,Consolas,monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper:#100F16; --surface:#17161F; --surface-2:#1D1B27;
+      --ink:#F0EFF5; --ink-soft:#B4B1C2; --ink-faint:#817E92;
+      --line:#2C2A38; --line-soft:#24222F;
+      --signal:#2ED3BE; --signal-ink:#57E0CE; --signal-wash:#123833;
+      --home:#2ED3BE; --away:#E0A63E; --home-wash:#123833; --away-wash:#302716;
+      --hero-a:#0C0B12; --hero-b:#171426;
+    }
+  }
+  :root[data-theme="light"]{--paper:#EFF0F4;--surface:#F9FAFC;--surface-2:#FFFFFF;--ink:#16151D;--ink-soft:#4E4C5A;--ink-faint:#7C7A88;--line:#DCDCE6;--line-soft:#E7E7EF;--signal:#0E8577;--signal-ink:#0B6A5E;--signal-wash:#DCEFEC;--home:#0E8577;--away:#B4761A;--home-wash:#DCEFEC;--away-wash:#F4E9D2;--hero-a:#131219;--hero-b:#1E1B2B;}
+  :root[data-theme="dark"]{--paper:#100F16;--surface:#17161F;--surface-2:#1D1B27;--ink:#F0EFF5;--ink-soft:#B4B1C2;--ink-faint:#817E92;--line:#2C2A38;--line-soft:#24222F;--signal:#2ED3BE;--signal-ink:#57E0CE;--signal-wash:#123833;--home:#2ED3BE;--away:#E0A63E;--home-wash:#123833;--away-wash:#302716;--hero-a:#0C0B12;--hero-b:#171426;}
+
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);line-height:1.62;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;}
+  .bleed{padding-inline:clamp(1.25rem,4.5vw,5rem);}
+  section{padding-block:clamp(2.1rem,4vw,3.2rem);}
+  section+section{border-top:1px solid var(--line-soft);}
+
+  .eyebrow{font-family:var(--mono);font-size:0.72rem;letter-spacing:0.18em;text-transform:uppercase;color:var(--signal-ink);margin:0 0 1rem;}
+  h1,h2,h3{font-family:var(--serif);font-weight:600;text-wrap:balance;line-height:1.1;}
+  h1{font-size:clamp(2.5rem,5.5vw,4.4rem);letter-spacing:-0.015em;margin:0;}
+  h2{font-size:clamp(1.7rem,3vw,2.5rem);letter-spacing:-0.01em;margin:0 0 0.9rem;}
+  h3{font-size:1.24rem;margin:0 0 0.4rem;}
+  p{margin:0 0 1.05rem;max-width:74ch;}
+  strong{font-weight:650;}
+  .lede{font-size:1.16rem;color:var(--ink-soft);max-width:84ch;}
+  .analogy{border-left:4px solid var(--signal);padding-left:1.3rem;font-family:var(--serif);font-size:1.3rem;line-height:1.42;color:var(--ink);max-width:64ch;margin:1.2rem 0;}
+
+  .hero{position:relative;overflow:hidden;color:var(--hero-ink);padding-block:clamp(3rem,6.5vw,5.5rem);
+    background:radial-gradient(120% 140% at 84% -10%,color-mix(in srgb,var(--signal) 26%,transparent),transparent 55%),linear-gradient(155deg,var(--hero-a),var(--hero-b));}
+  .hero .eyebrow{color:color-mix(in srgb,var(--signal) 72%,white);}
+  .hero p{color:var(--hero-soft);}
+  .pair{display:inline-flex;flex-wrap:wrap;gap:0.5rem;align-items:baseline;font-family:var(--mono);margin-top:1.2rem;font-size:1.05rem;}
+  .pair b{font-size:1.5rem;}
+  .pair .vpn{color:color-mix(in srgb,var(--signal) 72%,white);}
+  .pair .vps{color:#E9B65B;}
+
+  .cols{display:grid;gap:clamp(1.4rem,3vw,2.4rem);grid-template-columns:repeat(auto-fit,minmax(min(100%,400px),1fr));}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:1.6rem 1.7rem;}
+  .card .kicker{font-family:var(--mono);font-size:0.72rem;letter-spacing:0.14em;text-transform:uppercase;color:var(--ink-faint);}
+  .card.vps{border-top:4px solid var(--away);}
+  .card.vpn{border-top:4px solid var(--home);}
+  .card p:last-child{margin-bottom:0;}
+
+  .table-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:14px;background:var(--surface);}
+  table{border-collapse:collapse;width:100%;font-size:1rem;}
+  th,td{text-align:left;padding:0.95rem 1.15rem;border-bottom:1px solid var(--line-soft);vertical-align:top;}
+  thead th{font-family:var(--mono);font-size:0.74rem;letter-spacing:0.09em;text-transform:uppercase;color:var(--ink-faint);background:var(--surface-2);}
+  tbody tr:last-child td{border-bottom:none;}
+  .col-vps{color:var(--away);font-weight:600;}
+  .col-vpn{color:var(--home);font-weight:600;}
+  th.h-vps{color:var(--away);} th.h-vpn{color:var(--home);}
+
+  /* flow diagram */
+  .flow{display:flex;flex-wrap:wrap;align-items:stretch;gap:0.6rem;margin:0.6rem 0 0.3rem;}
+  .node{flex:1 1 150px;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:0.95rem 1rem;min-width:140px;}
+  .node .t{font-family:var(--mono);font-size:0.66rem;letter-spacing:0.1em;text-transform:uppercase;color:var(--ink-faint);}
+  .node .m{font-family:var(--serif);font-size:1.12rem;margin-top:0.15rem;line-height:1.15;}
+  .node.dest-away{background:var(--away-wash);border-color:color-mix(in srgb,var(--away) 45%,var(--line));}
+  .node.dest-home{background:var(--home-wash);border-color:color-mix(in srgb,var(--home) 45%,var(--line));}
+  .node.dest-away .m{color:var(--away);} .node.dest-home .m{color:var(--home);}
+  .node .here{display:inline-block;margin-top:0.5rem;font-family:var(--mono);font-size:0.62rem;letter-spacing:0.08em;text-transform:uppercase;padding:0.12rem 0.45rem;border-radius:99px;}
+  .node.dest-away .here{background:var(--away);color:#fff;} .node.dest-home .here{background:var(--home);color:#fff;}
+  .arrow{display:flex;align-items:center;color:var(--ink-faint);font-size:1.3rem;padding:0 0.1rem;}
+  .flow-label{font-family:var(--mono);font-size:0.8rem;letter-spacing:0.08em;text-transform:uppercase;color:var(--ink-faint);margin:1.4rem 0 0.2rem;}
+  .flow-label.vps{color:var(--away);} .flow-label.vpn{color:var(--home);}
+
+  .verdict{background:var(--signal-wash);border:1px solid color-mix(in srgb,var(--signal) 35%,var(--line));border-radius:14px;padding:1.5rem 1.7rem;}
+  .verdict h3{color:var(--signal-ink);}
+
+  .callout{background:var(--surface);border:1px solid var(--line);border-left:4px solid var(--signal);border-radius:12px;padding:1.3rem 1.5rem;max-width:78ch;}
+  .next li{margin-bottom:0.5rem;max-width:78ch;}
+  .next b{font-family:var(--serif);}
+
+  footer{padding-block:2.2rem 3.2rem;color:var(--ink-faint);font-family:var(--mono);font-size:0.82rem;}
+
+  .toggle{position:fixed;top:1rem;right:1rem;z-index:10;font-family:var(--mono);font-size:0.74rem;letter-spacing:0.08em;text-transform:uppercase;background:color-mix(in srgb,var(--surface) 88%,transparent);color:var(--ink-soft);border:1px solid var(--line);border-radius:99px;padding:0.5rem 0.9rem;cursor:pointer;backdrop-filter:blur(8px);}
+  .toggle:hover{color:var(--ink);border-color:var(--signal);}
+  .toggle:focus-visible{outline:2px solid var(--signal);outline-offset:2px;}
+</style>
+
+<button class="toggle" id="themeBtn" aria-label="Toggle light or dark theme">◐ Theme</button>
+
+<header class="hero bleed">
+  <p class="eyebrow">CleanMuzik · Networking Primer 01</p>
+  <h1>VPN vs VPS —<br>where your music actually lives</h1>
+  <p class="lede">Two acronyms one letter apart, routinely mixed up — and they do almost opposite
+    jobs. Getting this straight explains the single biggest hosting decision in the whole project:
+    why your library lives at home, and never in the cloud.</p>
+  <div class="pair">
+    <span class="vps"><b>VPS</b> = a computer you rent, somewhere else</span>
+    <span style="color:var(--hero-soft)">·</span>
+    <span class="vpn"><b>VPN</b> = a private tunnel to a computer you own</span>
+  </div>
+</header>
+
+<section class="bleed">
+  <p class="eyebrow">The one-letter trap</p>
+  <h2>Same three letters, opposite ideas</h2>
+  <p>They sound like cousins. They're not. One is a <em>place to put a computer</em>; the other is a
+    <em>private road to reach one</em>. Confusing them is like confusing a <strong>storage unit</strong>
+    with the <strong>key to your own front door</strong> — both involve "getting to your stuff," but
+    one holds it somewhere else and one just lets you in.</p>
+  <div class="cols">
+    <div class="card vps">
+      <p class="kicker">VPS · Virtual Private Server</p>
+      <h3>A computer you rent, in someone else's building</h3>
+      <p>A slice of a machine in a data centre — a company's warehouse full of servers, in some city
+        that isn't yours. You pay monthly; whatever you put on it lives <strong>there</strong>, on
+        <strong>their</strong> hardware.</p>
+    </div>
+    <div class="card vpn">
+      <p class="kicker">VPN · Virtual Private Network</p>
+      <h3>A private tunnel to a computer you already own</h3>
+      <p>An encrypted road connecting <strong>your</strong> devices, so your phone can reach your
+        home PC as if it were sitting right next to it — from anywhere — without opening that PC to
+        the public internet. It moves <em>nothing</em> to the cloud. It just lets you in.</p>
+    </div>
+  </div>
+</section>
+
+<section class="bleed">
+  <p class="eyebrow">The two analogies</p>
+  <h2>Picture it</h2>
+  <p class="analogy"><strong>A VPS</strong> is renting a locker in a storage facility across town.
+    Your things live there now. You drive over (or log in) to reach them. Stop paying and you lose
+    the locker.</p>
+  <p class="analogy"><strong>A VPN</strong> is a secret private hallway that runs from wherever you
+    are straight into your own house. Your things never left home — the hallway just means distance
+    stops mattering. Nobody else can see or use the hallway.</p>
+</section>
+
+<section class="bleed">
+  <p class="eyebrow">Side by side</p>
+  <h2>The difference, in one table</h2>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>&nbsp;</th><th class="h-vps">VPS</th><th class="h-vpn">VPN</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>What it is</td><td>A rented computer</td><td>A private connection to a computer</td></tr>
+        <tr><td>Where your data lives</td><td class="col-vps">In a data centre — theirs</td><td class="col-vpn">Wherever your machine is — yours</td></tr>
+        <tr><td>Who owns the hardware</td><td class="col-vps">The hosting company</td><td class="col-vpn">You</td></tr>
+        <tr><td>Ongoing cost</td><td class="col-vps">Monthly rent, forever</td><td class="col-vpn">Free for personal use (e.g. Tailscale)</td></tr>
+        <tr><td>Problem it solves</td><td>“I need a computer that's always on, somewhere”</td><td>“I need to reach <em>my</em> computer, privately, from anywhere”</td></tr>
+        <tr><td>If you stop paying</td><td class="col-vps">Your data is gone</td><td class="col-vpn">Nothing — the data was always yours</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="bleed">
+  <p class="eyebrow">The decision this drives</p>
+  <h2>Which does CleanMuzik use?</h2>
+  <div class="verdict">
+    <h3>A VPN. Never a VPS.</h3>
+    <p style="margin-bottom:0">Your music library has to live <strong>where Jellyfin runs</strong> —
+      beets writes the files, Jellyfin reads the same files off the same disk. Put that on a VPS and
+      you've moved your entire music collection onto a rented computer in the cloud: monthly cost,
+      someone else's hardware, your library not really yours. So the library stays <strong>home</strong>,
+      on hardware you own — and a VPN (Tailscale) is how your phone reaches it from outside the house.</p>
+  </div>
+
+  <p class="flow-label vps">The VPS way — your music would live far away</p>
+  <div class="flow">
+    <div class="node"><div class="t">You, out and about</div><div class="m">Your phone</div></div>
+    <div class="arrow">→</div>
+    <div class="node"><div class="t">Public</div><div class="m">The internet</div></div>
+    <div class="arrow">→</div>
+    <div class="node dest-away"><div class="t">Rented · monthly</div><div class="m">A server in a data centre</div><span class="here">your music lives here</span></div>
+  </div>
+
+  <p class="flow-label vpn">The VPN way — your music stays home; the tunnel just reaches it</p>
+  <div class="flow">
+    <div class="node"><div class="t">You, out and about</div><div class="m">Your phone</div></div>
+    <div class="arrow">→</div>
+    <div class="node"><div class="t">Encrypted · private</div><div class="m">Tailscale tunnel</div></div>
+    <div class="arrow">→</div>
+    <div class="node dest-home"><div class="t">Owned · at home</div><div class="m">Your PC running Jellyfin</div><span class="here">your music lives here</span></div>
+  </div>
+</section>
+
+<section class="bleed">
+  <p class="eyebrow">Where it shows up in the build</p>
+  <h2>The two phases, mapped</h2>
+  <div class="cols">
+    <div class="card">
+      <p class="kicker">Phase 0 · now</p>
+      <h3>Just the laptop — no networking at all</h3>
+      <p>Everything runs on one machine and talks to <em>itself</em> (<span style="font-family:var(--mono)">localhost</span>).
+        You open Jellyfin and the app in the same laptop's browser. No VPN, no VPS, nothing to reach —
+        the shortest possible network: a machine talking to itself. <em>(That's Primer 02.)</em></p>
+    </div>
+    <div class="card vpn">
+      <p class="kicker">Phase 1 · later</p>
+      <h3>A dedicated home PC + Tailscale</h3>
+      <p>Move the library and Jellyfin to an always-on PC at home, and lay a <strong>Tailscale VPN</strong>
+        over your devices. Now your phone streams your library from anywhere — through the private
+        tunnel — while the PC stays invisible to the public internet. <em>(Deep-dive: Primer 05.)</em></p>
+    </div>
+  </div>
+</section>
+
+<section class="bleed">
+  <p class="eyebrow">The trade-off, honestly</p>
+  <h2>Home + VPN vs cloud VPS</h2>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>Dimension</th><th class="h-vpn">Home + VPN (our choice)</th><th class="h-vps">Cloud VPS (rejected)</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Where your library lives</td><td class="col-vpn">Your hardware — private</td><td class="col-vps">A rented server — the provider's</td></tr>
+        <tr><td>Cost</td><td class="col-vpn">One-time hardware; VPN free</td><td class="col-vps">Monthly rent, and storage for a music library adds up</td></tr>
+        <tr><td>Control &amp; privacy</td><td class="col-vpn">Total — nobody else touches the files</td><td class="col-vps">You trust the host with your whole collection</td></tr>
+        <tr><td>Uptime when you're away</td><td class="col-vpn">Only while your home PC is on</td><td class="col-vps">Always on (that's what you rent)</td></tr>
+        <tr><td>Setup complexity</td><td class="col-vpn">Install Tailscale on two devices — minutes</td><td class="col-vps">Provision, secure, and maintain a server</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p style="margin-top:1.1rem">The one real thing a VPS buys you — always-on when your home machine
+    is off — isn't worth handing your entire music library to a rented box in the cloud. For a
+    <strong>personal</strong> library, home + VPN wins on every axis that matters here.</p>
+</section>
+
+<section class="bleed">
+  <p class="eyebrow">The subtlety worth nailing</p>
+  <h2>“But reaching it from my phone — isn't that the cloud?”</h2>
+  <div class="callout">
+    <p style="margin-bottom:0">No — and this is the crux. “The cloud” means your <em>data</em> sits on
+      someone else's computer. A VPN moves no data anywhere; it just builds a private, encrypted road
+      between <strong>machines you already own</strong>. Your music never leaves your house. When you
+      stream from your phone at a café, the files are still at home — you're reaching <em>back</em> to
+      them through the tunnel, not pulling them from a server in the sky.</p>
+  </div>
+</section>
+
+<section class="bleed">
+  <p class="eyebrow">Where to go next</p>
+  <h2>The rest of the track</h2>
+  <ul class="next">
+    <li><b>02 · localhost, IPs &amp; ports</b> — how the app and Jellyfin find each other on one machine, and what <span style="font-family:var(--mono)">:8096</span> actually means.</li>
+    <li><b>03 · Client–server &amp; the request's journey</b> — following one paste of a URL from your browser all the way to a tagged file in Jellyfin.</li>
+    <li><b>04 · NAT &amp; port-forwarding</b> — why we deliberately keep the server <em>off</em> the public internet, and what a VPN saves us from.</li>
+    <li><b>05 · Tailscale deep-dive</b> — what a mesh VPN really is, and how WireGuard makes the private tunnel.</li>
+  </ul>
+</section>
+
+<footer class="bleed">
+  CleanMuzik · Networking Primer 01 · VPN vs VPS — where your music actually lives
+</footer>
+
+<script>
+  (function(){
+    var btn=document.getElementById('themeBtn');
+    btn.addEventListener('click',function(){
+      var root=document.documentElement, now=root.getAttribute('data-theme');
+      var dark=now?now==='dark':window.matchMedia('(prefers-color-scheme: dark)').matches;
+      root.setAttribute('data-theme',dark?'light':'dark');
+    });
+  })();
+</script>

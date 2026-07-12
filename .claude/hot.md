@@ -1,7 +1,7 @@
 ---
 type: meta
 title: "Hot — cleanmuzik"
-updated: 2026-07-11-s3
+updated: 2026-07-12
 tags:
   - meta
   - hot-cache
@@ -19,27 +19,67 @@ CleanMuzik — personal YouTube → Jellyfin music tool. Full description, stack
 live in `CLAUDE.md` and `cleanmuzik-prd.md` (this board holds *volatile state*, not evergreen
 description — see there, don't restate here).
 
-**Phase: spike, not build.** Read-to-orient, not ready-to-build until the beets review-queue
-seam is proven. See `docs/r1/architecture.md`.
+**Phase: gate cleared — ready to write the R1 spec.** The beets spike is resolved and all three
+owner facts are locked. Next real deliverable is `docs/r1/spec.md`. See `docs/r1/architecture.md`.
 
-## Current State (2026-07-11 · s3)
+## Current State (2026-07-12)
 
-- **Branch `main`** — spike session's docs committed this session. `node_modules` (client 117M +
-  server 32M) deleted from disk — untracked/gitignored, fully regenerable; nothing lost.
-- **The beets review-queue spike is RESOLVED** — the gate before spec is cleared. Seam proven
-  end-to-end; auto-accept rate **measured at 0/3** on easy singletons. Two decisions recorded:
-  **ADR-006** (auto-accept via dominant AcoustID fingerprint identity, not relaxed thresholds; the
-  review queue is the *primary* path — the PRD's "~80%" is false for singletons) and **ADR-007**
-  (beets 2.12: MusicBrainz is a separate plugin; library API doesn't auto-load plugins). Full
-  writeup: `docs/r1/experiment-auto-accept-rate.md` (readable) + `spike-beets-review-queue.md` (lab
-  notebook). Rendered as an Artifact too.
-- **Harness scaffold** (`docs/`): `roadmap.md`, `r1/{spec,tickets,architecture,adr,spike-*,experiment-*}.md`,
-  `learnings.md` (now populated with spike gotchas), `backlog/`. `spec.md` + `tickets.md` still
-  **gated stubs** — but the gate is now open (spike done).
-- Still **spec, not build**: `client/` stock Vite, `server/` Express `/health` scaffold to be
-  dropped for FastAPI. No pipeline code exists yet.
+- **Branch `main`** — spike docs committed (`a77ab48`); this session's primers + board update
+  pending commit.
+- **All three owner facts LOCKED** (the spec's inputs):
+  1. **Jellyfin library folder** → `C:\Users\aj_am\Music\CleanMuzik` (WSL: `/mnt/c/Users/aj_am/Music/CleanMuzik`).
+     Jellyfin **installed native on Windows** this session (Phase 0), Music library pointed there,
+     empty. "Auto-refresh metadata: Never" set (protects beets' tags). Jellyfin ADR-008 to record.
+  2. **Existing library** → 15 month-batch folders under `C:\Users\aj_am\OneDrive\Documents\`
+     (`April2024MUsic` etc.). **Measured: 3.2 GB, 855 MP3** + 37 `.webm` + broken-download debris
+     (`.part`/`.ytdl`/`.mhtml`). Also lives on his **phone** (overlapping copies → R2 dedup input).
+     Destination after extraction: `C:\Users\aj_am\Music` (out of OneDrive to stop cloud sync).
+  3. **Keys/secrets** → Last.fm key later (setup ticket; genres won't fetch till then). AcoustID
+     needs **no** personal key (beets' built-in lookup key works — proven in spike). Secrets → `.env`.
+- **The beets spike is RESOLVED** (prior session): 0/3 auto-accept on singletons → **ADR-006**
+  (trust fingerprint identity in `choose_match`, review queue is the primary path) + **ADR-007**
+  (beets 2.12 plugin loading). Writeups in `docs/r1/`.
+- **Owner-education track started** — `docs/primers/` (NOT `learnings.md`): full-bleed HTML
+  explainers. Built **01 VPN-vs-VPS** + **03 network-map** (published Artifacts, linked in
+  `docs/primers/README.md`). Track A 02/04/05 + Tracks B/C parked for later sessions.
+- **Lyrics decided IN for R1** — add beets `lyrics` plugin; owner to flip Jellyfin "Save lyrics
+  into media folders" on. Metadata philosophy: R1 = every cheap plugin on (genre/year/art/lyrics);
+  acoustic tier (Essentia, BPM/key) stays deferred.
+- Still no pipeline code: `client/` stock Vite, `server/` Express to be dropped for FastAPI.
 
 ## Session log
+
+### 2026-07-12 — Jellyfin installed, 3 facts locked, owner-education primers started
+
+- **Installed Jellyfin** (native Windows, Phase 0) end-to-end with the owner over screenshots.
+  Recommended **native over Docker** for Phase 0 (single laptop; Docker's portability is a Phase-1
+  concern) → record as **ADR-008**. Music library → `C:\Users\aj_am\Music\CleanMuzik`. Walked the
+  metadata settings: "auto-refresh from internet: **Never**" (beets is the tagger, don't let
+  Jellyfin overwrite), Image Extractor on (shows beets' embedded art), remote access left on
+  (Tailscale-forward-compatible; not internet-exposed).
+- **Locked all three owner facts** (see Current State). Measured the existing library myself over
+  `/mnt/c` (3.2 GB / 855 MP3 + webm/junk). Established the clean-folder-vs-mess distinction: the
+  month-batches are **R2 input**, never hand-copied into the clean `CleanMuzik` library.
+- **Decisions:** lyrics **in** for R1 (beets `lyrics` plugin + Jellyfin lyrics display). Library
+  lives at `C:\Users\aj_am\Music`, **out of OneDrive** (cloud-sync trap). Noted `.webm`/broken-file
+  debris + phone-source overlap as **R2 scope**.
+- **Started `docs/primers/`** — full-bleed HTML owner-education artifacts, deliberately separate
+  from `learnings.md`. Built & published **Primer 01 (VPN vs VPS)** and **Primer 03 (network map,
+  with a Phase 0/1 toggle + the download-journey)**. Indexed in `docs/primers/README.md`.
+- **Meta / process:** owner clarified where knowledge should live — **visual/build prefs → a skill**
+  (not global CLAUDE.md), and the **global `~/.claude/CLAUDE.md`** should carry the *behavioural*
+  principle "proactively flag learnable moments." Both **parked for a fresh session**. (Earlier this
+  session, unprompted, saved harness memories `proactive-investigation-log` + `artifact-visual-style`
+  and grafted the craft insight to the garden — the artifact-style one is a candidate to move into
+  the planned skill.)
+- **NEXT (next session):**
+  1. **Write `docs/r1/spec.md`** — all inputs are in hand. Fold in: lyrics-in-R1, the
+     fingerprint-trust rule (ADR-006), the `C:\...\Music\CleanMuzik` output path, `.env` secrets.
+     Reconcile the Essentia "phase 2" vs roadmap "R3+" numbering while there. Record **ADR-008**
+     (native Jellyfin + the watched-folder path).
+  2. Add the "proactively flag learnable moments" principle to the **global** `~/.claude/CLAUDE.md`.
+  3. Build the **artifact-visual-style skill**; then remove the redundant project-memory copy.
+  4. Later: Track A primers 02/04/05; Tracks B/C; owner to get a Last.fm API key.
 
 ### 2026-07-11 (session 3) — Beets spike RESOLVED; auto-accept measured; repo cleanup
 
