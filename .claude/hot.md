@@ -1,7 +1,7 @@
 ---
 type: meta
 title: "Hot — cleanmuzik"
-updated: 2026-07-11
+updated: 2026-07-11-s3
 tags:
   - meta
   - hot-cache
@@ -22,22 +22,51 @@ description — see there, don't restate here).
 **Phase: spike, not build.** Read-to-orient, not ready-to-build until the beets review-queue
 seam is proven. See `docs/r1/architecture.md`.
 
-## Current State (2026-07-11)
+## Current State (2026-07-11 · s3)
 
-- **Branch `main`** — clean, pushed. Scaffold + hygiene pass in `5755b9b`; dedup policy +
-  this board update in the following commit. `.claude/settings.local.json` gitignored (per-user).
-- **Harness scaffold now exists** (`docs/`): `roadmap.md`, `r1/{spec,tickets,architecture,adr}.md`,
-  `learnings.md` (repo-level), `backlog/`. `spec.md` + `tickets.md` are **gated stubs** — not
-  written yet, and deliberately so (no tickets before an agreed spec). `adr.md` seeded with
-  ADR-001–005 from the PRD's hard constraints; ADR-006+ reserved for build-born decisions.
-- **Two design reviews done** (architecture + harness sub-agents) — both say *proceed*; both name
-  the beets review-queue seam as the one gate before spec. Findings folded into the docs.
+- **Branch `main`** — spike session's docs committed this session. `node_modules` (client 117M +
+  server 32M) deleted from disk — untracked/gitignored, fully regenerable; nothing lost.
+- **The beets review-queue spike is RESOLVED** — the gate before spec is cleared. Seam proven
+  end-to-end; auto-accept rate **measured at 0/3** on easy singletons. Two decisions recorded:
+  **ADR-006** (auto-accept via dominant AcoustID fingerprint identity, not relaxed thresholds; the
+  review queue is the *primary* path — the PRD's "~80%" is false for singletons) and **ADR-007**
+  (beets 2.12: MusicBrainz is a separate plugin; library API doesn't auto-load plugins). Full
+  writeup: `docs/r1/experiment-auto-accept-rate.md` (readable) + `spike-beets-review-queue.md` (lab
+  notebook). Rendered as an Artifact too.
+- **Harness scaffold** (`docs/`): `roadmap.md`, `r1/{spec,tickets,architecture,adr,spike-*,experiment-*}.md`,
+  `learnings.md` (now populated with spike gotchas), `backlog/`. `spec.md` + `tickets.md` still
+  **gated stubs** — but the gate is now open (spike done).
 - Still **spec, not build**: `client/` stock Vite, `server/` Express `/health` scaffold to be
   dropped for FastAPI. No pipeline code exists yet.
-- Recent history (unchanged): `2022c5e` reframe to personal tool + new stack; `51e5a57` server
-  config; `be440ee` init files.
 
 ## Session log
+
+### 2026-07-11 (session 3) — Beets spike RESOLVED; auto-accept measured; repo cleanup
+
+- **Ran the beets review-queue spike end to end** (throwaway venv in scratchpad — beets 2.12,
+  yt-dlp, ffmpeg, static `fpcalc` pulled from Chromaprint GitHub, no sudo). Drove a subclassed
+  `ImportSession` (`choose_item` for singletons), read `task.rec`/`task.candidates`, wrote nothing.
+- **The seam works** and the number is measured: **0/3 auto-accept** on three easy, well-known
+  tracks. A bare YouTube *singleton* plateaus at `rec=medium` (dist ~0.11 floor — no album context),
+  never `strong`. Title-cleaning promoted a `none`→`medium` and fixed ranking but didn't cross the
+  bar. → **ADR-006** (trust dominant AcoustID fingerprint in `choose_match`) + **ADR-007** (beets
+  2.12 plugin loading). PRD's "~80% auto-accept" refuted for singletons.
+- Debug detour (recorded): candidates were empty until I (1) called `plugins.load_plugins()` — the
+  library API doesn't auto-load, and (2) enabled `musicbrainz` (a separate plugin in 2.12) so chroma
+  could resolve MBIDs, and (3) re-downloaded with `--embed-metadata` (untagged files → empty-query
+  400). All in `learnings.md`.
+- **Repo cleanup:** deleted `client/` + `server/` `node_modules` (149M, untracked/regenerable).
+  Left `server/` Express scaffold in place (tracked code — deletion is a separate call).
+- **Docs written:** `spike-beets-review-queue.md` (lab notebook), `experiment-auto-accept-rate.md`
+  (readable report — also rendered as a full-bleed Artifact), ADR-006/007, learnings entries.
+- **Learnings side-channel:** saved a behavioural memory (`proactive-investigation-log`) — detect
+  when a task becomes a multi-cycle investigation and start a log unprompted — and grafted the
+  generalizable craft version to the garden (`.inbox/pending/2026-07-11-detecting-learning-moments.md`,
+  pending `/garden` ingest). Also saved `artifact-visual-style` (large fonts, full-bleed).
+- **NEXT:** the gate is open — before writing `docs/r1/spec.md`, get the three owner facts (Jellyfin
+  watched-folder path; existing-library location/format/size; where the Last.fm/AcoustID keys live),
+  and plan to re-measure the auto-accept rate on a larger sample *after* the fingerprint-trust
+  `choose_match` rule exists (the 0/3 is directional, n=3).
 
 ### 2026-07-11 (session 2) — Harness scaffold, design reviews, hygiene pass
 

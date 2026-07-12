@@ -13,4 +13,32 @@ Format: `- <date> — what went wrong → the correction / rule now in place`
 
 ---
 
-_(empty — entries land here as the build proceeds)_
+- 2026-07-11 — Drove `beets.importer.ImportSession` programmatically; got 0 candidates / `rec=none`
+  on well-known tracks and nearly recorded it as a real 0% auto-accept rate → **the beets library
+  API does not auto-load plugins; only the CLI (`beets.ui`) does.** Must call
+  `plugins.load_plugins()` yourself before running an import, or chroma never fingerprints and
+  singleton lookup silently degrades to tag-only matching. The FastAPI backend must load plugins at
+  startup. (Full context: `r1/spike-beets-review-queue.md`.)
+- 2026-07-11 — beets **2.12** API differs from most online (1.x) tutorials: `importer` is a package;
+  the action enum is `Action` not `action` (`Action.SKIP`); singleton choice hook is
+  `choose_item(task)` (albums use `choose_match(task)`); `plugins.load_plugins()` takes **no args**.
+- 2026-07-11 — The free AcoustID web service returned a transient `status: error` that cleared on
+  retry → treat AcoustID as flaky/rate-limited; the real pipeline needs retry + backoff, not a
+  single-shot lookup. (chroma swallows lookup errors, so a failed lookup looks like "no match".)
+- 2026-07-11 — Dev-box setup, no sudo: `python3 -m venv` fails (no `ensurepip`/`python3.10-venv`) →
+  use `pip install --user virtualenv`. `fpcalc` (Chromaprint, needed by chroma) isn't apt-installable
+  without sudo → grab the static binary from the Chromaprint GitHub release and set `FPCALC`.
+- 2026-07-11 — In beets 2.12 **MusicBrainz is a separate plugin**; chroma resolves fingerprint MBIDs
+  through it (`self.mb`) and silently returns 0 candidates if `musicbrainz` isn't enabled → config
+  must list `plugins: musicbrainz chroma …`, not just `chroma`. (→ ADR-007)
+- 2026-07-11 — An **untagged** file makes the autotagger run a MusicBrainz search with an empty
+  `query=` → HTTP **400**. Real yt-dlp rips avoid this only if downloaded with `--embed-metadata`
+  (bare `-x` strips tags). The acquire flow must embed metadata (or beets pulls it from the video).
+- 2026-07-11 — **Measured, not assumed:** a bare YouTube **singleton** cannot reach beets' `strong`
+  rec on tag matching — even correct, clean tracks plateau at `medium` (dist ~0.11 floor: no
+  album/track#/year to corroborate). PRD's "~80% auto-accept" is false for default-config singletons
+  (measured 0/3). Auto-accept must trust dominant AcoustID fingerprint identity in `choose_match`,
+  not relaxed thresholds; review queue is the primary path. (→ ADR-006, `r1/spike-beets-review-queue.md`)
+- 2026-07-11 — Cleaning YouTube title cruft (`(Official Audio)`, leading `Artist - `) before
+  matching is a cheap, real lever: it promoted a `none`→`medium` and ranked the correct candidate #1
+  in every test case. Worth a pre-match normalization step. (It improves ranking, not the `strong` bar.)

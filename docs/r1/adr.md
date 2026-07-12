@@ -32,3 +32,28 @@ Format: `ADR-NNN — decision. Rationale. [date]`
 - **ADR-005 — beets is the tagging engine; never reintroduce a bespoke ShazamIO/Mutagen tagger.**
   Rationale: plugins (chroma, lastgenre, fetchart, embedart) are more capable and maintained.
   (from PRD) [2026-07-11]
+
+- **ADR-006 — A bare YouTube singleton cannot reach beets' `strong` recommendation on tag
+  matching alone; auto-accept must be driven by acoustic-fingerprint identity in `choose_match`,
+  not by relaxing distance thresholds.** Rationale: the spike (see
+  `spike-beets-review-queue.md`) measured **0/3 auto-accept** on three well-known, AcoustID-covered
+  tracks imported as singletons — even after cleaning the titles, all three plateaued at `rec =
+  medium` (distance ~0.11), never `strong` (needs distance ≤ 0.04). The ~0.11 is a **structural
+  floor**: a singleton has no album/track-number/year to corroborate, so tag distance can't fall
+  far enough. The identity, however, *is* known — AcoustID returns the correct recording MBID with
+  a high fingerprint score. So the seam's `choose_match`/`choose_item` override should **auto-accept
+  when the top AcoustID match is dominant (high score, clear gap to runner-up)**, treating a strong
+  fingerprint as ground truth, and route everything else to the review queue. Do **not** achieve
+  auto-accept by lowering `strong_rec_thresh` globally — that would also green-light bad tag
+  matches. Corollary: the PRD's "~80% auto-accept" figure does **not** hold for default-config
+  singleton imports (measured 0%); the review queue is the *primary* path, not the exception. The
+  real auto-accept rate must be re-measured on a larger sample once the fingerprint-trust rule
+  exists. [2026-07-11]
+
+- **ADR-007 — In beets 2.12+, MusicBrainz is a plugin that must be explicitly enabled, and the
+  library API does not auto-load plugins.** Rationale: chroma resolves fingerprint MBIDs into
+  candidates via the `musicbrainz` plugin (`self.mb`); with it disabled, chroma silently returns
+  zero candidates. And only the CLI auto-loads plugins — a programmatic backend must call
+  `beets.plugins.load_plugins()` at startup. The FastAPI service config must therefore enable
+  `plugins: musicbrainz chroma …` and load plugins on boot, or matching silently degrades to
+  tag-only. (born in the spike) [2026-07-11]
