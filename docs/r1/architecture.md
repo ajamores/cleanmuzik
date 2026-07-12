@@ -40,7 +40,14 @@ Jellyfin library folder (local disk) → Jellyfin serves + plays
       solo. beets import runs in a **worker thread**, never on the asyncio event loop.
 - [ ] **Persistence (SQLite).** Job/track status + parked reviews outlive a reboot. Store the
       staging path + MusicBrainz candidate IDs + rec — **not** the rich candidate objects; re-match on resume.
-- [ ] Staging dir + cleanup-on-failure, idempotency (re-paste same URL → skip), duplicate policy.
+- [ ] Staging dir + cleanup-on-failure; idempotency (re-paste same URL → skip if already present).
+- **Duplicate policy, acquire-time — DECIDED.** beets detects dupes on import via
+  `resolve_duplicate(task)` (matches on MusicBrainz IDs → catches the same song under a different
+  filename). Clear cases auto-resolve keeping the better copy (higher bitrate / better tags);
+  **ambiguous cases go to the review queue** — the same confidence-gated UI, reused for "these two
+  look identical, keep which?". Open sub-question for the spec: the exact auto-keep tie-break
+  (bitrate vs tag quality). Full *existing-library* dedup sweep (`beet duplicates` + `chroma`
+  acoustic fingerprinting) is **R2 migrate/clean**, not R1 — see `docs/backlog/`.
 - [ ] **Secrets** — Last.fm API key (`lastgenre`), AcoustID key (`chroma`). Where they live: TBD (owner).
 - [ ] Existing library location / format / size (for R2 migrate, but confirm now).
 - [ ] Jellyfin install target + watched-folder path on disk.

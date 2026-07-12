@@ -24,8 +24,8 @@ seam is proven. See `docs/r1/architecture.md`.
 
 ## Current State (2026-07-11)
 
-- **Branch `main` — UNCOMMITTED work in flight.** `git status`: modified `CLAUDE.md`; untracked
-  `docs/` and `.claude/`. Nothing committed this session — owner's call.
+- **Branch `main`** — clean, pushed. Scaffold + hygiene pass in `5755b9b`; dedup policy +
+  this board update in the following commit. `.claude/settings.local.json` gitignored (per-user).
 - **Harness scaffold now exists** (`docs/`): `roadmap.md`, `r1/{spec,tickets,architecture,adr}.md`,
   `learnings.md` (repo-level), `backlog/`. `spec.md` + `tickets.md` are **gated stubs** — not
   written yet, and deliberately so (no tickets before an agreed spec). `adr.md` seeded with
@@ -61,6 +61,13 @@ seam is proven. See `docs/r1/architecture.md`.
   truth to `CLAUDE.md` and this board; added a **Definition of Done** (`/code-review` + `/verify`)
   to `CLAUDE.md`; moved `learnings.md` to repo level with a write-trigger; ADR note marking 006+
   as build-born.
+- **Dedup requirement raised + placed.** Owner downloads tracks ad hoc on phone + computer →
+  inconsistencies + duplicate songs. Split into two problems: **(A) acquire-time dupe check** →
+  **R1** (beets `resolve_duplicate`; auto-keep the better copy, **ambiguous → review queue** —
+  owner's call); **(B) full existing-library dedup + re-tag** → **R2 migrate/clean** (`beet
+  duplicates` + `chroma` acoustic fingerprinting, catches dupes across different filenames/tags).
+  Recorded in `architecture.md` (R1 policy) and `docs/backlog/` (R2 scope). Open sub-question for
+  the spec: the auto-keep tie-break (bitrate vs tag quality).
 - **NEXT:** run the **beets spike** — a throwaway script driving `ImportSession` on ~2 sample
   YouTube URLs, printing `task.rec` + `task.candidates` and **measuring the real auto-accept
   rate** → record outcome as **ADR-006**. Needs beets + yt-dlp + ffmpeg installed locally + a
