@@ -2,6 +2,21 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Start here (read in this order)
+
+1. **`CLAUDE.md`** (this file) — how we work
+2. **`cleanmuzik-prd.md`** — product source of truth (scope + design)
+3. **`docs/roadmap.md`** — which release is active
+4. **`docs/r1/spec.md`** — what R1 builds *(skeleton — not written yet)*
+5. **`docs/r1/architecture.md`** — the stack diagram + open technical seams (single home)
+6. **`docs/r1/adr.md`** — binding decisions; do not silently reverse one
+7. **`docs/learnings.md`** — mistakes already paid for; don't repeat them
+8. **`.claude/hot.md`** — live session state + what's next
+
+**Current phase: spike, not build.** The review-queue seam — how beets surfaces candidate
+matches to the UI — must be proven before the spec is written. Until then this repo is
+*read-to-orient*, not *ready-to-build*. See `docs/r1/architecture.md`.
+
 ## What this is
 
 CleanMuzik is a **single-user personal tool** for building a clean, richly-tagged Jellyfin music
@@ -33,41 +48,25 @@ stale scaffold**:
 
 Build against the PRD, not the existing `server/` code.
 
-## Architecture (target, per PRD)
+## Architecture (target)
 
-The engine is Python, so the backend is Python and there is **no Node/Express bridge**.
+Python engine → Python backend, **no Node/Express bridge**. The full stack diagram and the open
+technical seams live in **`docs/r1/architecture.md`** — its single home; don't restate them here.
+The three things worth carrying in your head:
 
-```
-React + TS + Vite (UI, SSE progress, review queue)
-      │  HTTP + Server-Sent Events
-      ▼
-FastAPI (job queue, SSE, review-queue state)
-      │  per track, sequentially:
-      ├─ yt-dlp → download bestaudio
-      ├─ ffmpeg → encode to MP3 320
-      └─ beets  → identify (MusicBrainz + AcoustID), fetch genre + artwork,
-      │            embed art, organize into Artist/Album/
-      ▼
-Jellyfin library folder (local disk) → Jellyfin serves + plays
-```
+- **beets is the tagging engine** — never hand-roll one. Plugins do the work: `chroma` (AcoustID),
+  `lastgenre` (Last.fm genres), `fetchart` + `embedart` (cover art).
+- **The review queue is the product's spine.** beets emits a confidence per track; strong matches
+  auto-tag, weak ones (common for YouTube rips) go to a review queue. A UX centrepiece, not an
+  afterthought.
+- **Progress is SSE**, not polling.
 
-- **beets is the tagging engine** — not hand-rolled. Plugins do the heavy lifting: `chroma`
-  (AcoustID fingerprinting for rips with bad tags), `lastgenre` (genres via Last.fm), `fetchart`
-  + `embedart` (embedded cover art). Never reintroduce a bespoke ShazamIO/Mutagen tagger.
-- **Progress is SSE**, not polling — the UI renders per-track status live.
-- **The review queue is the product's spine.** beets emits a match confidence per track. Strong
-  matches auto-tag and land in Jellyfin; weak/ambiguous ones (common for YouTube rips) go to a
-  review queue where the owner picks the correct release/art. This is a deliberate UX
-  centrepiece, not an afterthought.
+### Hard constraints
 
-### Hard constraints (design *with* these)
-
-- **Sequential processing**, one track at a time, with a delay between requests — avoids rate
-  limits on identification/download. Do not parallelize the pipeline.
-- **One failure must not stop the batch** — surface a per-track error event and continue.
-- **Output is MP3 320.** Quality is capped by the YouTube source (~128–160 kbps); MP3 320
-  preserves it transparently. Don't add other output formats without a reason.
-- **Single-user, no auth.** Security is handled at the network layer (Tailscale), not in-app.
+The binding constraints — sequential processing (no parallelizing the pipeline), MP3 320 output,
+one-failure-continues-the-batch, single-user/no-auth, beets-not-hand-rolled — are recorded as
+**ADR-001–005 in `docs/r1/adr.md`**, their single home. A review checks new code against them;
+do not silently reverse one.
 
 ## Commands
 
@@ -82,6 +81,20 @@ run command here (expected: a `uvicorn` invocation). There is no test runner set
 package yet; `server`'s `npm test` is a placeholder that exits 1.
 
 There is no root-level workspace tooling — packages are managed independently.
+
+## Definition of Done (per ticket)
+
+A ticket is done when there's a receipt, not a claim:
+
+1. **Review pass** — `/code-review` on the diff (correctness bugs + cleanup).
+2. **Observable artifact** — for pipeline tickets, `/verify`: drive the actual flow and confirm
+   the real side effect (e.g. a correctly-tagged MP3 320 with embedded art landed in the Jellyfin
+   folder). "The code looks right" is not done; "I watched it happen" is.
+3. **Transcribe corrections** to `docs/learnings.md` as they come up.
+
+`/code-review` and `/verify` are built-in Claude Code skills, not project code — `/code-review`
+*reads* the diff, `/verify` *runs* it. They cost tokens per run and `/verify` needs the app
+runnable, so they apply during build, not to the current stub phase.
 
 ## Hosting
 
