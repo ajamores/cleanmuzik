@@ -41,7 +41,8 @@ T-006 (normalize) → **T-007 (the fingerprint-trust seam — the spine)**. See 
   `load_plugins()` (ADR-007 — all six load, proven), optional keys wired, boot smoke check logs a
   receipt or warns DEGRADED. beets pinned 2.12. `/code-review` high: 4 applied (beets imported in
   lifespan not module-top, false-green-fpcalc guard, WSL isfile vs X_OK, subprocess via to_thread),
-  1 rejected. `fpcalc` NOT provisioned on this tree → boots DEGRADED (correct graceful path).
+  1 rejected. **`fpcalc` v1.5.1 now installed** to `~/.local/bin` (on PATH, no sudo) → boots
+  `beets engine ready` (all 6 plugins + fpcalc). T-007 is unblocked for live verification.
 - **T-004 DONE** (`57e6517`) — `download.py`: yt-dlp bestaudio + `--embed-metadata` into staging
   (no MP3 transcode — that's T-005), pure playlist classifier (→ T-012's 422). 17 unit tests +
   `pytest.ini`. Live download verified in-agent (tagged `.webm` landed). `/code-review` high: 2
@@ -121,7 +122,8 @@ T-006 (normalize) → **T-007 (the fingerprint-trust seam — the spine)**. See 
      biggest ticket, gated behind T-002/03/05/06). Not a fan-out; sequential, one at a time.
   3. Carry-overs still open: "proactively flag learnable moments" → global `~/.claude/CLAUDE.md`;
      build the **artifact-visual-style skill** then drop the redundant project-memory copy;
-     owner Last.fm key (T-018). `fpcalc` must be provisioned before T-007 verifies live.
+     owner Last.fm key (T-018). ✅ `fpcalc` v1.5.1 installed to `~/.local/bin` (WSL side; the
+     Phase-1 dedicated PC will need its own copy). Boots `beets engine ready`.
 
 ### 2026-07-12 (session 4, cont.) — T-001 built: FastAPI skeleton, Express dropped
 
