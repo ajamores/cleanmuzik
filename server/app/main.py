@@ -11,6 +11,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from app.config import get_settings
+from app.db import get_store
 from app.routes import health
 
 logger = logging.getLogger("cleanmuzik")
@@ -31,6 +32,10 @@ async def lifespan(app: FastAPI):
         "set" if s.lastfm_apikey else "unset",
         "set" if s.acoustid_apikey else "unset",
     )
+    # Idempotent — creates the SQLite tables (and data dir) if absent so parked
+    # reviews outlive a restart (spec §7, T-002). No-op on an existing DB.
+    get_store().init_schema()
+    logger.info("sqlite store ready at %s", s.db_path)
     yield
 
 

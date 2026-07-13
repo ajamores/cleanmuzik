@@ -15,6 +15,11 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 # this correct no matter what cwd uvicorn is launched from.
 ENV_FILE = Path(__file__).resolve().parents[2] / ".env"
 
+# The `server/` dir is one up from the package. The SQLite DB (T-002) defaults
+# under it, keeping the git-ignored data file next to the code that owns it and
+# independent of cwd — same __file__ anchoring as ENV_FILE above.
+SERVER_DIR = Path(__file__).resolve().parents[1]
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=ENV_FILE, extra="ignore")
@@ -31,6 +36,11 @@ class Settings(BaseSettings):
     # AcoustID via beets `chroma`. Optional — beets' built-in key works
     # (proven in the spike); set only to raise rate limits.
     acoustid_apikey: str = ""
+
+    # On-disk SQLite store (T-002). Must live on disk, not in-memory, so parked
+    # reviews survive a restart (spec §7). Overridable via `.env` (e.g. a test
+    # DB); the parent dir is created at startup by Store.init_schema().
+    db_path: Path = SERVER_DIR / "data" / "cleanmuzik.db"
 
 
 @lru_cache

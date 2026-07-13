@@ -143,6 +143,12 @@ __pycache__/
 venv/
 .pytest_cache/
 
+# SQLite persistence store (T-002) — runtime data, never committed
+server/data/
+*.db
+*.db-wal
+*.db-shm
+
 /tmp
 
 cleanmuzik-secret-mode-prd.md
