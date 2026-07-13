@@ -1,8 +1,8 @@
 ---
 type: meta
 title: "Hot — cleanmuzik"
-updated: 2026-07-12
-last-commit: 88e17a0
+updated: 2026-07-13
+last-commit: 6ed1841
 tags:
   - meta
   - hot-cache
@@ -20,16 +20,44 @@ CleanMuzik — personal YouTube → Jellyfin music tool. Full description, stack
 live in `CLAUDE.md` and `cleanmuzik-prd.md` (this board holds *volatile state*, not evergreen
 description — see there, don't restate here).
 
-**Phase: R1 IN BUILD — T-001…T-004 done, T-005→T-007 linear run next.** Spec signed off,
-`docs/r1/tickets.md` holds 19 build-ordered tickets. **T-001–T-004 built, reviewed, committed +
-pushed** to `origin/main`. Next: the linear spine T-005 (transcode) →
-T-006 (normalize) → **T-007 (the fingerprint-trust seam — the spine)**. See `docs/r1/tickets.md`.
+**Phase: R1 IN BUILD — T-001…T-006 done, T-007 next (deferred to next session by owner).** Spec
+signed off, `docs/r1/tickets.md` holds 19 build-ordered tickets. **T-001–T-006 built, reviewed,
+committed + pushed** to `origin/main`. Next: **T-007 (the fingerprint-trust seam — the spine, the
+biggest ticket)** — owner and I will walk the design together next session before building; a
+pre-build walkthrough Artifact is done (URL in session log). See `docs/r1/tickets.md`.
 
-## Current State (2026-07-12)
+## Current State (2026-07-13)
 
-- **Branch `main`** — committed **and pushed** to `origin/main` (through the T-002/03/04 tickets +
-  this board). Working tree clean. `server/app/` is now a real 4-stage backend; agent worktrees
-  cleaned up.
+- **Branch `main`** — committed **and pushed** to `origin/main` (through T-006, `6ed1841`).
+  Working tree: only this board pending. `server/app/` is now a real 6-stage backend (health / db /
+  beets_engine / download / transcode / **normalize**); agent worktrees cleaned up.
+- **T-006 DONE** (`6ed1841`, pushed) — `normalize.py`: pure `normalize_title(raw, artist=None)`
+  between download and the beets seam. Strips promotional bracket/pipe cruft (**token-set** rule: a
+  group goes only when *every* word is promo — official/video/audio/lyrics/hd/4k/1080p — so real
+  qualifiers Live/Remix/2022 Remaster/feat. stay) + a leading `Artist - ` prefix **only when it
+  matches the known embedded artist** (not a blind cut-before-first-dash — that discarded real
+  titles like "Bohemian Rhapsody - Remastered 2011"). Empty-query guard. `/code-review` high
+  (workflow, 15 agents): **7 findings, all applied** (the load-bearing one: artist-aware strip).
+  103 normalize tests, suite **126 green**. Learning transcribed (artist-aware, not blind dash).
+- **T-007 walkthrough Artifact built** (private, pre-build teaching aid) — the fingerprint-trust
+  gate explained: why singletons floor at ~0.11 (can't reach `strong`), the trust-identity move
+  (ADR-006), an **interactive dial** for the score≥0.90 / gap≥0.10 dominance test, the
+  `ImportSession.choose_item` shape, and the honest open question (where the AcoustID score lives
+  behind a beets candidate vs the tag distance the spike measured).
+  URL: `https://claude.ai/code/artifact/c8ecf382-a996-48bf-a9a7-d6a79051663d`.
+- **T-005 DONE** (`b371f2a`) — `transcode.py`: `transcode_to_mp3_320` re-encodes the T-004 staged
+  bestaudio → **MP3 320 CBR** via ffmpeg `libmp3lame -b:a 320k` (CBR by contract — no `-q:a`),
+  `-map_metadata 0` carries tags, `-vn` drops any thumbnail stream, ID3v2.3. Typed `TranscodeError`.
+  Sync/blocking (worker thread, ADR-001). **Verified end to end**: real download → transcode →
+  ffprobe = codec mp3 @ 320000 bps, title/artist intact. `/code-review` high (workflow, 14 agents):
+  **5 findings, all applied** — input-overwrite guard now covers explicit dest aliasing the source
+  (`resolve()` cmp, not just the default-`.mp3` branch; `-y` would've truncated the input mid-decode),
+  dest-parent mkdir like the download stage, 300s subprocess timeout (corrupt source can't wedge the
+  worker), + 2 test gaps (nonzero-exit path, format-level bit_rate fallback). 6 tests, suite 23 green.
+- **Both optional API keys now in `.env`** (git-ignored, verified loaded in-process): **`LASTFM_APIKEY`**
+  (32-char → `lastgenre` fetches genres; **T-018 effectively closed**) and **`ACOUSTID_APIKEY`**
+  (10-char → `chroma` *submission*; lookups already worked on beets' built-in key). Last.fm shared
+  secret deliberately NOT stored — only signs *write* requests, we only read.
 - **T-001 DONE** — `server/app/` (`main.py` lifespan config receipt, `config.py` pydantic-settings
   off repo-root `.env`, `routes/health.py`). Setup uses **`uv`** (no `python3-venv`) — see
   `server/README.md`.
@@ -67,10 +95,9 @@ T-006 (normalize) → **T-007 (the fingerprint-trust seam — the spine)**. See 
   after landing. MP3 320 → `…\Music\CleanMuzik`. Lyrics in. FastAPI routes + SSE event catalogue +
   SQLite schema all specified. Two things left open by design: the numeric fingerprint score/gap
   thresholds (build-time knob — measure, don't guess) and owner sign-off on the spec.
-- **`.env` created + populated** (git-ignored) — **Jellyfin API key is set**
-  (`JELLYFIN_URL=http://localhost:8096`). `LASTFM_APIKEY` still blank (genre won't fetch till the
-  owner gets one; not a failure). `ACOUSTID_APIKEY` optional (built-in key works). `.env.example`
-  committed as the template.
+- **`.env` created + populated** (git-ignored) — Jellyfin API key, **`LASTFM_APIKEY`**, and
+  **`ACOUSTID_APIKEY`** all set (see the T-005/keys entry above). `.env.example` committed as the
+  template.
 - **All three owner facts LOCKED** (the spec's inputs):
   1. **Jellyfin library folder** → `C:\Users\aj_am\Music\CleanMuzik` (WSL: `/mnt/c/Users/aj_am/Music/CleanMuzik`).
      Jellyfin **installed native on Windows** this session (Phase 0), Music library pointed there,
@@ -94,6 +121,63 @@ T-006 (normalize) → **T-007 (the fingerprint-trust seam — the spine)**. See 
   skeleton (Express dropped in T-001); the pipeline stages (download/transcode/beets) don't exist yet.
 
 ## Session log
+
+### 2026-07-13 (session 7) — T-006 normalization done; T-007 walkthrough built, build deferred
+
+- **Built T-006** (`6ed1841`, pushed) — the title-normalization stage. First pass had a real bug the
+  review caught: a **blind** leading-`Artist -` strip cut everything before the first spaced dash,
+  which destroys titles like `"Bohemian Rhapsody - Remastered 2011"`. Reframed the fix around the
+  session's own conversation — the download already embeds the artist tag, so strip the prefix
+  **only when it matches the known artist**; with no artist, keep the title. Also switched promo
+  detection to a **token-set** rule (strip a bracket/pipe group only when every word is
+  promotional) which fixed the under-stripping findings cleanly, + an empty-query guard.
+  `/code-review` high workflow-backed (15 agents): 7 findings, **all** adjudicated legit and applied.
+  103 tests, suite 126 green. Committed + pushed.
+- **Product question surfaced + resolved (music-video vs official-audio):** owner asked whether to
+  preserve a "video version" marker. Walked the **load-bearing distinction** — the normalized title
+  is a *query*, not the final tag; MusicBrainz supplies the clean title regardless, and video-audio
+  vs audio-only is the *same recording/fingerprint*. The one case that genuinely differs (a live
+  edit) is already handled: `(Live)` is a kept qualifier, so it routes to review, not mislabel. No
+  code change. Verdict: leave stripping as-is.
+- **Built a pre-build T-007 walkthrough Artifact** (owner-education track, studio-charcoal/signal-
+  green house style, full-bleed, interactive dominance dial). Owner asked for it explicitly to
+  understand the seam *before* we build it. URL in Current State above.
+- **NEXT:**
+  1. **T-007 — the fingerprint-trust seam (ADR-006). Deferred to next session by owner's call.**
+     We walk the design together (using the Artifact) *before* writing code. It's the spine + the
+     biggest ticket; deps T-002/03/05/06 all ✓, fpcalc provisioned. First thing to prove when
+     building: **how to read the AcoustID fingerprint score off the chroma result** (the spike
+     measured beets' tag *distance* ≈0.11, but ADR-006 gates on the *fingerprint* score — a
+     different number). If awkward to reach, the seam bends around it.
+  2. Then T-008 (tune the score/gap thresholds on a real sample, write the rate back into ADR-006).
+  3. Carry-overs (housekeeping, non-blocking): "proactively flag learnable moments" → global
+     `~/.claude/CLAUDE.md`; build the **artifact-visual-style skill**, then drop the redundant
+     project-memory copy.
+
+### 2026-07-13 (session 6) — T-005 transcode done; both API keys landed
+
+- **Owner grabbed both optional API keys.** Walked the Last.fm `api/account/create` form — only
+  email/name/description needed; Callback URL + homepage are OAuth-only, left blank. Clarified the
+  **shared secret** only signs *write* requests (scrobble/love) → we read only, so it's not stored.
+  Both keys pasted into `.env`, verified loaded in-process (Last.fm 32-char, AcoustID 10-char).
+  **T-018 effectively closed**; engine now boots fully provisioned.
+- **Built T-005** (`b371f2a`, pushed) — the transcode stage. Sequential/blocking by design. Real
+  end-to-end receipt captured (download → transcode → probe = mp3 @ 320000, tags intact). Ran
+  `/code-review` high workflow-backed; adjudicated all 5 findings as legit and applied every one
+  (the load-bearing one: explicit-dest-aliasing-source would've truncated the input — now guarded
+  by a `resolve()` comparison). Details in the Current State entry above.
+- **Working mode held** (per session 5's agreement): worked the mechanics quietly, surfaced only
+  the two decisions (push? / start T-006?). No concept flagged this ticket — T-005 is plumbing;
+  T-007 is where "singleton"/"confidence gate" get named.
+- **NEXT:**
+  1. **T-006 — title normalization.** Pure function: strip `(Official Audio|Video|Lyrics)` cruft +
+     a leading `Artist - ` prefix (the Rick Astley test title `... (Official Video) (4K Remaster)`
+     is a live example). Unit-testable, no network. Feeds the beets query. Gate before T-007.
+  2. Then **T-007** — the ImportSession fingerprint-trust seam (ADR-006). Biggest ticket, now fully
+     unblocked (T-002/03/05/06 the deps; fpcalc provisioned). Flag it as conceptually central.
+  3. Carry-overs still open (housekeeping, not blocking): "proactively flag learnable moments" →
+     global `~/.claude/CLAUDE.md`; build the **artifact-visual-style skill** then drop the redundant
+     project-memory copy.
 
 ### 2026-07-12 (session 5) — first fan-out: T-002/03/04 built, reviewed, committed
 
