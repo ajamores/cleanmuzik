@@ -42,6 +42,13 @@ Format: `- <date> — what went wrong → the correction / rule now in place`
 - 2026-07-11 — Cleaning YouTube title cruft (`(Official Audio)`, leading `Artist - `) before
   matching is a cheap, real lever: it promoted a `none`→`medium` and ranked the correct candidate #1
   in every test case. Worth a pre-match normalization step. (It improves ranking, not the `strong` bar.)
+- 2026-07-13 — (T-006) The leading-`Artist - ` strip must be **artist-aware**, not a blind "cut
+  everything before the first spaced dash." YouTube's `Artist - Title` convention collides with real
+  titles that carry a `-` (`"Bohemian Rhapsody - Remastered 2011"`), and shape alone can't tell them
+  apart — a blind strip discards the real title and hands beets an empty/wrong query. Fix: strip the
+  prefix only when it matches the **known artist** (from T-004's embedded tag); with no artist, keep
+  the title. Also normalize-to-empty is a real hazard (`"Coldplay - (Official Video)"`), so guard the
+  query against collapsing to `""`. (→ `server/app/normalize.py`)
 - 2026-07-12 — (T-003) beets `lastgenre` does **not** read the Last.fm key from user config — its
   client binds `pylast.LastFMNetwork(api_key=beets.plugins.LASTFM_KEY)` at *import* time, and
   `LASTFM_KEY` is a hardcoded built-in key that works out of the box. So to use the owner's

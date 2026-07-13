@@ -85,7 +85,7 @@ side effect for pipeline tickets, transcribe corrections to `docs/learnings.md`.
   320 CBR; ADR-002.)
 
 ### T-006 — Title normalization
-- **Status:** todo
+- **Status:** done (2026-07-13; `/code-review` high workflow-backed — 7 findings, all applied: artist-aware prefix strip + empty-query guard + token-set promo detection + pipe-tail stripping)
 - **Depends on:** T-005
 - **Agent:** build
 - **What:** Before matching, strip `(Official Audio)` / `(Official Video)` / `(Lyrics)` cruft and a
