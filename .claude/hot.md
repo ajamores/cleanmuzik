@@ -2,6 +2,7 @@
 type: meta
 title: "Hot — cleanmuzik"
 updated: 2026-07-12
+last-commit: ca862f9
 tags:
   - meta
   - hot-cache
@@ -19,13 +20,25 @@ CleanMuzik — personal YouTube → Jellyfin music tool. Full description, stack
 live in `CLAUDE.md` and `cleanmuzik-prd.md` (this board holds *volatile state*, not evergreen
 description — see there, don't restate here).
 
-**Phase: R1 spec WRITTEN — ready to generate tickets.** The beets spike is resolved, all three
-owner facts are locked, and `docs/r1/spec.md` is now written and committed. Next real deliverable
-is `docs/r1/tickets.md` (decompose the spec into build tickets). See `docs/r1/spec.md`.
+**Phase: R1 spec SIGNED OFF, tickets WRITTEN — gate to `in-build` is open.** The beets spike is
+resolved, all three owner facts locked, `docs/r1/spec.md` written + owner-approved, and
+`docs/r1/tickets.md` now decomposes it into 19 build-ordered tickets. Next real deliverable is
+**code** — start T-001 (FastAPI skeleton, drop Express). See `docs/r1/tickets.md`.
 
 ## Current State (2026-07-12)
 
-- **Branch `main`** — R1 spec + ADR-008 + roadmap + `.env.example` committed this session.
+- **Branch `main`** — tickets uncommitted in working tree (`docs/r1/tickets.md` + this board).
+  Pushed through `ca862f9`. Still no pipeline code — but the build plan now exists.
+- **`docs/r1/tickets.md` WRITTEN + owner signed off the spec.** 19 tickets, 3 phases:
+  **A engine spine** (T-001…T-011: FastAPI skeleton → SQLite → beets config+plugins → download →
+  transcode → normalize → **T-007 fingerprint-trust seam** → threshold tuning → dedup → Jellyfin
+  scan → retry), **B API+orchestration** (T-012 worker-thread job queue+routes, T-013 SSE, T-014
+  review list/resolve), **C UI** (T-015 paste+Go, T-016 SSE card, T-017 review panel), + T-018
+  owner Last.fm key, T-019 full §7 verify sweep. Spine is script-provable before any web layer.
+  T-007 is the biggest ticket (gated behind 5); T-008 tunes ADR-006's score/gap knob on a real
+  sample and writes the re-measured auto-accept rate back into the ADR.
+- **Spec has a rendered companion Artifact** (single-page R1 dossier, private) — kept in sync with
+  `spec.md`; URL in the session log below. Not a source of truth, a read-view for owner sign-off.
 - **`docs/r1/spec.md` WRITTEN** — full 7-section build-ready spec. R1 scope locked to
   **one YouTube song per run** (batches → R2, playlists → R2, migrate → R2). Match gate =
   **fingerprint-trust auto-accept (ADR-006)** else review queue. App **triggers a Jellyfin scan**
@@ -58,6 +71,59 @@ is `docs/r1/tickets.md` (decompose the spec into build tickets). See `docs/r1/sp
 - Still no pipeline code: `client/` stock Vite, `server/` Express to be dropped for FastAPI.
 
 ## Session log
+
+### 2026-07-12 (session 4) — spec signed off, R1 tickets generated
+
+- **Owner signed off `docs/r1/spec.md`** ("the spec looks good") — the gate to tickets.
+- **Wrote `docs/r1/tickets.md`** — decomposed the spec into **19 build-ordered tickets** in the
+  file's own format (Status / Depends on / Agent / What / Done-when, each Done-when tying back to a
+  §7 acceptance item). Three phases: **A engine spine** first (T-001–T-011, script-provable with no
+  web layer — same discipline as the spike), then **B API+orchestration** (T-012–T-014), then
+  **C UI** (T-015–T-017), + T-018 owner Last.fm key, T-019 whole-checklist `/verify` sweep.
+- **Deliberate structure calls:** T-007 (the `choose_item` fingerprint-trust seam) is the spine and
+  is gated behind SQLite/beets-config/transcode/normalize; T-008 makes ADR-006's numeric score/gap
+  threshold its **own** ticket (measure on a real sample, then write the re-measured auto-accept
+  rate back into the ADR); T-012 owns the worker thread + playlist-422 + staging cleanup; every §7
+  item maps to a ticket, with T-019 catching the cross-cutting ones (localhost/nothing-exposed).
+- **NEXT:**
+  1. **Commit** `docs/r1/tickets.md` + this board (docs-only; `/code-review` + `/verify` don't
+     apply until there's runnable code).
+  2. **Flip roadmap** R1 line to "spec signed off, tickets written" (currently "spec written").
+  3. **Start building — T-001** (FastAPI skeleton + `/api/health` + `.env` loading, drop Express).
+     This is the first `in-build` ticket and the first `/code-review`-able diff.
+  4. Carry-overs (still open): "proactively flag learnable moments" → global `~/.claude/CLAUDE.md`;
+     build the **artifact-visual-style skill** then drop the redundant project-memory copy; owner
+     to grab the **Last.fm API key** (now formalized as T-018). Later: Track A primers 02/04/05.
+
+### 2026-07-12 (session 3) — spec companion Artifact, "singleton" defined, QUERY parked
+
+- **Built a rendered R1-spec Artifact** — single-page dossier (studio-charcoal / signal-green,
+  green=landed / amber=review / red=error-&-fence, mono headings, pipeline as the hero, sticky
+  contents rail). Private; owner may share for a phone view. Faithful to `spec.md`, not a new
+  source of truth. URL: `https://claude.ai/code/artifact/d7c07a38-dd65-49d1-b2bb-10c3a4d1d7a2`.
+- **Defined "singleton"** in `spec.md` §2 (+ matching callout in the Artifact): beets is album-first;
+  a YouTube song is always a lone track with no album context, so tag-distance floors ~0.11 and
+  never hits `strong` → that's *why* the gate trusts the fingerprint (ADR-006). Owner asked; it was
+  load-bearing but undefined.
+- **HTTP QUERY (RFC 10008) tangent → resolved as a no.** Owner surfaced the new 2026 method and asked
+  if it fit (smart playlists / LLM-assisted queries). Worked the trade-off: QUERY's only edge over
+  `POST` is proxy-caching + semantic honesty, both worthless on a single-user `localhost`/Tailscale
+  tool; ecosystem support thin. **Decision: don't build.** Parked in `docs/backlog/` with the verdict
+  baked in so it isn't re-litigated.
+- **Clarified the smart-playlist story** (no code, just alignment): CleanMuzik owns **no** playlist
+  feature by design — Jellyfin does searching/playlists/playback; CleanMuzik writes the tags that
+  power them. R1's descriptive tags already unlock genre/artist/decade filtering + Instant Mix in
+  Jellyfin; rules-based auto smart-playlists come from a Jellyfin **plugin** (community, not core —
+  unverified on owner's install); "by feel" needs the deferred Essentia acoustic tier.
+- **Committed + pushed** `ca862f9` (spec singleton note + backlog QUERY entry).
+- **NEXT (unchanged, still the gate):**
+  1. **Owner sign-off on `docs/r1/spec.md`** — then generate **`docs/r1/tickets.md`** (the gate to
+     `in-build`). Owner was mid-read this session.
+  2. Optional: confirm on the owner's Jellyfin install what smart-playlist capability is native vs
+     needs the community plugin.
+  3. Carry-overs: "proactively flag learnable moments" → global `~/.claude/CLAUDE.md`; build the
+     **artifact-visual-style skill**, then drop the redundant project-memory copy; owner to get a
+     **Last.fm API key** (R1 setup ticket). Later: Track A primers 02/04/05; Tracks B/C.
 
 ### 2026-07-12 (session 2) — R1 spec written, ADR-008, .env wired
 
