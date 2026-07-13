@@ -32,11 +32,23 @@ service. `app/config.py` owns the loading.
 app/
   main.py            FastAPI app + startup config receipt
   config.py          pydantic-settings, reads repo-root .env
+  download.py        T-004: yt-dlp download stage + playlist classifier
   routes/
     health.py        GET /api/health
+tests/
+  test_download.py   playlist-classifier unit tests (no network)
 ```
 
 ## Tests
 
-`requirements-dev.txt` adds the test client used to verify routes without a
-socket (`fastapi.testclient.TestClient`).
+`requirements-dev.txt` adds `pytest` and the test client used to verify routes
+without a socket (`fastapi.testclient.TestClient`). Run from this directory:
+
+```bash
+uv pip install --python .venv/bin/python -r requirements-dev.txt   # once
+./.venv/bin/pytest -v
+```
+
+The playlist classifier (`app.download.is_playlist_url`) is a pure function and
+its tests need no network; the real `download_song` is verified by hand against a
+live YouTube URL.

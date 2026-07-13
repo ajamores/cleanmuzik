@@ -1,3 +1,4 @@
 # Dev/test-only deps (not needed to run the service).
 -r requirements.txt
 httpx2
+pytest==9.1.1

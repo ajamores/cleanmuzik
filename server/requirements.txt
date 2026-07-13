@@ -1,3 +1,6 @@
 fastapi==0.139.0
 uvicorn[standard]==0.51.0
 pydantic-settings==2.14.2
+# Download stage (T-004). yt-dlp releases often, and YouTube changes break older
+# pins fast — bump this deliberately (re-verify a real download when you do).
+yt-dlp==2026.7.4
