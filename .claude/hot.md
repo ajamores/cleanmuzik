@@ -2,7 +2,7 @@
 type: meta
 title: "Hot — cleanmuzik"
 updated: 2026-07-12
-last-commit: 7050bc2
+last-commit: 88e17a0
 tags:
   - meta
   - hot-cache
@@ -20,18 +20,35 @@ CleanMuzik — personal YouTube → Jellyfin music tool. Full description, stack
 live in `CLAUDE.md` and `cleanmuzik-prd.md` (this board holds *volatile state*, not evergreen
 description — see there, don't restate here).
 
-**Phase: R1 IN BUILD — T-001 done, first fan-out next.** Spec signed off, `docs/r1/tickets.md`
-holds 19 build-ordered tickets, and **T-001 (FastAPI skeleton) is built + pushed** (`7050bc2`).
-Next session opens the first parallel pocket: T-002 / T-003 / T-004. See `docs/r1/tickets.md`.
+**Phase: R1 IN BUILD — T-001…T-004 done, T-005→T-007 linear run next.** Spec signed off,
+`docs/r1/tickets.md` holds 19 build-ordered tickets. **T-001–T-004 built, reviewed, committed**
+(local `main`, not yet pushed — `88e17a0`). Next: the linear spine T-005 (transcode) →
+T-006 (normalize) → **T-007 (the fingerprint-trust seam — the spine)**. See `docs/r1/tickets.md`.
 
 ## Current State (2026-07-12)
 
-- **Branch `main`** — pushed through `7050bc2` (T-001). Working tree clean except this board.
-  **First real backend code exists**: `server/app/` FastAPI service, Express gone.
-- **T-001 DONE** — `server/app/` (`main.py` + lifespan config receipt, `config.py` pydantic-settings
-  off the repo-root `.env`, `routes/health.py`). Verified via TestClient; high `/code-review` passed
-  (4 fixes applied, 2 rejected on evidence). Setup uses **`uv`** (no `python3-venv` on this box) —
-  see `server/README.md`. See session log for the full account.
+- **Branch `main`** — committed through `88e17a0` (T-004/T-003), **not yet pushed**. Working tree
+  clean except this board. `server/app/` is now a real 4-stage backend; agent worktrees cleaned up.
+- **T-001 DONE** — `server/app/` (`main.py` lifespan config receipt, `config.py` pydantic-settings
+  off repo-root `.env`, `routes/health.py`). Setup uses **`uv`** (no `python3-venv`) — see
+  `server/README.md`.
+- **T-002 DONE** (`b612115`) — `db.py`: SQLite `jobs` + `reviews` tables (spec §6), stateless DAO,
+  candidate MBIDs stored as JSON not objects (ADR-006), schema init in lifespan, DB on disk (survives
+  restart). `/code-review` high: 4 applied (FK-enforce pragma, WAL, rowcount guards on both updates),
+  2 rejected (lru_cache + startup-write — deliberate/consistent).
+- **T-003 DONE** (`88e17a0`) — `beets_engine.py`: builds the beets config + explicit
+  `load_plugins()` (ADR-007 — all six load, proven), optional keys wired, boot smoke check logs a
+  receipt or warns DEGRADED. beets pinned 2.12. `/code-review` high: 4 applied (beets imported in
+  lifespan not module-top, false-green-fpcalc guard, WSL isfile vs X_OK, subprocess via to_thread),
+  1 rejected. `fpcalc` NOT provisioned on this tree → boots DEGRADED (correct graceful path).
+- **T-004 DONE** (`57e6517`) — `download.py`: yt-dlp bestaudio + `--embed-metadata` into staging
+  (no MP3 transcode — that's T-005), pure playlist classifier (→ T-012's 422). 17 unit tests +
+  `pytest.ini`. Live download verified in-agent (tagged `.webm` landed). `/code-review` high: 2
+  applied (dead host-set removed, pytest pythonpath), 1 rejected.
+- **Fan-out mechanics (worked well, reuse):** 3 parallel worktree build agents (T-002/03/04, all
+  depend only on T-001, disjoint files) → integrate one at a time on `main`, `/code-review` high
+  (workflow-backed) each diff in the working tree before commit, reconcile shared files
+  (`requirements.txt`/`README.md`/`main.py`) by hand. I own the accept/reject on every finding.
 - **`docs/r1/tickets.md` (committed) — 19 tickets, 3 phases:**
   **A engine spine** (T-001…T-011: FastAPI skeleton → SQLite → beets config+plugins → download →
   transcode → normalize → **T-007 fingerprint-trust seam** → threshold tuning → dedup → Jellyfin
@@ -75,6 +92,35 @@ Next session opens the first parallel pocket: T-002 / T-003 / T-004. See `docs/r
   skeleton (Express dropped in T-001); the pipeline stages (download/transcode/beets) don't exist yet.
 
 ## Session log
+
+### 2026-07-12 (session 5) — first fan-out: T-002/03/04 built, reviewed, committed
+
+- **Ran the first parallel pocket.** Three worktree build agents (T-002 SQLite, T-003 beets config,
+  T-004 yt-dlp) — all depend only on T-001, touch disjoint files. Each committed to its own worktree
+  branch; I integrated onto `main` one at a time, ran `/code-review` high (workflow-backed) on each
+  diff in the working tree, adjudicated every finding (applied real ones, rejected with evidence),
+  re-verified, committed. Then removed the three worktrees + branches.
+- **T-002** (`b612115`): applied FK-enforce pragma, WAL journal, rowcount guards on both `update_*`;
+  rejected lru_cache + startup-write (deliberate). Restart-persistence re-proven.
+- **T-004** (`57e6517`): applied dead `_YOUTUBE_HOSTS` removal + `pytest.ini` pythonpath; rejected
+  `bestaudio/best` fallback change. 17 tests green.
+- **T-003** (`88e17a0`): applied beets-in-lifespan (so `import app.main` doesn't need beets),
+  false-green-fpcalc guard, WSL isfile-not-X_OK, subprocess via `asyncio.to_thread`; rejected the
+  configure_beets reconfigure finding. Full lifespan boots: config → store → all 6 plugins (DEGRADED
+  only because fpcalc isn't provisioned here — the correct path).
+- **Owner check-in (important):** Armand flagged overwhelm at the volume of mechanical detail
+  (task lists, code-review findings). Agreed working mode: **option 1 — I work quietly on mechanics,
+  surface only his decisions, BUT proactively name load-bearing concepts** (like "singleton"). Gave
+  him the 5-term vocabulary (beets / singleton / fingerprint / review queue / confidence gate). Saved
+  as harness memory `surface-load-bearing-concepts`. Flag T-007 as conceptually central when reached.
+- **NEXT:**
+  1. **Push** `main` (T-002/03/04 + this board) when Armand's ready — currently local only.
+  2. Build the **linear spine**: T-005 (ffmpeg → MP3 320 CBR, ADR-002) → T-006 (title
+     normalization, pure fn) → **T-007** (the ImportSession fingerprint-trust seam — the spine, the
+     biggest ticket, gated behind T-002/03/05/06). Not a fan-out; sequential, one at a time.
+  3. Carry-overs still open: "proactively flag learnable moments" → global `~/.claude/CLAUDE.md`;
+     build the **artifact-visual-style skill** then drop the redundant project-memory copy;
+     owner Last.fm key (T-018). `fpcalc` must be provisioned before T-007 verifies live.
 
 ### 2026-07-12 (session 4, cont.) — T-001 built: FastAPI skeleton, Express dropped
 
