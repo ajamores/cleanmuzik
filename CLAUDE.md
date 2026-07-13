@@ -7,15 +7,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 1. **`CLAUDE.md`** (this file) — how we work
 2. **`cleanmuzik-prd.md`** — product source of truth (scope + design)
 3. **`docs/roadmap.md`** — which release is active
-4. **`docs/r1/spec.md`** — what R1 builds *(skeleton — not written yet)*
+4. **`docs/r1/spec.md`** — what R1 builds *(written + owner signed off)*
 5. **`docs/r1/architecture.md`** — the stack diagram + open technical seams (single home)
 6. **`docs/r1/adr.md`** — binding decisions; do not silently reverse one
 7. **`docs/learnings.md`** — mistakes already paid for; don't repeat them
 8. **`.claude/hot.md`** — live session state + what's next
 
-**Current phase: spike, not build.** The review-queue seam — how beets surfaces candidate
-matches to the UI — must be proven before the spec is written. Until then this repo is
-*read-to-orient*, not *ready-to-build*. See `docs/r1/architecture.md`.
+**Current phase: R1 build, ticket by ticket.** The review-queue seam is proven (the beets
+spike → ADR-006/007), the spec is written and signed off, and `docs/r1/tickets.md` holds the
+19 build tickets. Building has begun (T-001: FastAPI backend). Work the tickets in dependency
+order; each is done per the Definition of Done below.
 
 ## What this is
 
@@ -75,10 +76,13 @@ Client (`cd client`):
 - `npm run build` — `tsc -b && vite build`
 - `npm run lint` — ESLint
 
-Server: **currently** the Express scaffold (`cd server && npm run dev`, i.e. `ts-node index.ts`),
-but this is being replaced by a FastAPI service. Once the Python backend exists, document its
-run command here (expected: a `uvicorn` invocation). There is no test runner set up in either
-package yet; `server`'s `npm test` is a placeholder that exits 1.
+Server (`cd server`) — Python/FastAPI (the Express scaffold was dropped in T-001). The canonical
+setup + run commands live in **`server/README.md`** — don't duplicate them here. In short:
+`uvicorn app.main:app --reload` serves `GET /api/health`; secrets load from the git-ignored
+**repo-root** `.env` (spec §6, template in `.env.example`).
+
+There is no automated test runner wired yet; `requirements-dev.txt` adds the FastAPI `TestClient`
+used to verify routes without a socket.
 
 There is no root-level workspace tooling — packages are managed independently.
 

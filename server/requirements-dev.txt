@@ -1,0 +1,3 @@
+# Dev/test-only deps (not needed to run the service).
+-r requirements.txt
+httpx2

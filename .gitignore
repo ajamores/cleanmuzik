@@ -136,7 +136,12 @@ dist
 .pnp.*
 
 
-pycache
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
 
 /tmp
 

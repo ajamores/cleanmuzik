@@ -29,7 +29,7 @@ side effect for pipeline tickets, transcribe corrections to `docs/learnings.md`.
 ## Phase A — engine spine
 
 ### T-001 — FastAPI backend skeleton; drop Express
-- **Status:** todo
+- **Status:** done (2026-07-12; `/code-review` high-effort passed — 4 doc/cleanup fixes applied, `httpx2` + PORT findings rejected with evidence)
 - **Depends on:** none
 - **Agent:** build
 - **What:** Stand up the Python/FastAPI service that replaces `server/`. Project layout (e.g.
