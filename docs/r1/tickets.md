@@ -76,7 +76,7 @@ side effect for pipeline tickets, transcribe corrections to `docs/learnings.md`.
   (Spec §7 "playlist URL is rejected"; §4 download note.)
 
 ### T-005 — ffmpeg transcode → MP3 320 CBR
-- **Status:** todo
+- **Status:** done
 - **Depends on:** T-004
 - **Agent:** build
 - **What:** Transcode the staged audio to **MP3 320 CBR** via `ffmpeg` (ADR-002 — that format and
