@@ -32,12 +32,41 @@ service. `app/config.py` owns the loading.
 app/
   main.py            FastAPI app + startup config receipt
   config.py          pydantic-settings, reads repo-root .env
+  beets_engine.py    T-003: beets config + explicit plugin loading (ADR-007)
   download.py        T-004: yt-dlp download stage + playlist classifier
   routes/
     health.py        GET /api/health
 tests/
   test_download.py   playlist-classifier unit tests (no network)
 ```
+
+## beets engine (T-003)
+
+`app/beets_engine.py` builds the beets config programmatically and — crucially —
+calls `beets.plugins.load_plugins()` explicitly at startup (ADR-007; the library
+API never auto-loads plugins, only the `beet` CLI does). On boot the lifespan runs
+`log_smoke_check()`, which logs a receipt that all six plugins
+(`musicbrainz chroma lastgenre fetchart embedart lyrics`) loaded and that `chroma`
+can reach `fpcalc`.
+
+**`fpcalc` (Chromaprint)** is a system binary `chroma` shells out to for
+fingerprinting — it is *not* a pip dependency. Provide it one of two ways:
+
+```bash
+# Debian/Ubuntu (needs sudo):
+sudo apt install libchromaprint-tools
+
+# No sudo — static binary, point the FPCALC env var at it:
+curl -L -o fpcalc.tar.gz \
+  https://github.com/acoustid/chromaprint/releases/download/v1.5.1/chromaprint-fpcalc-1.5.1-linux-x86_64.tar.gz
+tar xzf fpcalc.tar.gz
+export FPCALC="$PWD/chromaprint-fpcalc-1.5.1-linux-x86_64/fpcalc"
+```
+
+Without `fpcalc` the service still boots but logs `beets engine DEGRADED` and every
+song falls through to the review queue (no acoustic identity). No AcoustID or
+Last.fm API key is required — beets ships working built-in keys; owner keys only
+raise rate limits / override the genre source.
 
 ## Tests
 

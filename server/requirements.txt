@@ -4,3 +4,13 @@ pydantic-settings==2.14.2
 # Download stage (T-004). yt-dlp releases often, and YouTube changes break older
 # pins fast — bump this deliberately (re-verify a real download when you do).
 yt-dlp==2026.7.4
+
+# beets is the tagging engine (ADR-005). Pinned to 2.12 on purpose: `importer` /
+# `autotag` are not beets' stable API, so an upgrade means re-testing the review-
+# queue seam (architecture.md). The extras pull each plugin's own dependencies —
+# chroma → pyacoustid, lastgenre → pylast, fetchart/lyrics → requests +
+# beautifulsoup4 + langdetect, embedart → Pillow. `musicbrainz` needs no extra: in
+# 2.12 it's a self-contained HTTP client built into beets (no musicbrainzngs).
+# `fpcalc` (Chromaprint) is a system binary chroma shells out to — NOT a pip dep;
+# see server/README.md for how to provide it.
+beets[chroma,lastgenre,fetchart,embedart,lyrics]==2.12.0

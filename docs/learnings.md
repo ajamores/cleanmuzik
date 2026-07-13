@@ -42,3 +42,15 @@ Format: `- <date> — what went wrong → the correction / rule now in place`
 - 2026-07-11 — Cleaning YouTube title cruft (`(Official Audio)`, leading `Artist - `) before
   matching is a cheap, real lever: it promoted a `none`→`medium` and ranked the correct candidate #1
   in every test case. Worth a pre-match normalization step. (It improves ranking, not the `strong` bar.)
+- 2026-07-12 — (T-003) beets `lastgenre` does **not** read the Last.fm key from user config — its
+  client binds `pylast.LastFMNetwork(api_key=beets.plugins.LASTFM_KEY)` at *import* time, and
+  `LASTFM_KEY` is a hardcoded built-in key that works out of the box. So to use the owner's
+  `LASTFM_APIKEY` you must assign `beets.plugins.LASTFM_KEY = <key>` **before** `load_plugins()`
+  imports the plugin; setting a config value does nothing. Corollary: genre is fetched even with no
+  owner key (the built-in one stands) — the spec's "missing key = no genre" is stricter than reality,
+  same as the AcoustID built-in key.
+- 2026-07-12 — (T-003) In beets **2.12** the `musicbrainz` plugin is a self-contained HTTP client
+  built into beets — `musicbrainzngs` is no longer a dependency. Don't pin/import it. Resolve a
+  recording MBID to a candidate `TrackInfo` via the loaded plugin's `track_for_id(mbid)`. Also:
+  AcoustID can return recording MBIDs that 404 at live MusicBrainz (merged/removed) — expected data
+  drift, not a wiring bug; other candidates still resolve.

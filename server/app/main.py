@@ -5,6 +5,7 @@ into the job/SSE/review surface described in spec §6. For now it stands up the
 service and proves config loads.
 """
 
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 
@@ -36,6 +37,16 @@ async def lifespan(app: FastAPI):
     # reviews outlive a restart (spec §7, T-002). No-op on an existing DB.
     get_store().init_schema()
     logger.info("sqlite store ready at %s", s.db_path)
+    # Stand up the beets engine and log a boot receipt that all six plugins loaded
+    # and chroma can reach fpcalc (T-003 / ADR-007). A degraded engine warns but
+    # doesn't stop the service — a track can still land tag-only.
+    #
+    # Imported here, not at module top, so `import app.main` (and route tests)
+    # don't hard-require the heavy beets package. Run on a thread: the fpcalc
+    # `-version` probe shells out and would otherwise block the event loop.
+    from app.beets_engine import log_smoke_check
+
+    await asyncio.to_thread(log_smoke_check, s)
     yield
 
 
