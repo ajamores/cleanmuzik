@@ -29,6 +29,17 @@ organize → serve spine before any batch, playlist, or migrate machinery is lay
 - **beets import as a singleton**, driving the importer (never `autotag.tag_item` directly), with
   plugins enabled and loaded at startup (ADR-007): `musicbrainz`, `chroma`, `lastgenre`,
   `fetchart`, `embedart`, `lyrics`.
+
+> **What "singleton" means (and why it shapes the gate).** beets is built album-first: its
+> confident path imports a *whole album folder* at once, cross-checking track count, track order,
+> track numbers, album, and year — the shape of the whole release pins each track down. A
+> **singleton** is beets' term for a single track imported *on its own*, with none of that album
+> context. R1 imports are **always** singletons: you paste one song URL, you get one file, there is
+> no album folder. That is exactly why the match gate can't be beets' normal confidence score — a
+> lone track's tag *distance* structurally floors around ~0.11 and never reaches `strong` (needs
+> ≤0.04), no matter how well-known the song. So R1 trusts the **acoustic fingerprint** instead,
+> which identifies the recording without needing album context. See §5 and ADR-006.
+
 - **Fingerprint-trust auto-accept (ADR-006):** auto-tag when the top AcoustID match is dominant
   (high score, clear gap to the runner-up); otherwise → review queue. This is the match gate.
 - **Review queue:** parked songs show their candidate matches; the owner accepts one, picks an
