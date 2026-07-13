@@ -2,7 +2,7 @@
 type: meta
 title: "Hot — cleanmuzik"
 updated: 2026-07-12
-last-commit: ca862f9
+last-commit: 7050bc2
 tags:
   - meta
   - hot-cache
@@ -20,16 +20,19 @@ CleanMuzik — personal YouTube → Jellyfin music tool. Full description, stack
 live in `CLAUDE.md` and `cleanmuzik-prd.md` (this board holds *volatile state*, not evergreen
 description — see there, don't restate here).
 
-**Phase: R1 spec SIGNED OFF, tickets WRITTEN — gate to `in-build` is open.** The beets spike is
-resolved, all three owner facts locked, `docs/r1/spec.md` written + owner-approved, and
-`docs/r1/tickets.md` now decomposes it into 19 build-ordered tickets. Next real deliverable is
-**code** — start T-001 (FastAPI skeleton, drop Express). See `docs/r1/tickets.md`.
+**Phase: R1 IN BUILD — T-001 done, first fan-out next.** Spec signed off, `docs/r1/tickets.md`
+holds 19 build-ordered tickets, and **T-001 (FastAPI skeleton) is built + pushed** (`7050bc2`).
+Next session opens the first parallel pocket: T-002 / T-003 / T-004. See `docs/r1/tickets.md`.
 
 ## Current State (2026-07-12)
 
-- **Branch `main`** — tickets uncommitted in working tree (`docs/r1/tickets.md` + this board).
-  Pushed through `ca862f9`. Still no pipeline code — but the build plan now exists.
-- **`docs/r1/tickets.md` WRITTEN + owner signed off the spec.** 19 tickets, 3 phases:
+- **Branch `main`** — pushed through `7050bc2` (T-001). Working tree clean except this board.
+  **First real backend code exists**: `server/app/` FastAPI service, Express gone.
+- **T-001 DONE** — `server/app/` (`main.py` + lifespan config receipt, `config.py` pydantic-settings
+  off the repo-root `.env`, `routes/health.py`). Verified via TestClient; high `/code-review` passed
+  (4 fixes applied, 2 rejected on evidence). Setup uses **`uv`** (no `python3-venv` on this box) —
+  see `server/README.md`. See session log for the full account.
+- **`docs/r1/tickets.md` (committed) — 19 tickets, 3 phases:**
   **A engine spine** (T-001…T-011: FastAPI skeleton → SQLite → beets config+plugins → download →
   transcode → normalize → **T-007 fingerprint-trust seam** → threshold tuning → dedup → Jellyfin
   scan → retry), **B API+orchestration** (T-012 worker-thread job queue+routes, T-013 SSE, T-014
@@ -68,9 +71,34 @@ resolved, all three owner facts locked, `docs/r1/spec.md` written + owner-approv
 - **Lyrics decided IN for R1** — add beets `lyrics` plugin; owner to flip Jellyfin "Save lyrics
   into media folders" on. Metadata philosophy: R1 = every cheap plugin on (genre/year/art/lyrics);
   acoustic tier (Essentia, BPM/key) stays deferred.
-- Still no pipeline code: `client/` stock Vite, `server/` Express to be dropped for FastAPI.
+- `client/` still stock Vite (untouched until Phase C UI tickets). `server/` is now the FastAPI
+  skeleton (Express dropped in T-001); the pipeline stages (download/transcode/beets) don't exist yet.
 
 ## Session log
+
+### 2026-07-12 (session 4, cont.) — T-001 built: FastAPI skeleton, Express dropped
+
+- **Built + shipped T-001** (`7050bc2`). `server/app/` FastAPI package: `main.py` (app + lifespan
+  config receipt logging which capabilities are wired, no secrets printed), `config.py`
+  (pydantic-settings reading the git-ignored **repo-root** `.env` via `parents[2]`), `routes/health.py`
+  (`GET /api/health`). Pinned `requirements.txt` (fastapi 0.139 / uvicorn 0.51 / pydantic-settings
+  2.14) + `requirements-dev.txt` (httpx2 for TestClient). Express scaffold deleted.
+- **Env note:** no `python3-venv` on this WSL box — used **`uv`** for the venv (`uv venv .venv`;
+  `uv pip install --python .venv/bin/python`). Documented in `server/README.md`. `.venv` gitignored.
+  Sandbox blocks foreground-shell → background-task localhost sockets, so verified routes via
+  **`fastapi.testclient.TestClient`** (no socket) rather than curl.
+- **Verified:** `/api/health` → 200 `{"status":"ok"}`, unknown route → 404, `.env` loads in-process
+  (jellyfin_api_key present, lastfm/acoustid unset — matches the real file).
+- **`/code-review` high (workflow-backed, 13 agents):** 6 findings. Applied 4 (stale CLAUDE.md
+  "spike not build" banner + spec "(skeleton)" annotation → build phase; run-command dedup → README
+  canonical; `logging.basicConfig` moved import-time→lifespan). **Rejected 2 with evidence:** the
+  "`httpx2` is nonexistent, use `httpx`" finding is wrong here (starlette 1.3.1 *requires* httpx2;
+  install + TestClient proven), and the dropped-`PORT`-env finding (Express boilerplate, not an
+  invariant; `uvicorn --port` is the override). Owner first vetted the code-review skill's provenance
+  — confirmed built-in/Anthropic-official, not a third-party download.
+- **NEXT:** the first real **fan-out pocket** — T-002 (SQLite), T-003 (beets config+plugins), T-004
+  (yt-dlp download) all depend only on T-001 and touch different files → spawn as parallel
+  worktree build agents, I integrate + `/code-review` each. Then T-005→T-006→T-007 (the seam).
 
 ### 2026-07-12 (session 4) — spec signed off, R1 tickets generated
 
