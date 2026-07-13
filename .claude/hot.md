@@ -21,14 +21,15 @@ live in `CLAUDE.md` and `cleanmuzik-prd.md` (this board holds *volatile state*, 
 description — see there, don't restate here).
 
 **Phase: R1 IN BUILD — T-001…T-004 done, T-005→T-007 linear run next.** Spec signed off,
-`docs/r1/tickets.md` holds 19 build-ordered tickets. **T-001–T-004 built, reviewed, committed**
-(local `main`, not yet pushed — `88e17a0`). Next: the linear spine T-005 (transcode) →
+`docs/r1/tickets.md` holds 19 build-ordered tickets. **T-001–T-004 built, reviewed, committed +
+pushed** to `origin/main`. Next: the linear spine T-005 (transcode) →
 T-006 (normalize) → **T-007 (the fingerprint-trust seam — the spine)**. See `docs/r1/tickets.md`.
 
 ## Current State (2026-07-12)
 
-- **Branch `main`** — committed through `88e17a0` (T-004/T-003), **not yet pushed**. Working tree
-  clean except this board. `server/app/` is now a real 4-stage backend; agent worktrees cleaned up.
+- **Branch `main`** — committed **and pushed** to `origin/main` (through the T-002/03/04 tickets +
+  this board). Working tree clean. `server/app/` is now a real 4-stage backend; agent worktrees
+  cleaned up.
 - **T-001 DONE** — `server/app/` (`main.py` lifespan config receipt, `config.py` pydantic-settings
   off repo-root `.env`, `routes/health.py`). Setup uses **`uv`** (no `python3-venv`) — see
   `server/README.md`.
@@ -114,7 +115,7 @@ T-006 (normalize) → **T-007 (the fingerprint-trust seam — the spine)**. See 
   him the 5-term vocabulary (beets / singleton / fingerprint / review queue / confidence gate). Saved
   as harness memory `surface-load-bearing-concepts`. Flag T-007 as conceptually central when reached.
 - **NEXT:**
-  1. **Push** `main` (T-002/03/04 + this board) when Armand's ready — currently local only.
+  1. ✅ Pushed `main` (T-002/03/04 + board) to `origin/main`.
   2. Build the **linear spine**: T-005 (ffmpeg → MP3 320 CBR, ADR-002) → T-006 (title
      normalization, pure fn) → **T-007** (the ImportSession fingerprint-trust seam — the spine, the
      biggest ticket, gated behind T-002/03/05/06). Not a fan-out; sequential, one at a time.
