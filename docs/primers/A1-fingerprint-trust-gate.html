@@ -1,0 +1,523 @@
+<title>T-007 — The Fingerprint-Trust Seam</title>
+<style>
+  :root {
+    --bg:      #101317;
+    --bg-2:    #171b20;
+    --bg-3:    #1e232a;
+    --ink:     #e7ebe6;
+    --muted:   #8b968d;
+    --line:    #2a3038;
+    --green:   #3ad07f;
+    --green-ink:#8bf0b6;
+    --amber:   #f0ad3c;
+    --amber-ink:#ffd28a;
+    --red:     #e5595d;
+    --shadow:  0 1px 0 rgba(255,255,255,.03), 0 18px 40px -24px rgba(0,0,0,.7);
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", Menlo, Consolas, monospace;
+    --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg:#f2f4ef; --bg-2:#ffffff; --bg-3:#e9ede4; --ink:#171b16; --muted:#5c665c;
+      --line:#d6dcd1; --green:#1c9a58; --green-ink:#0f6f3d; --amber:#a56d13; --amber-ink:#7f5306;
+      --red:#c53539; --shadow:0 1px 0 rgba(0,0,0,.02), 0 20px 40px -28px rgba(30,40,30,.4);
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg:#101317; --bg-2:#171b20; --bg-3:#1e232a; --ink:#e7ebe6; --muted:#8b968d;
+    --line:#2a3038; --green:#3ad07f; --green-ink:#8bf0b6; --amber:#f0ad3c; --amber-ink:#ffd28a;
+    --red:#e5595d; --shadow:0 1px 0 rgba(255,255,255,.03), 0 18px 40px -24px rgba(0,0,0,.7);
+  }
+  :root[data-theme="light"] {
+    --bg:#f2f4ef; --bg-2:#ffffff; --bg-3:#e9ede4; --ink:#171b16; --muted:#5c665c;
+    --line:#d6dcd1; --green:#1c9a58; --green-ink:#0f6f3d; --amber:#a56d13; --amber-ink:#7f5306;
+    --red:#c53539; --shadow:0 1px 0 rgba(0,0,0,.02), 0 20px 40px -28px rgba(30,40,30,.4);
+  }
+
+  * { box-sizing: border-box; }
+  body { margin:0; }
+  .page {
+    background: var(--bg); color: var(--ink);
+    font-family: var(--sans); line-height: 1.55;
+    font-size: clamp(16px, 1.05vw + 12px, 19px);
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+  }
+  .wrap { width: min(1180px, 92vw); margin-inline: auto; }
+  section { padding-block: clamp(3.5rem, 7vw, 6.5rem); border-top: 1px solid var(--line); }
+  section:first-of-type { border-top: 0; }
+
+  .eyebrow {
+    font-family: var(--mono); font-size: .8rem; letter-spacing: .22em; text-transform: uppercase;
+    color: var(--green); margin: 0 0 1.1rem; display:flex; align-items:center; gap:.7rem;
+  }
+  .eyebrow::before { content:""; width:2.2rem; height:1px; background:var(--green); }
+  h1 {
+    font-family: var(--mono); font-weight: 600; letter-spacing:-.01em;
+    font-size: clamp(2.3rem, 5.2vw, 4.4rem); line-height: 1.02; margin: 0;
+    text-wrap: balance;
+  }
+  h2 {
+    font-family: var(--mono); font-weight:600; letter-spacing:-.01em;
+    font-size: clamp(1.5rem, 2.6vw, 2.2rem); line-height:1.1; margin:0 0 .6rem; text-wrap: balance;
+  }
+  h3 { font-family: var(--mono); font-weight:600; font-size:1.05rem; margin:0 0 .5rem; letter-spacing:.01em; }
+  .lede { font-size: clamp(1.1rem, 1.5vw, 1.35rem); color: var(--muted); max-width: 46ch; margin:1.4rem 0 0; }
+  p { max-width: 66ch; }
+  .kicker { font-family:var(--mono); font-size:.78rem; letter-spacing:.16em; text-transform:uppercase; color:var(--muted); margin:0 0 2.2rem; }
+  strong { color: var(--ink); font-weight: 600; }
+  code { font-family: var(--mono); font-size: .88em; background: var(--bg-3); padding:.12em .38em; border-radius:5px; border:1px solid var(--line); }
+
+  /* Hero */
+  .hero { padding-top: clamp(3rem, 6vw, 5rem); }
+  .hero-grid { display:grid; grid-template-columns: 1.15fr .85fr; gap: clamp(1.5rem,4vw,4rem); align-items:end; }
+  @media (max-width: 820px){ .hero-grid { grid-template-columns:1fr; } }
+
+  /* Pipeline strip */
+  .pipe { margin-top: clamp(2.5rem,5vw,4rem); }
+  .pipe-rail { display:flex; align-items:stretch; gap:.5rem; flex-wrap:wrap; }
+  .stage {
+    flex:1 1 0; min-width: 92px; background:var(--bg-2); border:1px solid var(--line); border-radius:10px;
+    padding:.85rem .8rem; display:flex; flex-direction:column; gap:.3rem;
+  }
+  .stage .n { font-family:var(--mono); font-size:.7rem; color:var(--muted); letter-spacing:.1em; }
+  .stage .l { font-family:var(--mono); font-size:.82rem; font-weight:600; }
+  .stage.gate { border-color: var(--green); background: color-mix(in srgb, var(--green) 12%, var(--bg-2)); position:relative; flex: 1.3 1 0; }
+  .stage.gate .l { color: var(--green-ink); }
+  .stage.gate .n { color: color-mix(in srgb, var(--green) 70%, var(--muted)); }
+  .arrow { align-self:center; color:var(--muted); font-family:var(--mono); }
+  @media (max-width:600px){ .arrow{ display:none; } .stage{ flex:1 1 40%; } }
+
+  .forks { display:grid; grid-template-columns:1fr 1fr; gap:1rem; margin-top:1rem; }
+  @media (max-width:600px){ .forks{ grid-template-columns:1fr; } }
+  .fork { border-radius:10px; padding:1rem 1.1rem; border:1px solid var(--line); background:var(--bg-2); }
+  .fork.pass { border-color: color-mix(in srgb, var(--green) 55%, var(--line)); }
+  .fork.hold { border-color: color-mix(in srgb, var(--amber) 55%, var(--line)); }
+  .fork .tag { font-family:var(--mono); font-size:.72rem; letter-spacing:.14em; text-transform:uppercase; }
+  .fork.pass .tag { color: var(--green); }
+  .fork.hold .tag { color: var(--amber); }
+  .fork p { margin:.4rem 0 0; font-size:.95rem; color:var(--muted); max-width:none; }
+
+  /* Distance meter */
+  .meter { background:var(--bg-2); border:1px solid var(--line); border-radius:14px; padding:clamp(1.4rem,3vw,2.2rem); box-shadow:var(--shadow); }
+  .track { position:relative; height:64px; border-radius:9px; margin:2.2rem 0 1rem;
+    background: linear-gradient(90deg,
+      color-mix(in srgb, var(--green) 40%, transparent) 0%,
+      color-mix(in srgb, var(--green) 12%, transparent) 22%,
+      var(--bg-3) 40%, var(--bg-3) 100%);
+    border:1px solid var(--line); }
+  .band { position:absolute; top:0; bottom:0; }
+  .band.strong { left:0; width:22%; border-right:2px dashed var(--green); }
+  .marker { position:absolute; top:-14px; bottom:-14px; width:3px; background:var(--amber); border-radius:2px; }
+  .marker::after { content: attr(data-l); position:absolute; top:-1.9rem; left:50%; transform:translateX(-50%);
+    font-family:var(--mono); font-size:.72rem; color:var(--amber-ink); white-space:nowrap; }
+  .scale { display:flex; justify-content:space-between; font-family:var(--mono); font-size:.72rem; color:var(--muted); }
+  .meter-legend { display:flex; gap:1.4rem; flex-wrap:wrap; margin-top:1.4rem; font-size:.86rem; color:var(--muted); }
+  .dot { display:inline-block; width:.62em; height:.62em; border-radius:50%; margin-right:.45em; vertical-align:baseline; }
+
+  /* Interactive gate */
+  .gatebox { display:grid; grid-template-columns: 1fr .9fr; gap: clamp(1.2rem,3vw,2.6rem); align-items:stretch; }
+  @media (max-width:820px){ .gatebox{ grid-template-columns:1fr; } }
+  .dials { background:var(--bg-2); border:1px solid var(--line); border-radius:14px; padding:clamp(1.4rem,3vw,2rem); box-shadow:var(--shadow); }
+  .dial { margin-bottom:1.9rem; }
+  .dial:last-child { margin-bottom:0; }
+  .dial-head { display:flex; justify-content:space-between; align-items:baseline; gap:1rem; margin-bottom:.7rem; }
+  .dial-head .name { font-family:var(--mono); font-size:.86rem; letter-spacing:.03em; }
+  .dial-head .val { font-family:var(--mono); font-size:1.5rem; font-weight:600; font-variant-numeric:tabular-nums; }
+  .dial .thresh { font-family:var(--mono); font-size:.72rem; color:var(--muted); margin-top:.5rem; }
+  input[type=range]{ -webkit-appearance:none; appearance:none; width:100%; height:6px; border-radius:6px; background:var(--bg-3); outline:none; margin:0; }
+  input[type=range]::-webkit-slider-thumb{ -webkit-appearance:none; appearance:none; width:22px; height:22px; border-radius:50%; background:var(--ink); border:3px solid var(--bg-2); cursor:pointer; box-shadow:0 2px 6px rgba(0,0,0,.35); }
+  input[type=range]::-moz-range-thumb{ width:22px; height:22px; border-radius:50%; background:var(--ink); border:3px solid var(--bg-2); cursor:pointer; }
+  input[type=range]:focus-visible{ box-shadow:0 0 0 3px color-mix(in srgb, var(--green) 60%, transparent); }
+
+  .verdict { border-radius:14px; padding:clamp(1.4rem,3vw,2rem); display:flex; flex-direction:column; justify-content:center; gap:.7rem;
+    border:1px solid var(--line); transition: background .25s ease, border-color .25s ease; }
+  .verdict[data-state="pass"]{ border-color:var(--green); background: color-mix(in srgb, var(--green) 12%, var(--bg-2)); }
+  .verdict[data-state="hold"]{ border-color:var(--amber); background: color-mix(in srgb, var(--amber) 12%, var(--bg-2)); }
+  .verdict .chip { font-family:var(--mono); font-size:.74rem; letter-spacing:.16em; text-transform:uppercase; }
+  .verdict[data-state="pass"] .chip { color:var(--green); }
+  .verdict[data-state="hold"] .chip { color:var(--amber); }
+  .verdict .big { font-family:var(--mono); font-size:clamp(1.4rem,2.6vw,2rem); font-weight:600; line-height:1.05; margin:0; }
+  .verdict .why { font-size:.92rem; color:var(--muted); margin:0; max-width:none; }
+  .verdict .why b { color:var(--ink); font-weight:600; }
+
+  /* Code panel */
+  .code { background:var(--bg-2); border:1px solid var(--line); border-radius:14px; overflow:hidden; box-shadow:var(--shadow); }
+  .code header { padding:.7rem 1.1rem; border-bottom:1px solid var(--line); font-family:var(--mono); font-size:.78rem; color:var(--muted); letter-spacing:.06em; display:flex; gap:.6rem; align-items:center; }
+  .code header .d { width:.7rem; height:.7rem; border-radius:50%; background:var(--bg-3); }
+  .code pre { margin:0; padding:clamp(1rem,2.4vw,1.6rem); overflow-x:auto; font-family:var(--mono); font-size:.86rem; line-height:1.7; }
+  .code .c { color:var(--muted); }
+  .code .k { color:var(--amber-ink); }
+  .code .g { color:var(--green-ink); }
+  .code .s { color:var(--ink); }
+
+  .twocol { display:grid; grid-template-columns:1fr 1fr; gap:clamp(1.2rem,3vw,2.4rem); }
+  @media (max-width:820px){ .twocol{ grid-template-columns:1fr; } }
+  .card { background:var(--bg-2); border:1px solid var(--line); border-radius:14px; padding:clamp(1.3rem,2.6vw,1.8rem); }
+  .card.pass { border-top:3px solid var(--green); }
+  .card.hold { border-top:3px solid var(--amber); }
+  .card .st { font-family:var(--mono); font-size:.74rem; letter-spacing:.14em; text-transform:uppercase; margin-bottom:.7rem; }
+  .card.pass .st { color:var(--green); }
+  .card.hold .st { color:var(--amber); }
+  .card ul { margin:.6rem 0 0; padding-left:1.1rem; color:var(--muted); }
+  .card li { margin:.35rem 0; }
+
+  .notes { display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:1rem; margin-top:2rem; }
+  .note { border:1px solid var(--line); border-radius:12px; padding:1.2rem 1.3rem; background:var(--bg-2); }
+  .note .q { font-family:var(--mono); font-size:.74rem; letter-spacing:.1em; text-transform:uppercase; color:var(--red); margin-bottom:.5rem; }
+  .note.b .q { color:var(--amber); }
+  .note p { margin:0; font-size:.92rem; color:var(--muted); max-width:none; }
+
+  footer { border-top:1px solid var(--line); padding-block:2.6rem; color:var(--muted); font-size:.86rem; }
+  footer .refs { font-family:var(--mono); font-size:.78rem; display:flex; gap:1.4rem; flex-wrap:wrap; margin-top:.8rem; }
+  footer .refs span { color:var(--ink); }
+
+  .reveal { opacity:0; transform: translateY(18px); transition: opacity .6s ease, transform .6s ease; }
+  .reveal.in { opacity:1; transform:none; }
+  @media (prefers-reduced-motion: reduce){ .reveal{ opacity:1; transform:none; transition:none; } }
+
+  .theme-toggle { position:fixed; top:1rem; right:1rem; z-index:10; font-family:var(--mono); font-size:.72rem; letter-spacing:.08em;
+    background:var(--bg-2); color:var(--muted); border:1px solid var(--line); border-radius:20px; padding:.42rem .8rem; cursor:pointer; }
+  .theme-toggle:hover{ color:var(--ink); }
+</style>
+
+<div class="page">
+  <button class="theme-toggle" id="themeToggle" aria-label="Toggle colour theme">◐ theme</button>
+
+  <!-- HERO -->
+  <section class="hero">
+    <div class="wrap">
+      <p class="eyebrow">Ticket T-007 · the spine of CleanMuzik</p>
+      <div class="hero-grid">
+        <div>
+          <h1>The gate that decides:<br>shelve it, or ask you.</h1>
+        </div>
+        <div>
+          <p class="lede">Every song that comes down the pipe hits one fork. Either the machine is
+          sure who it is and files it silently — or it isn't, and it hands the song to you. This is
+          the code that draws that line.</p>
+        </div>
+      </div>
+
+      <div class="pipe reveal">
+        <div class="pipe-rail">
+          <div class="stage"><span class="n">01</span><span class="l">Download</span></div>
+          <span class="arrow">→</span>
+          <div class="stage"><span class="n">02</span><span class="l">Transcode</span></div>
+          <span class="arrow">→</span>
+          <div class="stage"><span class="n">03</span><span class="l">Normalize</span></div>
+          <span class="arrow">→</span>
+          <div class="stage"><span class="n">04</span><span class="l">Fingerprint</span></div>
+          <span class="arrow">→</span>
+          <div class="stage gate"><span class="n">T-007 · the gate</span><span class="l">Trust, or park?</span></div>
+        </div>
+        <div class="forks">
+          <div class="fork pass">
+            <span class="tag">● dominant match → land</span>
+            <p>Tagged, art embedded, filed under <code>Artist/Album/</code>. Zero clicks. You never see it.</p>
+          </div>
+          <div class="fork hold">
+            <span class="tag">● weak / ambiguous → review</span>
+            <p>Parked in the review queue with its candidate list. Nothing lands. The batch isn't blocked. It waits for you.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- WHY THE OBVIOUS GATE FAILS -->
+  <section>
+    <div class="wrap">
+      <p class="kicker">The problem · why we can't use beets' own confidence</p>
+      <h2>beets grades an album. We only ever have a single track.</h2>
+      <p>beets was built to identify a <em>whole album</em> — it corroborates a match against the
+      track listing, the running order, the year, the album title. A YouTube rip has none of that.
+      It's a lone song with no album around it — a <strong>singleton</strong>. So beets' own
+      confidence score can never climb high enough, even when the match is <em>correct</em>.</p>
+
+      <div class="meter reveal">
+        <h3>beets' match distance — lower is better</h3>
+        <div class="track">
+          <div class="band strong"></div>
+          <div class="marker" data-l="singleton floor ≈ 0.11" style="left:44%"></div>
+        </div>
+        <div class="scale"><span>0.00 — perfect</span><span>0.04 — “strong” bar</span><span>0.30 — no match</span></div>
+        <div class="meter-legend">
+          <span><span class="dot" style="background:var(--green)"></span>The green zone is “strong” — where beets auto-accepts. It ends at 0.04.</span>
+          <span><span class="dot" style="background:var(--amber)"></span>A correct singleton match sits at ≈ 0.11 and <b>never moves left</b>. Measured, 3/3 in the spike.</span>
+        </div>
+      </div>
+      <p style="margin-top:1.8rem">That 0.11 is a <strong>structural floor</strong>, not bad luck.
+      With no album to corroborate, the distance simply can't fall to 0.04. If we waited for
+      “strong,” <em>every song</em> would go to review — the auto-accept rate would be zero. We
+      measured exactly that: <strong>0 of 3</strong>.</p>
+    </div>
+  </section>
+
+  <!-- THE INSIGHT -->
+  <section>
+    <div class="wrap">
+      <p class="kicker">The move · ADR-006</p>
+      <h2>Stop grading tidiness. Trust identity.</h2>
+      <p>Here's the thing the distance score hides: the <strong>fingerprint already knows the
+      answer.</strong> The acoustic fingerprint (<code>chroma → fpcalc → AcoustID</code>) listens to
+      the actual audio and returns the correct recording with a high match score — regardless of how
+      messy the tags are. The identity is certain even when the tidiness score is mediocre.</p>
+      <p>So we move the gate. It no longer asks <em>“is this tidy enough?”</em> (the distance score,
+      which we throw out). It asks <strong>“is one recording clearly winning the fingerprint
+      match?”</strong> — and treats a dominant fingerprint as ground truth. Everything else goes to
+      you. That's the whole idea of T-007 in one sentence.</p>
+    </div>
+  </section>
+
+  <!-- INTERACTIVE GATE -->
+  <section>
+    <div class="wrap">
+      <p class="kicker">The decision · move the dials</p>
+      <h2>“Dominant” is two numbers, not a feeling.</h2>
+      <p>A match is trusted only when <strong>both</strong> hold: the top candidate's fingerprint
+      score is high, <em>and</em> there's a clear gap down to the runner-up. High score alone isn't
+      enough — two near-identical scores mean the machine can't tell two recordings apart, and that's
+      exactly when it should ask you. Drag the dials.</p>
+
+      <div class="meter reveal" style="margin-top:2.2rem">
+        <h3>Wait — what's the “runner-up”?</h3>
+        <p style="max-width:72ch">The fingerprint doesn't come back with one answer. AcoustID returns
+        a <strong>ranked list of candidate recordings</strong>, each with its own score — and the
+        <em>runner-up</em> is simply the second name on that list. There's more than one because a
+        single song genuinely exists as <strong>many distinct recordings</strong> in MusicBrainz, and
+        they can sound nearly identical:</p>
+        <ul style="color:var(--muted); max-width:72ch; margin:.7rem 0 0; padding-left:1.15rem; line-height:1.9">
+          <li>the <strong>album version</strong> vs. the <strong>single edit</strong> vs. the <strong>2011 remaster</strong>;</li>
+          <li>the same track on its original album <em>and</em> on three “Greatest Hits” compilations — each a separate database entry;</li>
+          <li>a <strong>live</strong>, <strong>acoustic</strong>, or <strong>remix</strong> cut.</li>
+        </ul>
+        <p style="max-width:72ch; margin-top:1.1rem">So the gate never doubts the <em>song</em> — the
+        fingerprint nails that. It's deciding <strong>which pressing of it</strong>. A wide gap means
+        one recording is the clear winner; a tiny gap means two pressings are effectively tied, and
+        choosing blind could file the remaster when you wanted the original. <strong>That</strong> is
+        the case it hands to you.</p>
+      </div>
+
+      <div class="gatebox reveal" style="margin-top:2.2rem">
+        <div class="dials">
+          <div class="dial">
+            <div class="dial-head">
+              <span class="name">Top match — fingerprint score</span>
+              <span class="val" id="scoreVal">0.94</span>
+            </div>
+            <input type="range" id="score" min="0.50" max="1.00" step="0.01" value="0.94">
+            <div class="thresh">auto-accept needs ≥ 0.90 &nbsp;·&nbsp; how sure AcoustID is this is the recording</div>
+          </div>
+          <div class="dial">
+            <div class="dial-head">
+              <span class="name">Gap to the runner-up</span>
+              <span class="val" id="gapVal">0.15</span>
+            </div>
+            <input type="range" id="gap" min="0.00" max="0.30" step="0.01" value="0.15">
+            <div class="thresh">auto-accept needs ≥ 0.10 &nbsp;·&nbsp; how far the winner leads the second guess</div>
+          </div>
+        </div>
+        <div class="verdict" id="verdict" data-state="pass">
+          <span class="chip" id="verdictChip">● auto-accept</span>
+          <p class="big" id="verdictBig">Lands silently.</p>
+          <p class="why" id="verdictWhy">One recording is clearly winning — tag it and file it, no click.</p>
+        </div>
+      </div>
+      <p style="margin-top:1.6rem; font-size:.9rem; color:var(--muted)">The two thresholds
+      (<code>0.90</code> / <code>0.10</code>) are a starting guess. Tuning them against a real batch
+      of your songs — and writing the real auto-accept rate back into the ADR — is its own ticket,
+      <strong>T-008</strong>. We don't hard-code them blind.</p>
+    </div>
+  </section>
+
+  <!-- WHERE IT LIVES IN CODE -->
+  <section>
+    <div class="wrap">
+      <p class="kicker">The mechanism · how it hooks into beets</p>
+      <h2>We don't call the tagger. We sit inside beets' import and answer one question.</h2>
+      <p>beets runs the import as a session that normally <em>prompts a human</em> at the choice
+      point. We subclass that session and answer the prompt in code — reading the ranked candidates,
+      applying our two-number test, and either accepting the match or returning <code>SKIP</code> to
+      leave the disk untouched and park the row. Every plugin (art, genre, lyrics) still runs as a
+      stage; we never bypass them.</p>
+
+      <div class="code reveal" style="margin-top:2rem">
+        <header><span class="d"></span> server/app/import_seam.py &nbsp;·&nbsp; the shape (not final)</header>
+<pre><span class="c"># A YouTube song is always a singleton → override choose_item, not choose_match.</span>
+<span class="k">class</span> <span class="g">TrustFingerprint</span>(ImportSession):
+    <span class="k">def</span> <span class="g">choose_item</span>(self, task):
+        cands = task.candidates            <span class="c"># ranked: TrackMatch(distance, TrackInfo)</span>
+        top, runner = cands[0], cands[1:2]
+
+        score = fingerprint_score(top)     <span class="c"># ← the AcoustID score, NOT task.rec</span>
+        gap   = score - fingerprint_score(runner)
+
+        <span class="k">if</span> score &gt;= <span class="s">0.90</span> <span class="k">and</span> gap &gt;= <span class="s">0.10</span>:
+            <span class="k">return</span> top                 <span class="g"># dominant → apply tags, land the file</span>
+
+        park_to_review(task, cands)        <span class="c"># store candidate IDs + task.rec in SQLite</span>
+        <span class="k">return</span> Action.SKIP          <span class="c"># weak → touch nothing, wait for the owner</span>
+</pre>
+      </div>
+      <p style="margin-top:1.6rem; font-size:.92rem; color:var(--muted)">Two rules the reviewer
+      enforces: we <strong>never lower beets' global <code>strong_rec_thresh</code></strong> to force
+      acceptance — that would also wave through genuinely bad tag matches. And the whole thing runs
+      on a <strong>worker thread</strong>, off the web server's event loop (that plumbing is T-012).</p>
+    </div>
+  </section>
+
+  <!-- TWO EXITS -->
+  <section>
+    <div class="wrap">
+      <p class="kicker">The two exits · what you actually see</p>
+      <h2>Same gate, two doors.</h2>
+      <div class="twocol" style="margin-top:2rem">
+        <div class="card pass reveal">
+          <div class="st">● Door 1 — dominant → land</div>
+          <h3>The card fills in and turns green.</h3>
+          <ul>
+            <li>Matched title, artist, album, cover art appear.</li>
+            <li>beets tags the file, embeds art + lyrics, adds genre.</li>
+            <li>Filed as MP3 320 under <code>CleanMuzik/Artist/Album/</code>.</li>
+            <li>Jellyfin is nudged to scan; it shows up in seconds.</li>
+            <li><strong>Your click count: zero.</strong></li>
+          </ul>
+        </div>
+        <div class="card hold reveal">
+          <div class="st">● Door 2 — weak → review</div>
+          <h3>The card flips to “Needs review.”</h3>
+          <ul>
+            <li>The candidate list is shown — each with title, artist, album, year, thumbnail.</li>
+            <li>Plus the normalized query we searched (that's what T-006 built).</li>
+            <li>You <strong>accept the top</strong>, <strong>pick an alternate</strong>, or <strong>reject</strong>.</li>
+            <li>Resolving re-runs the import with your pick and lands it.</li>
+            <li>Survives a restart — the queue is on disk (SQLite).</li>
+          </ul>
+        </div>
+      </div>
+      <p style="margin-top:1.8rem">Per the spike's measurement, <strong>Door 2 is the common
+      path</strong>, not the rare exception the old PRD assumed. That's not a flaw — it's the point.
+      The review queue is the product. T-007 just makes sure the easy ones never bother you.</p>
+    </div>
+  </section>
+
+  <!-- WHAT WE SETTLE WHEN WE BUILD -->
+  <section>
+    <div class="wrap">
+      <p class="kicker">Before we write it · the honest open questions</p>
+      <h2>What this walkthrough is glossing over.</h2>
+      <p>The concept is settled. Two build-time unknowns are not — and I'd rather name them now than
+      discover them mid-diff.</p>
+
+      <div class="meter reveal" style="margin:2rem 0 .4rem">
+        <h3>The same three, in plain words</h3>
+        <p style="max-width:72ch"><strong>1 · The number problem — the real risk.</strong> Two
+        different “confidence” numbers exist here, and it's easy to grab the wrong one. One measures
+        how well the <em>text tags</em> line up — title, artist — and that's the 0.11 the spike saw.
+        The other measures how well the <em>actual audio</em> matches, and <em>that's</em> the one our
+        whole plan trusts. The catch: beets buries that second number somewhere inside the fingerprint
+        plugin's result, and we haven't confirmed yet how to reach it. So step one when building is
+        simply: go find that number. If it turns out to be locked away, we rework the plan around what
+        we <em>can</em> read.</p>
+        <p style="max-width:72ch; margin-top:1rem"><strong>2 · The two dials are guesses — later,
+        T-008.</strong> 0.90 and 0.10 are just a sensible starting point, not gospel. Once the gate
+        works, we push a real batch of your songs through it, watch where the right and wrong matches
+        actually land, and set the numbers from evidence instead of a hunch.</p>
+        <p style="max-width:72ch; margin-top:1rem"><strong>3 · Duplicates move in next door — later,
+        T-009.</strong> The same machinery will also catch re-pasting a song you already own — keep the
+        better copy, or ask you when they're too close to call. Same review screen, separate ticket.</p>
+      </div>
+
+      <div class="notes">
+        <div class="note">
+          <div class="q">Open — the real risk</div>
+          <p><strong>Where does the fingerprint score live?</strong> The spike measured beets' tag
+          <em>distance</em> (0.11). ADR-006 wants the <em>AcoustID</em> score behind a candidate —
+          a different number. First thing we prove when building: how to read it off the chroma
+          plugin's result. If it's awkward to reach, the seam design bends around it.</p>
+        </div>
+        <div class="note b">
+          <div class="q">Deferred — T-008</div>
+          <p><strong>The two thresholds are guesses.</strong> <code>0.90</code> / <code>0.10</code>
+          are a starting point. T-008 runs a real batch of your songs through this gate, sees where
+          correct and wrong matches actually fall, sets the numbers, and records the measured
+          auto-accept rate back into ADR-006.</p>
+        </div>
+        <div class="note b">
+          <div class="q">Adjacent — T-009</div>
+          <p><strong>The same session handles duplicates.</strong> A second override,
+          <code>resolve_duplicate</code>, catches re-pasting a song you already own — keep the better
+          copy, or ask you if they're too close to call. Same review UI. Its own ticket.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <div class="wrap">
+      <div>T-007 — the fingerprint-trust seam · a walkthrough before the build. Nothing here is
+      committed code; the shape may shift once we read the real AcoustID result off beets.</div>
+      <div class="refs">
+        <span>ADR-006</span> fingerprint-trust, not relaxed thresholds
+        <span>spec §5</span> match confidence gate
+        <span>spike</span> 0/3 auto-accept measured
+        <span>deps</span> T-002 · T-003 · T-005 · T-006 ✓
+      </div>
+    </div>
+  </footer>
+</div>
+
+<script>
+  (function () {
+    // Theme toggle — stamps data-theme so it overrides prefers-color-scheme both ways.
+    var root = document.documentElement, btn = document.getElementById('themeToggle');
+    btn.addEventListener('click', function () {
+      var cur = root.getAttribute('data-theme');
+      if (!cur) { cur = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; }
+      root.setAttribute('data-theme', cur === 'dark' ? 'light' : 'dark');
+    });
+
+    // Interactive gate.
+    var score = document.getElementById('score'),
+        gap   = document.getElementById('gap'),
+        sVal  = document.getElementById('scoreVal'),
+        gVal  = document.getElementById('gapVal'),
+        v     = document.getElementById('verdict'),
+        chip  = document.getElementById('verdictChip'),
+        big   = document.getElementById('verdictBig'),
+        why   = document.getElementById('verdictWhy');
+    var S_MIN = 0.90, G_MIN = 0.10;
+
+    function fmt(x){ return Number(x).toFixed(2); }
+    function update(){
+      var s = parseFloat(score.value), g = parseFloat(gap.value);
+      sVal.textContent = fmt(s); gVal.textContent = fmt(g);
+      var pass = s >= S_MIN && g >= G_MIN;
+      v.setAttribute('data-state', pass ? 'pass' : 'hold');
+      if (pass){
+        chip.textContent = '● auto-accept';
+        big.textContent  = 'Lands silently.';
+        why.innerHTML    = 'One recording is clearly winning — tag it and file it, <b>no click</b>.';
+      } else {
+        chip.textContent = '● needs review';
+        big.textContent  = 'Parked for you.';
+        var reason = (s < S_MIN && g < G_MIN)
+          ? 'Score is soft <b>and</b> the runner-up is close — the machine isn’t sure who this is.'
+          : (s < S_MIN)
+            ? 'The top score is below <b>0.90</b> — not confident enough to file blind.'
+            : 'The runner-up is within <b>0.10</b> — two recordings look too alike to auto-pick.';
+        why.innerHTML = reason;
+      }
+    }
+    score.addEventListener('input', update);
+    gap.addEventListener('input', update);
+    update();
+
+    // Scroll reveal (respects reduced-motion via CSS fallback).
+    var io = new IntersectionObserver(function (entries){
+      entries.forEach(function (e){ if (e.isIntersecting){ e.target.classList.add('in'); io.unobserve(e.target); } });
+    }, { threshold: 0.12 });
+    document.querySelectorAll('.reveal').forEach(function (el){ io.observe(el); });
+  })();
+</script>

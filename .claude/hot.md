@@ -1,8 +1,8 @@
 ---
 type: meta
 title: "Hot — cleanmuzik"
-updated: 2026-07-13
-last-commit: 6ed1841
+updated: 2026-07-14
+last-commit: 3065731
 tags:
   - meta
   - hot-cache
@@ -20,17 +20,46 @@ CleanMuzik — personal YouTube → Jellyfin music tool. Full description, stack
 live in `CLAUDE.md` and `cleanmuzik-prd.md` (this board holds *volatile state*, not evergreen
 description — see there, don't restate here).
 
-**Phase: R1 IN BUILD — T-001…T-006 done, T-007 next (deferred to next session by owner).** Spec
-signed off, `docs/r1/tickets.md` holds 19 build-ordered tickets. **T-001–T-006 built, reviewed,
-committed + pushed** to `origin/main`. Next: **T-007 (the fingerprint-trust seam — the spine, the
-biggest ticket)** — owner and I will walk the design together next session before building; a
-pre-build walkthrough Artifact is done (URL in session log). See `docs/r1/tickets.md`.
+**Phase: R1 IN BUILD — T-001…T-007 done (T-007 the spine, incl. Door B cover art), committed +
+pushed.** Spec signed off, `docs/r1/tickets.md` holds 19 build-ordered tickets. **T-007 code
+committed + pushed** to `origin/main` (`3065731`); this board + the two primers land in a follow-up
+`docs(hot)` commit. Next: **T-008** (tune the score/gap thresholds on a real sample, write the
+re-measured auto-accept rate back into ADR-006). See `docs/r1/tickets.md`.
 
-## Current State (2026-07-13)
+## Current State (2026-07-14)
 
-- **Branch `main`** — committed **and pushed** to `origin/main` (through T-006, `6ed1841`).
-  Working tree: only this board pending. `server/app/` is now a real 6-stage backend (health / db /
-  beets_engine / download / transcode / **normalize**); agent worktrees cleaned up.
+- **Branch `main`** — **T-007 code committed + pushed** (`3065731`: `import_seam.py` + `artwork.py`
+  + their tests + `requirements.txt` +requests + `docs/r1/tickets.md`). Working tree: this board +
+  the two primers (A1/A2 + README), landing next as `docs(hot)`.
+- **T-007 DONE (uncommitted) — the fingerprint-trust seam + Door B cover art.** The product's spine.
+  `import_seam.py`: subclasses beets `ImportSession`, imports the song as a **singleton**, and
+  `choose_item` runs the ADR-006 gate — **auto-land when the AcoustID fingerprint is dominant
+  (score ≥ 0.90 AND gap ≥ 0.10 to the runner-up) and the winning recording is a beets candidate;
+  else park a `reviews` row + `Action.SKIP`.** Thresholds injectable (T-008 tunes). **158 tests green.**
+  - **Load-bearing finding #1 (resolved the artifact's open question):** beets' `chroma` plugin
+    **computes the AcoustID score then discards it** — keeps only recording MBIDs, so the number
+    ADR-006 gates on never reaches a beets candidate (their `distance` is *tag* distance, the ~0.11
+    floor). The seam recovers it via **its own `acoustid.lookup`** (`fingerprint_dominance`), meta
+    `recordings releases`. Trade-off accepted: 2 lookups/song → the free tier throttles the 2nd →
+    parks-and-(T-011)-retries; the seam **parks-not-crashes** on `AcoustidLookupError`.
+  - **Load-bearing finding #2 → Door B (owner picked "extend T-007 now"):** beets `fetchart` has
+    `if task.is_album:` — it **skips singletons**, so cover art never embeds for us. `artwork.py`
+    fetches the front cover from **Cover Art Archive** (by release MBID, full-res) → **iTunes**
+    fallback (artist-verified), embeds via beets' native `art.embed_item`. Best-effort: never
+    un-lands a track. **Lyrics already worked** (LRCLib, default source; now `synced` on for Jellyfin).
+  - **Verified end-to-end (real song):** a-ha "Take On Me" → **auto-landed** `a‐ha/Take On Me.mp3`,
+    score 0.959, **MP3 320 CBR**, title/artist/year(2010)/genre, **USLT lyrics**, **849 KB CAA cover**.
+    Weak/ambiguous song → parked with 5 candidates. (Genre came out generic "Music" — a lastgenre
+    whitelist cosmetic, minor follow-up, not a blocker.)
+  - **Two `/code-review` high workflow passes, all real findings applied.** Pass 1 (gate, 7 findings):
+    park-not-crash on lookup failure, NoBackendError surfaces loudly (not silent park), landed-receipt
+    settled *after* run() (duplicate-skip no longer lies), bytes→TEXT fsdecode, runner-up = best
+    *different*-recording result. Pass 2 (Door B, 6 applied / 1 rejected): `embed_cover` returns the
+    *truth* (checks the file has art), iTunes artist-verified (no wrong covers), 1200→100px fallback,
+    CAA release cap (≤3, no pipeline stall), PNG test. Rejected: "reuse fetchart sources" (needs fake
+    Album+Candidate machinery — more coupling than a scoped fetch).
+- `server/app/` was a real 6-stage backend (health / db / beets_engine / download / transcode /
+  normalize); **T-007 adds the 7th + 8th: `import_seam` (the gate) + `artwork` (cover art).**
 - **T-006 DONE** (`6ed1841`, pushed) — `normalize.py`: pure `normalize_title(raw, artist=None)`
   between download and the beets seam. Strips promotional bracket/pipe cruft (**token-set** rule: a
   group goes only when *every* word is promo — official/video/audio/lyrics/hd/4k/1080p — so real
@@ -121,6 +150,36 @@ pre-build walkthrough Artifact is done (URL in session log). See `docs/r1/ticket
   skeleton (Express dropped in T-001); the pipeline stages (download/transcode/beets) don't exist yet.
 
 ## Session log
+
+### 2026-07-14 (session 8) — T-007 built: the fingerprint-trust spine + Door B cover art
+
+- **Built T-007, the spine** (uncommitted). De-risked the artifact's open question *first* by reading
+  the installed beets source — found `chroma` **discards** the AcoustID score (keeps only recording
+  MBIDs), so the seam reads it via its **own `acoustid.lookup`**. Wrote `import_seam.py`
+  (`fingerprint_dominance` + `FingerprintTrustSession.choose_item` gate) and `artwork.py`. Two
+  high-effort `/code-review` workflow passes; adjudicated every finding (owned accept/reject).
+- **Owner chose Door B** (finish art+lyrics *in* T-007, not a follow-up) — "the art means so much to
+  me." Root cause: beets `fetchart` skips singletons (`if task.is_album:`). Built `artwork.py`:
+  Cover Art Archive (by release MBID, full-res) → iTunes (artist-verified) → beets-native embed.
+  Explained **ShazamIO is the wrong tool** (it *recognizes* songs, which we already do via AcoustID;
+  unofficial/fragile, dropped per ADR-005) — art comes from CAA/iTunes using the ID we already earned.
+  Lyrics already worked (LRCLib); flipped `synced` on for Jellyfin.
+- **Verified end-to-end on a real song** (a-ha "Take On Me"): auto-landed MP3 320 with
+  title/artist/year/genre + **synced lyrics** + **849 KB Cover Art Archive cover**, zero clicks; weak
+  song parks with candidates. **158 tests green.**
+- **Owner-education:** kept the T-007 walkthrough Artifact in sync (added a "what's the runner-up?"
+  panel + plain-words open-questions), and built **A2 "It filed its first song"** explainer
+  (`https://claude.ai/code/artifact/99232026-d1ba-42a9-97b9-4252f834822a`) — plain-terms status +
+  the Door A/B decision. Both sources versioned under `docs/primers/` (App-stack track in the README).
+- **NEXT:**
+  1. ✅ T-007 committed + pushed (`3065731`). This board + primers land as a follow-up `docs(hot)`.
+  2. **T-008** — tune the score/gap thresholds on a larger real sample; write the measured auto-accept
+     rate back into ADR-006. (The free AcoustID tier throttles the 2nd lookup — T-011 retry/backoff is
+     the designed absorber; note this when measuring.)
+  3. Minor follow-ups (non-blocking): genre canonicalized to a generic "Music" (lastgenre whitelist
+     tuning); the 2-lookups-per-song cost (could reuse chroma's cached fingerprint later).
+  4. Carry-overs still open: "proactively flag learnable moments" → global `~/.claude/CLAUDE.md`;
+     build the **artifact-visual-style skill**, then drop the redundant project-memory copy.
 
 ### 2026-07-13 (session 7) — T-006 normalization done; T-007 walkthrough built, build deferred
 

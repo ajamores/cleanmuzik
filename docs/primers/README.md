@@ -27,5 +27,10 @@ comparison, and the trade-offs made explicit.
 | 04 | NAT & port-forwarding | Why we *don't* expose the server to the internet | — | planned |
 | 05 | Tailscale deep-dive (WireGuard) | Phase 1 remote access | — | planned |
 
-*Beyond networking, this directory can grow primers on the app's own stack (beets & fingerprinting,
-SSE progress, the review queue) if useful — same format.*
+## App-stack track
+
+Not networking — the engine itself. Same format (versioned HTML source + published Artifact).
+
+| # | Primer | Ties to | Read it | Status |
+|---|--------|---------|---------|--------|
+| A1 | **The fingerprint-trust gate** | T-007 — the match confidence gate (ADR-006); the pre-build walkthrough | [open](https://claude.ai/code/artifact/c8ecf382-a996-48bf-a9a7-d6a79051663d) · [source](A1-fingerprint-trust-gate.html) | ✅ built |
