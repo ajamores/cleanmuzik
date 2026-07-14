@@ -2,7 +2,7 @@
 type: meta
 title: "Hot — cleanmuzik"
 updated: 2026-07-14
-last-commit: 3065731
+last-commit: a353ec7
 tags:
   - meta
   - hot-cache
@@ -20,22 +20,54 @@ CleanMuzik — personal YouTube → Jellyfin music tool. Full description, stack
 live in `CLAUDE.md` and `cleanmuzik-prd.md` (this board holds *volatile state*, not evergreen
 description — see there, don't restate here).
 
-**Phase: R1 IN BUILD — T-001…T-007 done (T-007 the spine, incl. Door B cover art), committed +
-pushed.** Spec signed off, `docs/r1/tickets.md` holds 19 build-ordered tickets. **T-007 code
-committed + pushed** to `origin/main` (`3065731`); this board + the two primers land in a follow-up
-`docs(hot)` commit. Next: **T-008** (tune the score/gap thresholds on a real sample, write the
-re-measured auto-accept rate back into ADR-006). See `docs/r1/tickets.md`.
+**Phase: R1 IN BUILD — T-001…T-008 done, committed + pushed.** Spec signed off, `docs/r1/tickets.md`
+holds 19 build-ordered tickets. **T-008 (threshold tuning) committed + pushed** to `origin/main`
+(`a353ec7`). Next: **T-009** (acquire-time duplicate handling — `resolve_duplicate`, keep-better-copy
+tie-break, ambiguous → review) or continue the spine (T-010 Jellyfin scan, T-011 identify retry+
+backoff — which now also owns wiring the owner's AcoustID app key). See `docs/r1/tickets.md`.
 
 ## Current State (2026-07-14)
 
-- **Branch `main`** — **T-007 code committed + pushed** (`3065731`: `import_seam.py` + `artwork.py`
-  + their tests + `requirements.txt` +requests + `docs/r1/tickets.md`). Working tree: this board +
-  the two primers (A1/A2 + README), landing next as `docs(hot)`.
-- **T-007 DONE (uncommitted) — the fingerprint-trust seam + Door B cover art.** The product's spine.
+- **Branch `main`** — **T-008 committed + pushed** (`a353ec7`: `import_seam.py` threshold flip + test
+  split + ADR-006 addendum + learnings + tickets status + primer A3). Working tree: this board,
+  landing next as `docs(hot)`.
+- **T-008 DONE — thresholds tuned on 25 real songs. `SCORE_MIN=0.90` held, `GAP_MIN=0.10→0.0`.**
+  Measured owner-library (15, incl. tag-less bare-title files — the worst case) + a YouTube playlist
+  (10 usable, 5 lost to rate-limit): **22 correct auto-accepts, 0 wrong, 3 genuine no-matches**;
+  correct all 0.955–0.995, no-matches 0.0. **Re-measured auto-accept ≈88%** (vindicates the PRD's
+  ~80%, via fingerprint identity not tag distance) — written into the **ADR-006 addendum**.
+  - **Load-bearing finding — the gap check is dead weight.** A high runner-up was *always* the SAME
+    recording listed twice in AcoustID (a re-release), never a different rival — two different
+    recordings can't both fingerprint-match one audio at ≥0.9. So any gap floor only false-parked
+    *certain* matches (Kanye "Through The Wire": top 0.987 vs a 0.977 duplicate). Gap kept as an
+    injectable knob, **off by default**; the `_matching_candidate` identity check is the real backstop.
+  - **AcoustID key correction (owner caught it).** The board previously called the owner's
+    `ACOUSTID_APIKEY` a *submission* key — WRONG. It's a valid **application/lookup** key (verified,
+    `acoustid.lookup`→status=ok). "Submission" only describes how *beets* uses a provided key. The
+    seam still hardcodes pyacoustid's *shared* built-in app key (`1vOwZtEn`) which throttles hard
+    (5/30 batch lookups rate-limited). **T-011 wires the owner's key into `fingerprint_dominance`**
+    for a private quota + adds retry/backoff. (~3-line change; deferred to keep T-008's commit clean.)
+  - **No-match behaviour clarified (owner asked):** AcoustID returns the exact recording or an EMPTY
+    set — never a ranked list of maybes. The review queue's "maybe this/that" candidates come from a
+    *separate* path (MusicBrainz **title** search), which is why good titles matter and tag-less
+    bare-title files park empty.
+  - **`/code-review` high (workflow, 4 findings):** 2 applied (stale `API_KEY` comment still calling
+    the owner's key "submission"; primer verdict still framing gap as an open call), 1 rejected
+    (GAP_MIN=0.0 near-tie tradeoff — the documented, intended decision), 1 empty. **159 tests green.**
+  - **Primer A3 published** — "Score vs Gap" experiment walkthrough (full-bleed, house style, a
+    real score/gap scatter of all 25 songs). Source: `docs/primers/A3-score-vs-gap-experiment.html`;
+    URL: `https://claude.ai/code/artifact/b2d9e8f0-7902-4f09-979e-bd4e0f908df1`. (Redeploy of the
+    final gap-decided copy was 500-ing on claude.ai at session end — retry; git source is correct.)
+  - **Field note (owner-reported):** yt-dlp fails **opaquely** on a *private* playlist ("invalid
+    URL", no reason) — a playlist must be public/unlisted. In learnings.md + primer A3.
+  - **Measurement harness** (throwaway) lives in the session scratchpad (`measure.py` + `results.csv`):
+    downloads/fingerprints a corpus, reads score+gap+identity with retry/backoff. Reusable if T-011
+    wants to re-measure on the owner's key.
+- **T-007 DONE (committed `3065731`) — the fingerprint-trust seam + Door B cover art.** The spine.
   `import_seam.py`: subclasses beets `ImportSession`, imports the song as a **singleton**, and
   `choose_item` runs the ADR-006 gate — **auto-land when the AcoustID fingerprint is dominant
-  (score ≥ 0.90 AND gap ≥ 0.10 to the runner-up) and the winning recording is a beets candidate;
-  else park a `reviews` row + `Action.SKIP`.** Thresholds injectable (T-008 tunes). **158 tests green.**
+  (now: score ≥ 0.90; gap check off per T-008) and the winning recording is a beets candidate;
+  else park a `reviews` row + `Action.SKIP`.** (Reference detail below; the tuning is T-008 above.)
   - **Load-bearing finding #1 (resolved the artifact's open question):** beets' `chroma` plugin
     **computes the AcoustID score then discards it** — keeps only recording MBIDs, so the number
     ADR-006 gates on never reaches a beets candidate (their `distance` is *tag* distance, the ~0.11
@@ -150,6 +182,41 @@ re-measured auto-accept rate back into ADR-006). See `docs/r1/tickets.md`.
   skeleton (Express dropped in T-001); the pipeline stages (download/transcode/beets) don't exist yet.
 
 ## Session log
+
+### 2026-07-14 (session 9) — T-008: thresholds tuned on 25 real songs; gap switched off
+
+- **Ran the measurement, not a guess.** Built a throwaway harness (scratchpad `measure.py`) and drove
+  **25 real songs** through the fingerprint gate: **15 owner-library files** (deliberately including
+  tag-less, bare-title rips — the worst case) + **10 fresh YouTube rips** from an owner-supplied,
+  deliberately international playlist (5 more lost to rate-limit). Result: **22 correct auto-accepts,
+  0 wrong, 3 genuine no-matches**; correct all 0.955–0.995, no-matches 0.0. **Auto-accept ≈88%.**
+- **The load-bearing finding: the gap check is dead weight.** A high runner-up was *always* the SAME
+  recording listed twice in AcoustID, never a rival — so a gap floor only false-parked certain
+  matches (Kanye "Through The Wire": 0.987 vs a 0.977 duplicate). **`SCORE_MIN=0.90` held,
+  `GAP_MIN=0.10→0.0`** (kept as an off-by-default knob). Written into the **ADR-006 addendum**.
+- **Owner caught a real error.** The board/config called his `ACOUSTID_APIKEY` a *submission* key —
+  wrong. Verified empirically it's a valid **application/lookup** key (own quota). "Submission" only
+  describes how *beets* uses a provided key. The seam still uses pyacoustid's shared built-in key
+  (throttles hard); **T-011 wires his key in + retry/backoff.** Correction saved to learnings.md.
+- **Answered his no-match curiosity:** AcoustID returns the exact recording or an EMPTY set — no
+  ranked maybes. The "maybe this/that" list is a *separate* MusicBrainz title-search path. Bare-title
+  tagless files park empty; a fresh rip parks *with* candidates because it carries its title.
+- **Published primer A3** ("Score vs Gap") — full-bleed house-style walkthrough with a real scatter of
+  all 25 songs; teaches gap-vs-score for a non-tech reader. (Final redeploy 500-ing on claude.ai at
+  session end — retry; git source correct.) Also logged the **private-playlist yt-dlp trap** (owner-
+  reported: fails opaquely as "invalid URL"; must be public/unlisted).
+- **`/code-review` high (workflow):** 4 findings — 2 applied (stale API_KEY comment, primer verdict
+  framing), 1 rejected (GAP_MIN=0.0 tradeoff is the intended decision), 1 empty. **159 tests green.**
+  Committed + pushed `a353ec7`. This board lands as the `docs(hot)` follow-up.
+- **NEXT:**
+  1. **Retry the A3 artifact redeploy** (claude.ai was 500-ing) so the public copy shows the final
+     gap-decided verdict.
+  2. **T-009** — acquire-time duplicate handling (`resolve_duplicate`: keep-better-copy, ambiguous →
+     review), OR continue the spine: **T-010** (Jellyfin scan trigger), **T-011** (identify retry +
+     backoff — now *also* owns wiring the owner's AcoustID app key into `fingerprint_dominance`).
+  3. Carry-overs still open (housekeeping): "proactively flag learnable moments" → global
+     `~/.claude/CLAUDE.md`; build the **artifact-visual-style skill**, then drop the redundant
+     project-memory copy.
 
 ### 2026-07-14 (session 8) — T-007 built: the fingerprint-trust spine + Door B cover art
 
