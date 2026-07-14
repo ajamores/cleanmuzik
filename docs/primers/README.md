@@ -34,3 +34,5 @@ Not networking — the engine itself. Same format (versioned HTML source + publi
 | # | Primer | Ties to | Read it | Status |
 |---|--------|---------|---------|--------|
 | A1 | **The fingerprint-trust gate** | T-007 — the match confidence gate (ADR-006); the pre-build walkthrough | [open](https://claude.ai/code/artifact/c8ecf382-a996-48bf-a9a7-d6a79051663d) · [source](A1-fingerprint-trust-gate.html) | ✅ built |
+| A2 | **It filed its first song** | T-007 done — plain-terms status + the Door A/B decision | [open](https://claude.ai/code/artifact/99232026-d1ba-42a9-97b9-4252f834822a) · [source](A2-first-song-filed.html) | ✅ built |
+| A3 | **Score vs Gap — the auto-accept experiment** | T-008 — tuning the thresholds on 25 real songs (ADR-006 addendum) | [open](https://claude.ai/code/artifact/b2d9e8f0-7902-4f09-979e-bd4e0f908df1) · [source](A3-score-vs-gap-experiment.html) | ✅ built |
