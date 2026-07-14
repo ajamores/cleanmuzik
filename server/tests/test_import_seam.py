@@ -264,9 +264,21 @@ def test_low_score_parks(store):
     assert session.outcomes[-1].action == "parked"
 
 
-def test_narrow_gap_parks(store):
-    # High score but the runner-up is right behind: can't tell the pressings apart.
+def test_narrow_gap_lands_by_default(store):
+    # T-008: the gap check is OFF by default (GAP_MIN = 0.0). A high-score match whose
+    # runner-up is right behind — the "Through The Wire" case, where the runner-up is
+    # the SAME song listed twice in AcoustID — must now LAND, not park. This is the
+    # measured decision: a gap only ever false-parked certain matches.
     session = _session(store, Dominance(0.95, 0.90, ("rec-A",)))
+    choice = session.choose_item(_task(["rec-A"]))
+    assert choice.info.track_id == "rec-A"
+    assert store.list_reviews() == []
+
+
+def test_narrow_gap_parks_when_gap_check_enabled(store):
+    # The gap MECHANISM still works when a caller opts into it (kept as a knob for any
+    # future re-tuning): with gap_min back on, a runner-up right behind parks the song.
+    session = _session(store, Dominance(0.95, 0.90, ("rec-A",)), gap_min=0.10)
     choice = session.choose_item(_task(["rec-A"]))
     assert choice is Action.SKIP
     assert len(store.list_reviews()) == 1

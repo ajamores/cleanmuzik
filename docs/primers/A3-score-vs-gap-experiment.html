@@ -1,0 +1,512 @@
+<title>Score vs Gap — teaching the machine when to trust itself</title>
+<style>
+  :root {
+    --bg:#101317; --bg-2:#171b20; --bg-3:#1e232a; --ink:#e7ebe6; --muted:#8b968d;
+    --line:#2a3038; --green:#3ad07f; --green-ink:#8bf0b6; --amber:#f0ad3c;
+    --amber-ink:#ffd28a; --red:#e5595d; --red-ink:#ff9ea1;
+    --shadow:0 1px 0 rgba(255,255,255,.03), 0 18px 40px -24px rgba(0,0,0,.7);
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", Menlo, Consolas, monospace;
+    --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg:#f2f4ef; --bg-2:#ffffff; --bg-3:#e9ede4; --ink:#171b16; --muted:#5c665c;
+      --line:#d6dcd1; --green:#1c9a58; --green-ink:#0f6f3d; --amber:#a56d13;
+      --amber-ink:#7f5306; --red:#c53539; --red-ink:#9e2b2e;
+      --shadow:0 1px 0 rgba(0,0,0,.02), 0 20px 40px -28px rgba(30,40,30,.4);
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg:#101317; --bg-2:#171b20; --bg-3:#1e232a; --ink:#e7ebe6; --muted:#8b968d;
+    --line:#2a3038; --green:#3ad07f; --green-ink:#8bf0b6; --amber:#f0ad3c;
+    --amber-ink:#ffd28a; --red:#e5595d; --red-ink:#ff9ea1;
+    --shadow:0 1px 0 rgba(255,255,255,.03), 0 18px 40px -24px rgba(0,0,0,.7);
+  }
+  :root[data-theme="light"] {
+    --bg:#f2f4ef; --bg-2:#ffffff; --bg-3:#e9ede4; --ink:#171b16; --muted:#5c665c;
+    --line:#d6dcd1; --green:#1c9a58; --green-ink:#0f6f3d; --amber:#a56d13;
+    --amber-ink:#7f5306; --red:#c53539; --red-ink:#9e2b2e;
+    --shadow:0 1px 0 rgba(0,0,0,.02), 0 20px 40px -28px rgba(30,40,30,.4);
+  }
+
+  * { box-sizing: border-box; }
+  body { margin:0; }
+  .page {
+    background: var(--bg); color: var(--ink);
+    font-family: var(--sans); line-height: 1.58;
+    font-size: clamp(18px, 1.1vw + 13px, 22px);
+    -webkit-font-smoothing: antialiased; overflow-x: hidden;
+  }
+  .wrap { width: min(1320px, 93vw); margin-inline: auto; }
+  section { padding-block: clamp(3.4rem, 7vw, 6.5rem); border-top: 1px solid var(--line); }
+  section:first-of-type { border-top: 0; }
+
+  .eyebrow {
+    font-family: var(--mono); font-size: .82rem; letter-spacing: .22em; text-transform: uppercase;
+    color: var(--green); margin: 0 0 1.4rem; display:flex; align-items:center; gap:.7rem;
+  }
+  .eyebrow::before { content:""; width:2.2rem; height:1px; background:var(--green); }
+  h1 {
+    font-family: var(--mono); font-weight: 600; letter-spacing:-.015em;
+    font-size: clamp(2.6rem, 6vw, 5.2rem); line-height: 1.0; margin: 0; text-wrap: balance;
+  }
+  h2 {
+    font-family: var(--mono); font-weight:600; letter-spacing:-.01em;
+    font-size: clamp(1.7rem, 3vw, 2.7rem); line-height:1.08; margin:0 0 1rem; text-wrap: balance;
+  }
+  h3 { font-family: var(--mono); font-weight:600; font-size:1.15rem; margin:0 0 .5rem; letter-spacing:-.005em; }
+  .lede { font-size: clamp(1.2rem, 1.7vw, 1.6rem); color: var(--muted); max-width: 34ch; margin:1.7rem 0 0; }
+  p { max-width: 66ch; }
+  .kicker { font-family:var(--mono); font-size:.8rem; letter-spacing:.16em; text-transform:uppercase; color:var(--muted); margin:0 0 1.4rem; }
+  strong { color: var(--ink); font-weight: 600; }
+  em { color: var(--green-ink); font-style: normal; }
+  code, .file { font-family: var(--mono); font-size: .84em; background: var(--bg-3); padding:.14em .45em; border-radius:6px; border:1px solid var(--line); color:var(--green-ink); }
+
+  .hero { padding-top: clamp(3.4rem, 8vw, 6rem); }
+  .hero .lede { max-width: 42ch; }
+  .tag-row { display:flex; flex-wrap:wrap; gap:.6rem; margin-top:2rem; }
+  .tag { font-family:var(--mono); font-size:.76rem; letter-spacing:.1em; text-transform:uppercase;
+    color:var(--muted); border:1px solid var(--line); background:var(--bg-2); padding:.45rem .8rem; border-radius:100px; }
+
+  .grid-2 { display:grid; grid-template-columns:1fr 1fr; gap:clamp(1.2rem,3vw,2rem); }
+  @media (max-width:820px){ .grid-2 { grid-template-columns:1fr; } }
+
+  /* Concept cards: the two numbers */
+  .num-card { background:var(--bg-2); border:1px solid var(--line); border-radius:18px; padding:clamp(1.6rem,3vw,2.4rem); box-shadow:var(--shadow); }
+  .num-card .n { font-family:var(--mono); font-size:.78rem; letter-spacing:.16em; text-transform:uppercase; color:var(--green); margin-bottom:.8rem; }
+  .num-card.gap .n { color:var(--amber); }
+  .num-card h3 { font-size:clamp(1.5rem,2.4vw,2rem); margin-bottom:.7rem; }
+  .num-card p { max-width:none; color:var(--muted); margin:.4rem 0 0; }
+  .num-card .analogy { margin-top:1.3rem; padding-top:1.3rem; border-top:1px solid var(--line); font-family:var(--mono); font-size:.95rem; color:var(--ink); line-height:1.5; }
+
+  /* Chart */
+  .chart-frame { background:var(--bg-2); border:1px solid var(--line); border-radius:20px; padding:clamp(1.2rem,2.5vw,2rem); box-shadow:var(--shadow); margin-top:1.8rem; }
+  .chart-frame svg { width:100%; height:auto; display:block; }
+  .legend { display:flex; flex-wrap:wrap; gap:1.4rem; margin-top:1.4rem; font-family:var(--mono); font-size:.82rem; color:var(--muted); }
+  .legend span { display:inline-flex; align-items:center; gap:.5rem; }
+  .dot { width:.85rem; height:.85rem; border-radius:50%; flex:0 0 auto; }
+  .dot.g { background:var(--green); }
+  .dot.a { background:var(--amber); }
+  .dot.r { background:var(--muted); border:1px solid var(--red); }
+
+  /* Callout panel */
+  .panel { background:var(--bg-2); border:1px solid var(--line); border-left:4px solid var(--amber); border-radius:16px;
+    padding:clamp(1.5rem,3vw,2.4rem); box-shadow:var(--shadow); margin-top:1.6rem; }
+  .panel.green { border-left-color:var(--green); }
+  .panel.red { border-left-color:var(--red); }
+  .panel h2, .panel h3 { color:var(--amber-ink); }
+  .panel.green h2, .panel.green h3 { color:var(--green-ink); }
+  .panel.red h2, .panel.red h3 { color:var(--red-ink); }
+  .panel p { color:var(--ink); }
+
+  /* Results table */
+  .table-scroll { overflow-x:auto; margin-top:1.6rem; border:1px solid var(--line); border-radius:14px; }
+  table { border-collapse:collapse; width:100%; font-size:.96rem; min-width:640px; }
+  th, td { text-align:left; padding:.75rem 1rem; border-bottom:1px solid var(--line); }
+  th { font-family:var(--mono); font-size:.74rem; letter-spacing:.1em; text-transform:uppercase; color:var(--muted); background:var(--bg-3); position:sticky; top:0; }
+  td.num { font-family:var(--mono); font-variant-numeric:tabular-nums; text-align:right; }
+  tr:last-child td { border-bottom:0; }
+  .pill { font-family:var(--mono); font-size:.72rem; letter-spacing:.06em; text-transform:uppercase; padding:.22em .6em; border-radius:100px; white-space:nowrap; }
+  .pill.land { color:var(--green-ink); background:color-mix(in srgb, var(--green) 16%, transparent); border:1px solid color-mix(in srgb,var(--green) 40%,var(--line)); }
+  .pill.park { color:var(--amber-ink); background:color-mix(in srgb, var(--amber) 16%, transparent); border:1px solid color-mix(in srgb,var(--amber) 40%,var(--line)); }
+  .pill.none { color:var(--muted); background:var(--bg-3); border:1px solid var(--line); }
+
+  /* Two-path diagram */
+  .paths { display:grid; grid-template-columns:1fr 1fr; gap:1.2rem; margin-top:1.8rem; }
+  @media (max-width:820px){ .paths { grid-template-columns:1fr; } }
+  .path { border:1px solid var(--line); border-radius:16px; padding:clamp(1.4rem,3vw,2rem); background:var(--bg-2); }
+  .path .badge { font-family:var(--mono); font-size:.74rem; letter-spacing:.12em; text-transform:uppercase; color:var(--green); margin-bottom:.8rem; }
+  .path.text .badge { color:var(--amber); }
+  .path ul { margin:.8rem 0 0; padding-left:1.1rem; color:var(--muted); }
+  .path li { margin:.35rem 0; }
+
+  .stat-row { display:grid; grid-template-columns:repeat(4,1fr); gap:1rem; margin-top:1.8rem; }
+  @media (max-width:760px){ .stat-row { grid-template-columns:1fr 1fr; } }
+  .stat { background:var(--bg-2); border:1px solid var(--line); border-radius:14px; padding:1.3rem 1.2rem; }
+  .stat .v { font-family:var(--mono); font-size:clamp(1.8rem,3vw,2.6rem); font-weight:600; letter-spacing:-.02em; line-height:1; color:var(--green-ink); }
+  .stat .k { color:var(--muted); font-size:.86rem; margin-top:.5rem; }
+
+  .verdict { display:grid; grid-template-columns:1fr 1fr; gap:1.2rem; margin-top:1.8rem; }
+  @media (max-width:760px){ .verdict { grid-template-columns:1fr; } }
+  .knob { background:var(--bg-2); border:1px solid var(--line); border-radius:16px; padding:clamp(1.5rem,3vw,2.2rem); }
+  .knob .label { font-family:var(--mono); font-size:.78rem; letter-spacing:.14em; text-transform:uppercase; color:var(--muted); }
+  .knob .val { font-family:var(--mono); font-size:clamp(2rem,4vw,3rem); font-weight:600; margin:.4rem 0; letter-spacing:-.02em; }
+  .knob.keep .val { color:var(--green-ink); }
+  .knob.drop .val { color:var(--amber-ink); }
+  .knob .note { color:var(--muted); font-size:.92rem; margin:.4rem 0 0; max-width:none; }
+  .strike { text-decoration:line-through; color:var(--muted); text-decoration-color:var(--red); }
+
+  footer { border-top:1px solid var(--line); padding-block:2.6rem; color:var(--muted); font-size:.86rem; }
+  footer a { color:var(--green-ink); }
+  .pending { font-family:var(--mono); font-size:.8rem; color:var(--amber); border:1px dashed color-mix(in srgb,var(--amber) 45%,var(--line));
+    background:color-mix(in srgb,var(--amber) 8%,var(--bg-2)); border-radius:100px; padding:.4rem .9rem; display:inline-block; }
+
+  .reveal { opacity:0; transform: translateY(16px); transition: opacity .6s ease, transform .6s ease; }
+  .reveal.in { opacity:1; transform:none; }
+  @media (prefers-reduced-motion: reduce){ .reveal{ opacity:1; transform:none; transition:none; } }
+
+  .theme-toggle { position:fixed; top:1rem; right:1rem; z-index:10; font-family:var(--mono); font-size:.72rem; letter-spacing:.08em;
+    background:var(--bg-2); color:var(--muted); border:1px solid var(--line); border-radius:20px; padding:.42rem .8rem; cursor:pointer; }
+  .theme-toggle:hover{ color:var(--ink); }
+  .theme-toggle:focus-visible { outline:2px solid var(--green); outline-offset:2px; }
+</style>
+
+<div class="page">
+  <button class="theme-toggle" id="themeToggle" aria-label="Toggle colour theme">◐ theme</button>
+
+  <!-- HERO -->
+  <section class="hero">
+    <div class="wrap">
+      <p class="eyebrow">T-008 · The auto-accept experiment</p>
+      <h1>Teaching the machine<br>when to trust itself.</h1>
+      <p class="lede">Every song you download hits one gate: file it silently, or stop and ask you. This is the day we measured exactly how sure "sure enough" should be — on your real music.</p>
+      <div class="tag-row">
+        <span class="tag">25 songs measured</span>
+        <span class="tag">Your library + your playlist</span>
+        <span class="tag">Two numbers: Score &amp; Gap</span>
+        <span class="tag">22 correct · 0 wrong</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- THE GATE -->
+  <section>
+    <div class="wrap">
+      <p class="kicker">Where this fits</p>
+      <div class="grid-2">
+        <div>
+          <h2>One gate, one decision</h2>
+          <p>When CleanMuzik pulls a song off YouTube, it doesn't just guess a name from the title — titles lie. It listens to the actual <strong>sound</strong> and asks a fingerprint service (AcoustID) one question: <em>which exact recording is this?</em></p>
+          <p>If the answer comes back certain, the song is tagged and filed with no clicks from you. If it's shaky, the song is <strong>parked</strong> in a review queue for you to pick. The whole art is drawing that line in the right place — too loose and it files wrong songs; too strict and it bothers you constantly.</p>
+        </div>
+        <div>
+          <div class="panel green">
+            <h3>What we were actually setting</h3>
+            <p>A single dial with two settings — how high the confidence has to be, and how clearly the winner must beat the runner-up. The old values were an educated guess written before we had any data. Today we replaced the guess with measurement.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- THE TWO NUMBERS -->
+  <section>
+    <div class="wrap">
+      <p class="kicker">The two numbers that decide</p>
+      <h2>Score and Gap</h2>
+      <p style="margin-bottom:.5rem">Every fingerprint lookup comes back with a ranked list of possible recordings. We only care about two things from that list.</p>
+      <div class="grid-2" style="margin-top:1.6rem">
+        <div class="num-card">
+          <div class="n">Number one · Score</div>
+          <h3>How sure is the top guess?</h3>
+          <p>A confidence from 0 to 1 for the single best-matching recording. 0.99 means "this is almost certainly that exact recording." 0.30 means "vaguely similar, wouldn't bet on it."</p>
+          <div class="analogy">Like a face-unlock saying "98% sure that's you." High enough, and the phone opens without a passcode.</div>
+        </div>
+        <div class="num-card gap">
+          <div class="n">Number two · Gap</div>
+          <h3>How clearly did it win?</h3>
+          <p>The distance between the top guess and the best <strong>different</strong> song beneath it. A big gap means one clear winner. A tiny gap means two candidates are neck-and-neck — a coin-flip we shouldn't auto-decide.</p>
+          <div class="analogy">Like an election: 98%-to-2% is a mandate. 51%-to-49% is a recount — even if the leader's "score" is high.</div>
+        </div>
+      </div>
+      <p style="margin-top:2rem"><strong>Why both?</strong> A high score alone can still be a near-tie between two versions. The gap is meant to catch that ambiguity and send it to you. That was the theory. Then the data said something more interesting.</p>
+    </div>
+  </section>
+
+  <!-- THE CHART -->
+  <section>
+    <div class="wrap">
+      <p class="kicker">Every song, plotted</p>
+      <h2>Where your music actually landed</h2>
+      <p>Each dot is one song. Left-to-right is its <strong>Score</strong> (confidence). Bottom-to-top is its <strong>Gap</strong> (how clearly it won). The green zone — high score, clear gap — is where a song files itself. Watch the one amber dot.</p>
+
+      <div class="chart-frame reveal">
+        <svg viewBox="0 0 1000 660" role="img" aria-label="Scatter plot of song fingerprint score versus gap">
+          <!-- accept zone shading: score >= .90 (x>=873) and gap >= .10 (y<=508) -->
+          <rect x="873" y="40" width="87" height="468" fill="var(--green)" opacity="0.10"></rect>
+          <!-- park-by-gap zone: score>=.90 but gap<.10 -->
+          <rect x="873" y="508" width="87" height="52" fill="var(--amber)" opacity="0.12"></rect>
+
+          <!-- axes -->
+          <line x1="90" y1="40" x2="90" y2="560" stroke="var(--line)" stroke-width="1.5"></line>
+          <line x1="90" y1="560" x2="960" y2="560" stroke="var(--line)" stroke-width="1.5"></line>
+
+          <!-- gridlines + x labels (score) -->
+          <g font-family="var(--mono)" font-size="15" fill="var(--muted)">
+            <line x1="264" y1="40" x2="264" y2="560" stroke="var(--line)" stroke-width="1" opacity=".4"></line>
+            <text x="264" y="588" text-anchor="middle">0.20</text>
+            <line x1="438" y1="40" x2="438" y2="560" stroke="var(--line)" stroke-width="1" opacity=".4"></line>
+            <text x="438" y="588" text-anchor="middle">0.40</text>
+            <line x1="612" y1="40" x2="612" y2="560" stroke="var(--line)" stroke-width="1" opacity=".4"></line>
+            <text x="612" y="588" text-anchor="middle">0.60</text>
+            <line x1="786" y1="40" x2="786" y2="560" stroke="var(--line)" stroke-width="1" opacity=".4"></line>
+            <text x="786" y="588" text-anchor="middle">0.80</text>
+            <text x="90" y="588" text-anchor="middle">0.00</text>
+            <text x="960" y="588" text-anchor="middle">1.00</text>
+            <text x="525" y="628" text-anchor="middle" fill="var(--ink)" font-size="17">Score  —  confidence in the top match  →</text>
+          </g>
+
+          <!-- y labels (gap) -->
+          <g font-family="var(--mono)" font-size="15" fill="var(--muted)">
+            <text x="76" y="565" text-anchor="end">0.0</text>
+            <text x="76" y="304" text-anchor="end">0.5</text>
+            <text x="76" y="46" text-anchor="end">1.0</text>
+            <text transform="rotate(-90 34 300)" x="34" y="300" text-anchor="middle" fill="var(--ink)" font-size="17">Gap  —  how clearly it won  →</text>
+          </g>
+
+          <!-- threshold: score >= 0.90 -->
+          <line x1="873" y1="30" x2="873" y2="560" stroke="var(--green)" stroke-width="2" stroke-dasharray="7 6"></line>
+          <text x="869" y="26" text-anchor="end" font-family="var(--mono)" font-size="15" fill="var(--green-ink)">Score must clear 0.90 →</text>
+
+          <!-- threshold: the old gap=0.10 line, now switched off (GAP_MIN=0.0) -->
+          <line x1="90" y1="508" x2="960" y2="508" stroke="var(--amber)" stroke-width="2" stroke-dasharray="7 6"></line>
+          <text x="98" y="500" font-family="var(--mono)" font-size="15" fill="var(--amber-ink)">old Gap line: 0.10 (now off)</text>
+
+          <!-- CLUSTER: 12 correct matches (score≈gap, top-right). Slight jitter for legibility. -->
+          <g fill="var(--green)">
+            <circle cx="921" cy="63" r="9"></circle>   <!-- Travis 0.955 -->
+            <circle cx="931" cy="53" r="9"></circle>   <!-- CanYouStand/BBKing/JID 0.966-7 -->
+            <circle cx="943" cy="55" r="9"></circle>
+            <circle cx="939" cy="47" r="9"></circle>   <!-- JAY-Z 0.968 -->
+            <circle cx="939" cy="72" r="9"></circle>
+            <circle cx="938" cy="41" r="9"></circle>   <!-- Monks/Spaceship 0.975-7 -->
+            <circle cx="948" cy="49" r="9"></circle>
+            <circle cx="944" cy="60" r="9"></circle>   <!-- Heard Em Say 0.981 / No One Knows -->
+            <circle cx="950" cy="45" r="9"></circle>
+            <circle cx="949" cy="66" r="9"></circle>   <!-- Gil Scott 0.988 -->
+            <circle cx="956" cy="43" r="9"></circle>   <!-- Under Influence / Slide 0.990-5 -->
+            <circle cx="953" cy="57" r="9"></circle>   <!-- Isaac Hayes 0.990 -->
+            <!-- YouTube corpus (9 matches, gap = score) -->
+            <circle cx="923" cy="68" r="9"></circle>   <!-- Odeal 0.958 -->
+            <circle cx="930" cy="51" r="9"></circle>   <!-- Need to Know 0.967 -->
+            <circle cx="935" cy="61" r="9"></circle>   <!-- Me fui 0.969 -->
+            <circle cx="934" cy="45" r="9"></circle>   <!-- Baile 0.973 -->
+            <circle cx="943" cy="69" r="9"></circle>   <!-- Quero ser feliz 0.978 -->
+            <circle cx="945" cy="38" r="9"></circle>   <!-- No One Knows 0.981 -->
+            <circle cx="947" cy="63" r="9"></circle>   <!-- Hello Miss Johnson 0.982 -->
+            <circle cx="950" cy="52" r="9"></circle>   <!-- On Sum 0.984 -->
+            <circle cx="957" cy="70" r="9"></circle>   <!-- luther 0.993 -->
+          </g>
+          <text x="905" y="98" text-anchor="end" font-family="var(--mono)" font-size="16" fill="var(--green-ink)">22 songs filed instantly</text>
+          <line x1="907" y1="93" x2="928" y2="66" stroke="var(--green-ink)" stroke-width="1" opacity=".6"></line>
+
+          <!-- THROUGH THE WIRE: score 0.987, gap 0.010 -->
+          <circle cx="949" cy="555" r="11" fill="var(--amber)" stroke="var(--bg)" stroke-width="2"></circle>
+          <text x="838" y="548" text-anchor="end" font-family="var(--mono)" font-size="16" fill="var(--amber-ink)">"Through The Wire"</text>
+          <text x="838" y="568" text-anchor="end" font-family="var(--sans)" font-size="14" fill="var(--muted)">correct — but a duplicate copy</text>
+          <text x="838" y="585" text-anchor="end" font-family="var(--sans)" font-size="14" fill="var(--muted)">in the database floors its gap</text>
+          <line x1="845" y1="556" x2="936" y2="555" stroke="var(--amber)" stroke-width="1" opacity=".7"></line>
+
+          <!-- NO MATCHES at origin -->
+          <circle cx="90" cy="560" r="9" fill="var(--bg-3)" stroke="var(--red)" stroke-width="1.6"></circle>
+          <circle cx="106" cy="552" r="9" fill="var(--bg-3)" stroke="var(--red)" stroke-width="1.6"></circle>
+          <circle cx="98" cy="544" r="9" fill="var(--bg-3)" stroke="var(--red)" stroke-width="1.6"></circle>
+          <text x="122" y="540" font-family="var(--mono)" font-size="16" fill="var(--red-ink)">3 songs — not recognised at all</text>
+        </svg>
+        <div class="legend">
+          <span><span class="dot g"></span> Filed automatically</span>
+          <span><span class="dot a"></span> Correct, but the Gap rule would park it</span>
+          <span><span class="dot r"></span> No fingerprint match — parked, empty-handed</span>
+        </div>
+      </div>
+      <p style="margin-top:1.8rem">Look at the shape. The recognised songs don't scatter — they slam into the <strong>far-right wall</strong> (scores 0.955–0.995) or they sit at rock bottom (no match at all). There's almost nothing in the mushy middle. The fingerprint is either sure or silent. That single fact is what makes a clean line possible.</p>
+    </div>
+  </section>
+
+  <!-- THE SURPRISE -->
+  <section>
+    <div class="wrap">
+      <p class="kicker">The finding that changed the dial</p>
+      <h2>When "clear winner" backfires</h2>
+      <div class="grid-2">
+        <div>
+          <p>The amber dot is Kanye's <strong>"Through The Wire."</strong> Its score was <em>0.987</em> — dead certain. But its gap was <strong>0.010</strong>, almost nothing. By the old rule, a gap that small means "too close to call — park it." So a song we're <em>certain</em> about would have been sent to you for review.</p>
+          <p>Why so close? We looked at what the "runner-up" actually was:</p>
+        </div>
+        <div>
+          <div class="panel">
+            <h3>The runner-up was the same song</h3>
+            <p style="font-family:var(--mono); font-size:.92rem; margin-bottom:.8rem">
+              <span style="color:var(--green-ink)">Winner &nbsp;→ Through the Wire — Kanye West · 0.987</span><br>
+              <span style="color:var(--amber-ink)">Runner-up → Through the Wire — Kanye West · 0.977</span>
+            </p>
+            <p>The fingerprint database simply holds <strong>two copies</strong> of the same song — a re-release under a different catalogue entry. They're not rivals. They're the same track twice.</p>
+          </div>
+        </div>
+      </div>
+      <p style="margin-top:2rem"><strong>The lesson:</strong> the Gap rule was built to catch two <em>different</em> songs fighting for the top spot. But fingerprints don't produce that fight — a different song never scores 0.97 against your audio. A high runner-up almost always means "the same song, listed twice." So the Gap penalty mostly punishes the <em>duplicates</em>, which are exactly the matches we're most sure of. The number meant to add safety was quietly costing us certainty.</p>
+    </div>
+  </section>
+
+  <!-- RESULTS TABLE -->
+  <section>
+    <div class="wrap">
+      <p class="kicker">The full library run · 15 songs, no embedded tags</p>
+      <h2>Every song, every number</h2>
+      <p>These are files pulled straight from your month-batch folders — deliberately including ones with <strong>no tags at all</strong>, just a filename. The hardest possible case, and the one this whole design exists for: if the fingerprint carries them, tags never mattered.</p>
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr><th>Song (as the fingerprint identified it)</th><th style="text-align:right">Score</th><th style="text-align:right">Gap</th><th>Outcome</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Under the Influence — Snoh Aalegra</td><td class="num">0.995</td><td class="num">0.995</td><td><span class="pill land">Files itself</span></td></tr>
+            <tr><td>Slide on Me — Frank Ocean</td><td class="num">0.990</td><td class="num">0.990</td><td><span class="pill land">Files itself</span></td></tr>
+            <tr><td>Do Your Thing — Isaac Hayes</td><td class="num">0.990</td><td class="num">0.990</td><td><span class="pill land">Files itself</span></td></tr>
+            <tr><td>Home Is Where the Hatred Is — Gil Scott-Heron</td><td class="num">0.988</td><td class="num">0.988</td><td><span class="pill land">Files itself</span></td></tr>
+            <tr><td>Through the Wire — Kanye West</td><td class="num">0.987</td><td class="num">0.010</td><td><span class="pill park">Old rule: parks ⚠</span></td></tr>
+            <tr><td>Heard 'Em Say — Kanye West</td><td class="num">0.981</td><td class="num">0.981</td><td><span class="pill land">Files itself</span></td></tr>
+            <tr><td>Monks — Frank Ocean</td><td class="num">0.977</td><td class="num">0.977</td><td><span class="pill land">Files itself</span></td></tr>
+            <tr><td>Spaceship — Kanye West</td><td class="num">0.975</td><td class="num">0.975</td><td><span class="pill land">Files itself</span></td></tr>
+            <tr><td>Gotta Have It — JAY-Z, Kanye West</td><td class="num">0.968</td><td class="num">0.968</td><td><span class="pill land">Files itself</span></td></tr>
+            <tr><td>The Thrill Is Gone — B.B. King</td><td class="num">0.967</td><td class="num">0.967</td><td><span class="pill land">Files itself</span></td></tr>
+            <tr><td>Kody Blu 31 — JID</td><td class="num">0.967</td><td class="num">0.967</td><td><span class="pill land">Files itself</span></td></tr>
+            <tr><td>Can You Stand the Rain — Boyz II Men</td><td class="num">0.966</td><td class="num">0.966</td><td><span class="pill land">Files itself</span></td></tr>
+            <tr><td>Drugs You Should Try It — Travis Scott</td><td class="num">0.955</td><td class="num">0.955</td><td><span class="pill land">Files itself</span></td></tr>
+            <tr><td>Questions — <span style="color:var(--muted)">no acoustic match</span></td><td class="num">0.000</td><td class="num">0.000</td><td><span class="pill none">Parks — no match</span></td></tr>
+            <tr><td>Bacc 2 Harlem — <span style="color:var(--muted)">no acoustic match</span></td><td class="num">0.000</td><td class="num">0.000</td><td><span class="pill none">Parks — no match</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="stat-row">
+        <div class="stat"><div class="v">13/13</div><div class="k">recognised songs identified correctly</div></div>
+        <div class="stat"><div class="v">0</div><div class="k">wrong matches — nothing mis-filed</div></div>
+        <div class="stat"><div class="v">0.955</div><div class="k">lowest score among correct matches</div></div>
+        <div class="stat"><div class="v">2</div><div class="k">genuinely unrecognised (correctly parked)</div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- NO MATCHES / TWO PATHS -->
+  <section>
+    <div class="wrap">
+      <p class="kicker">Your question: what about the two it didn't know?</p>
+      <h2>When the fingerprint finds nothing</h2>
+      <p>You asked a sharp question: those two "no match" songs — did the fingerprint at least <em>guess</em>? Could it say "maybe this, maybe that, maybe the other"? We pulled the raw response. The honest answer:</p>
+      <div class="panel red">
+        <h3>No guesses. Just silence.</h3>
+        <p style="font-family:var(--mono); font-size:.92rem">Bacc 2 Harlem → status: ok · results returned: <strong>0</strong></p>
+        <p>AcoustID is not a "closest guess" engine. It doesn't hand back a shortlist of maybes. It either recognises the exact acoustic fingerprint — and gives you the artist, title and releases with it — or it returns an empty set. For these two, the database had never seen that sound. Nothing to offer.</p>
+      </div>
+      <p style="margin-top:2rem"><strong>So where do the "maybe this, maybe that" suggestions come from?</strong> A completely separate path. This is the heart of the review-queue design:</p>
+      <div class="paths">
+        <div class="path">
+          <div class="badge">Path 1 · The fingerprint</div>
+          <h3>Certainty, or nothing</h3>
+          <ul>
+            <li>Listens to the actual audio.</li>
+            <li>Match → exact recording, artist and all. Files itself.</li>
+            <li>No match → total silence. No hints.</li>
+          </ul>
+        </div>
+        <div class="path text">
+          <div class="badge">Path 2 · The title search</div>
+          <h3>The "maybe this, maybe that" list</h3>
+          <ul>
+            <li>Reads the song's <strong>title</strong> and searches MusicBrainz by name.</li>
+            <li>Returns a shortlist of candidates — <em>this exactly</em> is your "maybe this / this / this."</li>
+            <li>Populates the review queue for you to pick from.</li>
+          </ul>
+        </div>
+      </div>
+      <p style="margin-top:2rem">Here's why those two came up empty on <em>both</em> paths: they had no fingerprint match <strong>and</strong> no tags — the filename "Bacc 2 Harlem" was all there was to search, and MusicBrainz didn't know it either. But a fresh YouTube rip is different: it arrives carrying its title (<code>Bad Bunny - Me Fui de Vacaciones</code>), so even when the fingerprint whiffs, the title search still fills your shortlist. <strong>That is why good titles matter, and why the review panel is built around them.</strong></p>
+    </div>
+  </section>
+
+  <!-- PLAYLIST GOTCHA -->
+  <section>
+    <div class="wrap">
+      <p class="kicker">A field note worth keeping</p>
+      <h2>The private-playlist trap</h2>
+      <div class="panel">
+        <h3>A public or unlisted playlist works. A private one fails — silently.</h3>
+        <p>The downloader can't resolve a link to a <strong>private</strong> playlist. And it won't tell you that's the reason — it just throws a generic "invalid URL" and leaves you guessing. If a playlist ever refuses to load, the first thing to check is its visibility setting: switch it to <em>Unlisted</em> and the same link works instantly. An hour lost to this once is an hour never lost again — so it's written down.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- YOUTUBE CORPUS -->
+  <section id="yt">
+    <div class="wrap">
+      <p class="kicker">Second corpus · fresh from your playlist</p>
+      <h2>The real-world run</h2>
+      <p>The library files were the stress test — no tags, worst case. This is the everyday case: songs pulled <strong>live from your playlist</strong>, the exact path you'll use daily. A deliberately international mix — Brazilian, Latin, Amapiano, French rap, UK and US R&B — to find where the fingerprint database thins out.</p>
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr><th>Song (as the fingerprint identified it)</th><th style="text-align:right">Score</th><th style="text-align:right">Gap</th><th>Outcome</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>luther — Kendrick Lamar, SZA</td><td class="num">0.993</td><td class="num">0.993</td><td><span class="pill land">Files itself</span></td></tr>
+            <tr><td>On Sum — TOKiMONSTA, Anderson .Paak, Rae Khalil</td><td class="num">0.984</td><td class="num">0.984</td><td><span class="pill land">Files itself</span></td></tr>
+            <tr><td>Hello Miss Johnson — Jack Harlow</td><td class="num">0.982</td><td class="num">0.982</td><td><span class="pill land">Files itself</span></td></tr>
+            <tr><td>No One Knows — <strong>Brent Faiyaz</strong> <span style="color:var(--muted)">(title said only "No One Knows")</span></td><td class="num">0.981</td><td class="num">0.981</td><td><span class="pill land">Files itself</span></td></tr>
+            <tr><td>Quero ser feliz também — Natiruts <span style="color:var(--muted)">(live)</span></td><td class="num">0.978</td><td class="num">0.978</td><td><span class="pill land">Files itself</span></td></tr>
+            <tr><td>Baile Inolvidable — Bad Bunny</td><td class="num">0.973</td><td class="num">0.973</td><td><span class="pill land">Files itself</span></td></tr>
+            <tr><td>Me fui de vacaciones — Bad Bunny</td><td class="num">0.969</td><td class="num">0.969</td><td><span class="pill land">Files itself</span></td></tr>
+            <tr><td>The Need to Know — Wale, SZA</td><td class="num">0.967</td><td class="num">0.967</td><td><span class="pill land">Files itself</span></td></tr>
+            <tr><td>London Summers — Odeal</td><td class="num">0.958</td><td class="num">0.958</td><td><span class="pill land">Files itself</span></td></tr>
+            <tr><td>Masithokoze — DJ Stokie <span style="color:var(--muted)">(Amapiano)</span></td><td class="num">0.000</td><td class="num">0.000</td><td><span class="pill none">Parks — no match</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="grid-2" style="margin-top:1.8rem">
+        <div class="panel green">
+          <h3>The title lied; the sound didn't</h3>
+          <p>Your playlist had a track titled only <em>"No One Knows"</em> — that could be Queens of the Stone Age or a dozen others. The fingerprint ignored the name and identified the actual audio as <strong>Brent Faiyaz</strong> at 0.981. This is the entire point of fingerprint-first: names are guesses, sound is proof.</p>
+        </div>
+        <div class="panel">
+          <h3>Where coverage thins</h3>
+          <p>Every genre landed — Brazilian, Latin, US and UK R&B — <em>except</em> the Amapiano track, which the database had simply never catalogued. That's not a bug; it's the honest edge of what a fingerprint can know, and exactly why the review queue exists to catch it.</p>
+        </div>
+      </div>
+      <div class="panel red" style="margin-top:1.6rem">
+        <h3>An honest footnote on this run</h3>
+        <p>Five more playlist songs aren't in this table — not because they failed to match, but because the <strong>free fingerprint tier rate-limited us into the ground</strong>. Nearly every lookup had to be retried, and five never got an answer at all. That throttling is its own finding: the everyday app will need patient retries and, ideally, its own dedicated fingerprint key — noted for the next ticket.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- VERDICT -->
+  <section>
+    <div class="wrap">
+      <p class="kicker">Where the dial lands</p>
+      <h2>The tuned settings</h2>
+      <p>From the data, not a guess. One setting held; one was rethought.</p>
+      <div class="verdict">
+        <div class="knob keep">
+          <div class="label">Score must clear</div>
+          <div class="val">0.90</div>
+          <p class="note"><strong>Held.</strong> Every correct match scored 0.955 or higher; every non-match sat at 0.000. A clean, wide no-man's-land between them — 0.90 sits comfortably in the middle with room to spare.</p>
+        </div>
+        <div class="knob drop">
+          <div class="label">Gap must clear</div>
+          <div class="val"><span class="strike">0.10</span> &rarr; 0.0</div>
+          <p class="note"><strong>Switched off.</strong> A gap requirement only ever parked certain matches whenever the database lists a song twice ("Through The Wire") — across all 25 songs it never once caught a real mistake. So the gap is set to zero: the score decides on its own. It stays in the code as a dial we can turn back on if real-world use ever proves it's needed.</p>
+        </div>
+      </div>
+      <p style="margin-top:2rem; color:var(--muted)">The point of the experiment wasn't to pick two numbers. It was to stop guessing them — to let your own music, tags and all (or no tags at all), tell us where the line belongs.</p>
+    </div>
+  </section>
+
+  <footer>
+    <div class="wrap">
+      <p>CleanMuzik · Primer A3 — the Score-vs-Gap experiment (T-008). Ties to ADR-006, the fingerprint-trust gate. Companion to <a href="#">A1 · the fingerprint-trust gate</a> and <a href="#">A2 · it filed its first song</a>. Numbers measured on 2026-07-14 against your real library and playlist.</p>
+    </div>
+  </footer>
+</div>
+
+<script>
+  (function () {
+    var root = document.documentElement, btn = document.getElementById('themeToggle');
+    btn.addEventListener('click', function () {
+      var cur = root.getAttribute('data-theme');
+      if (!cur) cur = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+      root.setAttribute('data-theme', cur === 'dark' ? 'light' : 'dark');
+    });
+    var io = new IntersectionObserver(function (es) {
+      es.forEach(function (e) { if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); } });
+    }, { threshold: 0.12 });
+    document.querySelectorAll('.reveal').forEach(function (el) { io.observe(el); });
+  })();
+</script>

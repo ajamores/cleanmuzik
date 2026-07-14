@@ -113,7 +113,7 @@ side effect for pipeline tickets, transcribe corrections to `docs/learnings.md`.
   and nothing lands. (Spec §7 dominant auto-tags zero clicks; landed-file tags; weak → review.)
 
 ### T-008 — Tune + record fingerprint score/gap thresholds
-- **Status:** todo
+- **Status:** done (2026-07-14; measured 25 real songs — owner library + YouTube playlist. **22 correct auto-accepts, 0 wrong, 3 genuine no-matches**; correct matches all 0.955–0.995, no-matches 0.0. Tuned: **SCORE_MIN=0.90 held, GAP_MIN=0.0** — the gap check never once helped (a high runner-up was always the same song listed twice in AcoustID), kept as an off-by-default knob. Re-measured auto-accept ≈88%, written into ADR-006 addendum. Experiment published as primer A3. Findings + AcoustID-key correction transcribed to learnings.md.)
 - **Depends on:** T-007
 - **Agent:** build
 - **What:** The ADR-006 build-time knob. Run a **larger sample** of real YouTube songs through

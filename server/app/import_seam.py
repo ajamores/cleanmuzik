@@ -37,9 +37,9 @@ optimization, not a correctness issue.
   table (T-002) and return `Action.SKIP`, which leaves the disk untouched and
   parks the row. Non-blocking: the batch is never stalled by a weak match.
 
-Thresholds default to the ADR-006 starting guess (0.90 / 0.10) but are injectable
-per session — T-008 tunes them on a real sample and writes the number back into
-the ADR. This module never lowers beets' global `strong_rec_thresh` (ADR-006).
+Thresholds are the T-008-measured values (score ≥ 0.90; the gap check retained but
+off by default) and stay injectable per session for tests and any future re-tuning.
+This module never lowers beets' global `strong_rec_thresh` (ADR-006).
 """
 
 import logging
@@ -59,15 +59,25 @@ from app.db import Review, Store
 
 logger = logging.getLogger("cleanmuzik")
 
-# beets' built-in AcoustID *application* key — the same one `chroma` uses for
-# lookups (proven in the spike). The owner's optional `acoustid_apikey` is a
-# submission key, not an app key, so lookups use this regardless.
+# pyacoustid's *shared built-in* AcoustID application key — the same one beets'
+# `chroma` uses for its own lookups. It works with no owner setup, but it's pooled
+# across every pyacoustid user, so it throttles hard under load (T-008 measurement:
+# 5 of 30 batch lookups rate-limited). The owner's `acoustid_apikey` is ALSO a valid
+# application / lookup key with its own private quota (verified 2026-07-14,
+# `acoustid.lookup` → status=ok) — T-011 wires it in here to replace this shared key
+# and adds retry/backoff. Until then this default keeps the seam working key-free.
 API_KEY = "1vOwZtEn"
 
-# ADR-006 dominance thresholds — a starting guess, not gospel. T-008 measures the
-# real auto-accept rate on a batch and writes the tuned numbers back into the ADR.
-SCORE_MIN = 0.90  # the top match's acoustic score must be at least this
-GAP_MIN = 0.10  # ...and lead the runner-up result by at least this
+# ADR-006 dominance thresholds — SET BY T-008 measurement (25 real songs across the
+# owner's library + a YouTube playlist, 2026-07-14), not a guess. See docs/r1/adr.md.
+SCORE_MIN = 0.90  # every correct match measured ≥ 0.955, every non-match = 0.0 — a
+#                   clean, wide split with room to spare at 0.90.
+GAP_MIN = 0.0  # gap-to-runner-up is kept as a knob but OFF by default: across all 25
+#                songs a high runner-up was only ever the SAME song listed twice in
+#                AcoustID (a re-release), never a different rival — so any gap
+#                requirement only false-parked matches we were certain of. Raise this
+#                only if real use ever surfaces two genuinely different recordings both
+#                scoring ≥ SCORE_MIN (never observed in the sample).
 
 # We need recording MBIDs (the identity) AND releases (so Door B's cover-art step
 # can look art up on the Cover Art Archive by release MBID).

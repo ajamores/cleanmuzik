@@ -61,3 +61,28 @@ Format: `- <date> — what went wrong → the correction / rule now in place`
   recording MBID to a candidate `TrackInfo` via the loaded plugin's `track_for_id(mbid)`. Also:
   AcoustID can return recording MBIDs that 404 at live MusicBrainz (merged/removed) — expected data
   drift, not a wiring bug; other candidates still resolve.
+- 2026-07-14 — (T-008) The **gap-to-runner-up** check is dead weight for fingerprint auto-accept.
+  Measured on 25 real songs: a high runner-up was *always* the SAME recording listed twice in
+  AcoustID (a re-release/duplicate submission), never a different rival — two genuinely different
+  recordings don't both fingerprint-match one audio at ≥0.9. So a gap floor only ever false-parks
+  matches you're certain of (canonical: Kanye "Through The Wire" — top 0.987 vs a 0.977 *duplicate*).
+  Decision: `SCORE_MIN=0.90`, `GAP_MIN=0.0` (gap kept as an injectable knob, off by default). The
+  real safety is the `_matching_candidate` identity check, not the gap. (→ ADR-006 addendum)
+- 2026-07-14 — (T-008) **AcoustID "no match" = an empty result set, not a ranked list of maybes.**
+  AcoustID is not a nearest-neighbour recommender: it returns the exact recording (artist/title/
+  releases) or `results: []`. The review queue's "maybe this / that" candidates come from a *separate*
+  path — a MusicBrainz **text search on the title** — not from the fingerprint. So a song with no
+  fingerprint match AND no usable title/tags parks *empty*; a fresh YouTube rip parks with candidates
+  because it still carries its title. This is why good titles matter and the review panel is title-driven.
+- 2026-07-14 — (T-008) **AcoustID key terminology is a trap.** The credential from
+  acoustid.org/new-application ("register an application") is an **application / lookup** key — valid
+  for `acoustid.lookup`, with its own rate-limit quota (verified with the owner's 10-char key,
+  `status=ok`). beets calls a user-supplied key "submission" only because its *own* code uses a
+  provided key just for `beet submit` and does internal lookups on beets' built-in key — that's a
+  beets behaviour, not a property of the key. Our seam hardcodes pyacoustid's **shared** built-in
+  app key (`1vOwZtEn`) for its lookup, which throttles hard under load; point it at the owner's app
+  key for a private quota. (→ ADR-006 addendum; T-011)
+- 2026-07-14 — (T-008, field note) **yt-dlp fails opaquely on a private playlist** — it throws a
+  generic "invalid URL" / can't-resolve error with no hint that visibility is the cause. A playlist
+  must be **public or unlisted** to resolve. First thing to check when a playlist won't load: its
+  privacy setting. (Owner-reported; hours lost to it once.)
