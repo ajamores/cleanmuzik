@@ -95,7 +95,7 @@ side effect for pipeline tickets, transcribe corrections to `docs/learnings.md`.
   candidate; unit tests cover the cruft patterns. (Spec §2 title normalization.)
 
 ### T-007 — beets import seam: ImportSession subclass + fingerprint-trust gate (ADR-006)
-- **Status:** todo
+- **Status:** done — uncommitted (2026-07-14; two `/code-review` high workflow passes applied. Open question RESOLVED — beets' chroma **discards** the AcoustID score, so the seam reads it via its own `acoustid.lookup`. **Door B**: added singleton cover art (`artwork.py`, CAA→iTunes) since `fetchart` skips singletons. Verified end-to-end: a-ha "Take On Me" auto-landed MP3 320 + tags + synced lyrics + CAA cover; weak song parked. 158 tests green.)
 - **Depends on:** T-002, T-003, T-005, T-006
 - **Agent:** build
 - **What:** The product's spine. Subclass `beets.importer.ImportSession`, import the file **as a
