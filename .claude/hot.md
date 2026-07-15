@@ -1,8 +1,8 @@
 ---
 type: meta
 title: "Hot — cleanmuzik"
-updated: 2026-07-14
-last-commit: 6e8f205
+updated: 2026-07-15
+last-commit: 2c3c3d9
 tags:
   - meta
   - hot-cache
@@ -20,17 +20,57 @@ CleanMuzik — personal YouTube → Jellyfin music tool. Full description, stack
 live in `CLAUDE.md` and `cleanmuzik-prd.md` (this board holds *volatile state*, not evergreen
 description — see there, don't restate here).
 
-**Phase: R1 IN BUILD — T-001…T-008 + T-011 done, committed (push pending).** Spec signed off,
-`docs/r1/tickets.md` holds 19 build-ordered tickets. **T-011 (identify retry+backoff + owner AcoustID
-key) committed** (`1c3b952`); intro primer committed (`6e8f205`). Next: **T-009** (acquire-time
-duplicate handling — `resolve_duplicate`, keep-better-copy tie-break, ambiguous → review) or **T-010**
-(Jellyfin scan trigger — the one remaining spine sibling that gates Phase B / T-012). See
-`docs/r1/tickets.md`.
+**Phase: R1 IN BUILD — Phase A engine spine COMPLETE. T-001…T-011 all done, committed + pushed.**
+Spec signed off, `docs/r1/tickets.md` holds 19 build-ordered tickets. **T-009 (acquire-time
+duplicate handling) committed** (`2c3c3d9`) — the last spine sibling. Next is **Phase B**: **T-012**
+(worker-thread job queue + `/api/jobs` routes; wires every stage — download → transcode → normalize →
+identify/tag/art → Jellyfin scan — into one sequential run). T-012 is the next *big* ticket and the
+first time the whole pipeline runs end-to-end as a job; keep it **solo** (it's the integration point).
+The one genuine fan-out pocket is later: after T-012, **T-013 (server SSE) ∥ T-015 (client paste+Go)**
+are disjoint (server vs `client/`). See `docs/r1/tickets.md`.
 
-## Current State (2026-07-14)
+## Current State (2026-07-15)
 
-- **Branch `main`** — **T-011 + intro primer committed** (`1c3b952`, `6e8f205`); this board lands
-  next as `docs(hot)`. **Push pending** (owner asked to push this session — do it).
+- **Branch `main` == `origin/main`** — session-10's pending push landed (`53bea61`), then **T-009
+  committed + pushed** (`2c3c3d9`). This board lands next as `docs(hot)`.
+- **T-009 DONE — acquire-time duplicate handling (`get_duplicate_action`), NON-DESTRUCTIVE (ADR-009).**
+  The 2.12 hook is `get_duplicate_action(task, found_duplicates)`, not the ticket's older
+  `resolve_duplicate` name. Detection by **MusicBrainz recording id** (`duplicate_keys.item =
+  mb_trackid`) — complete for R1 by construction (every landed copy has an MBID; untagged legacy
+  files are R2 migrate input). **R1 never auto-deletes the owner's file** — quality is a *partial
+  order* on `(bitrate, tag richness)`: keep existing (`SKIP`) when an existing copy *covers* the
+  incoming one on **both** axes; else **park to review** ("you already have this — keep which?").
+  Owner picked non-destructive (the recommended option); auto-replace (copy-first/delete-after) is
+  deferred to R2. **184 tests green** (+8 dup tests). ADR-009 recorded; spec §5 + tickets updated.
+  - **`/code-review` high (workflow): 4 findings, all mine, all confirmed, all handled.** The
+    load-bearing one (#1): my first cut returned `DuplicateAction.REMOVE`, but beets 2.12
+    `manipulate_files` **deletes the old file before it copies the new one** — a copy failure loses
+    BOTH. That data-loss window drove the whole non-destructive rework. #3: `get_duplicate_action`
+    runs *before* beets applies tags, so reading the incoming item's "completeness" was pre-apply —
+    the partial-order/cover model makes that read *correct* (a bare download can only fail to cover a
+    tagged copy, never wrongly displace it). #2: mb_trackid-only misses untagged legacy copies —
+    documented as R1-scoped. #4: folded `_park`/`_park_duplicate` into `_record_review`. → learnings.md.
+  - **Verify note:** decision logic proven by unit tests (cover → skip; upgrade/trade-off → review;
+    one-outcome bookkeeping); detection-by-mbid proven against real beets (`duplicates_query` on
+    `mb_trackid` matches a committed row; a different recording does not). A full live re-paste
+    end-to-end rides with **T-012/T-019** (needs the job pipeline to drive two real downloads).
+- **T-010 DONE — Jellyfin scan trigger (`server/app/jellyfin.py`).** `trigger_scan()` POSTs
+  Jellyfin's `/Library/Refresh` with `X-Emby-Token` auth after a track lands so it appears in
+  seconds. Three-way contract (spec §6): **True** = scan requested; **False** = degraded (missing OR
+  whitespace-only `JELLYFIN_URL`/`_API_KEY` → logged warning, track still landed — "absent is not a
+  failure"); **raise `JellyfinScanError`** = config present but the call failed, so T-012 can emit
+  `track.error` stage=`scan`. **Not yet wired into a job run — that's T-012**, which lists T-010 as a
+  dep.
+  - **Verified against LIVE Jellyfin** (real `.env` key): valid → 204 → True; bad key → 401 →
+    `JellyfinScanError`. Gotcha logged to learnings.md: **`localhost` from WSL2 can't reach the
+    Windows-hosted Jellyfin** (separate net namespace) — probe the WSL2 gateway IP
+    (`ip route show default`, was `172.20.0.1`, not stable) via `settings.model_copy`; the `.env`
+    stays `localhost` because the app runs on Windows in Phase 0.
+  - **`/code-review` high (workflow):** 5 findings — **4 applied** (whitespace-only config degrades;
+    both-absent warning now names *both* vars; class-docstring de-dup vs the module docstring; the two
+    degrade tests parametrized), **1 rejected** (requests-only `except` is the house HTTP convention,
+    matches `artwork.py`; injected `http` is a requests-shaped double). **9 Jellyfin tests, suite 176
+    green.**
 - **T-011 DONE — identify retry/backoff + owner AcoustID key wired.** `import_seam.py`: retry only the
   *lookup* (fingerprint generated once) with exponential **1→2→4s** backoff on transient
   `AcoustidLookupError`; `_resolve_api_key(settings)` picks the owner's `acoustid_apikey` (private
@@ -211,6 +251,39 @@ duplicate handling — `resolve_duplicate`, keep-better-copy tie-break, ambiguou
   skeleton (Express dropped in T-001); the pipeline stages (download/transcode/beets) don't exist yet.
 
 ## Session log
+
+### 2026-07-15 (session 11) — T-009 duplicate handling; Phase A spine complete
+
+- **Pushed session-10's backlog** — `53bea61` (T-010) was committed-not-pushed; pushed it, then
+  `main` == `origin/main`.
+- **Discussed the fan-out question first** (owner asked if a parallel pocket was coming). Mapped the
+  remaining dependency graph: the rest of R1 is mostly a serial chain, NOT the wide leaf-set that made
+  the T-002/03/04 fan-out clean. T-009 solo, **T-012 solo by design** (it's the integration keystone —
+  parallelizing the thing that stitches the others is a merge mess), and the one genuine pocket is
+  **T-013 (server SSE) ∥ T-015 (client paste+Go)** after T-012. Recorded in the phase line above.
+- **Built T-009** (`2c3c3d9`) — acquire-time duplicate handling; **the spine's last sibling, so
+  Phase A is now complete.** Read the beets 2.12 importer to find the real hook is
+  `get_duplicate_action` (not the ticket's `resolve_duplicate`), that it fires *before* the file is
+  copied/added (so a SKIP leaves no phantom), and that REMOVE deletes-before-copies.
+  - **First cut had a data-loss bug I introduced; the review caught it.** `/code-review` high
+    (workflow) returned 4 findings, all confirmed: the destructive REMOVE window (#1, load-bearing),
+    a pre-apply tag read (#3), mb_trackid detection scope (#2), and a park-path dup (#4). #1 drove a
+    full rework to a **non-destructive** design (never auto-delete; cover-based partial order; upgrade
+    → review). Adjudicated + fixed all four. **184 tests green.** Two learnings transcribed.
+  - **Surfaced the spec deviation to the owner** (spec §5 said "drop the other"). Owner chose the
+    **non-destructive** option (the one I recommended). Recorded as **ADR-009**; annotated spec §5 and
+    tickets so code and the signed-off spec don't silently disagree.
+- **NEXT:**
+  1. **T-012 — Phase B keystone: worker-thread job queue + `/api/jobs` routes.** Wires every stage
+     into one sequential run (ADR-001), creates the job row before the pipeline (import_song's FK
+     precondition), owns staging cleanup + the playlist-422, and is where a full **live re-paste**
+     verify of T-009 finally becomes drivable. Keep it **solo** (integration point).
+  2. After T-012: the **T-013 ∥ T-015** fan-out (server SSE + client shell, disjoint), then T-016
+     (convergence) → T-014 → T-017.
+  3. Optional cheap confidence: a targeted re-review of T-009's reworked non-destructive path (I
+     changed the model substantially mid-ticket; tests cover it, an extra pass is cheap).
+  4. Carry-overs (housekeeping): "proactively flag learnable moments" → global `~/.claude/CLAUDE.md`;
+     build the **artifact-visual-style skill**, then drop the redundant project-memory copy.
 
 ### 2026-07-14 (session 10) — T-011 retry/backoff + owner key; intro primer; A3 redeployed
 
