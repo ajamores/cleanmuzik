@@ -98,3 +98,12 @@ Format: `- <date> — what went wrong → the correction / rule now in place`
   retryable `AcoustidLookupError`. Denylist not allowlist, so an unrecognised code errs toward retry
   (harmless wasted backoff), never toward hammering a doomed key. Also: retry the *lookup* only —
   the fingerprint is deterministic local work, generate it once. (→ `server/app/import_seam.py`)
+- 2026-07-14 — (T-010, verification field note) **`localhost` from WSL2 does not reach a
+  Windows-hosted service.** Jellyfin runs native on Windows (ADR-008) at `localhost:8096`, but WSL2
+  has its own network namespace, so from WSL `localhost:8096` gets connection-refused. Reach the
+  Windows host at the WSL2 gateway IP — `ip route show default | awk '{print $3}'` (was `172.20.0.1`
+  this session; it is **not stable** across reboots, so derive it, don't hardcode). This is a
+  *verification-environment* quirk only: on the Phase-0 laptop the app itself runs on Windows where
+  the configured `localhost` is correct, so the `.env` value stays `http://localhost:8096` — only
+  in-WSL manual `/verify` probes need the gateway override (via `settings.model_copy`). (→
+  `server/app/jellyfin.py`)
