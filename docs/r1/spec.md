@@ -123,12 +123,16 @@ some of it is tempting to fold in now.
   **pick alternate**, **reject** (discard). Resolving re-runs the import applying the chosen
   MusicBrainz candidate (re-matched from the stored candidate **ID**, not a cached object). The
   queue is SQLite-backed and survives a restart.
-- **Duplicate handling, acquire-time.** On import beets' `resolve_duplicate(task)` fires when the
-  incoming song matches one already in the library (by MusicBrainz ID — catches the same song under
-  a different filename). **Clear case:** auto-keep the better copy and drop the other. **Tie-break:**
-  higher bitrate wins; on equal bitrate, the copy with more complete tags wins; still ambiguous →
-  **review queue** (same UI, "these two look identical — keep which?"). Full cross-library dedup by
-  acoustic fingerprint is R2.
+- **Duplicate handling, acquire-time.** On import beets' `get_duplicate_action(task,
+  found_duplicates)` fires when the incoming song matches one already in the library (by MusicBrainz
+  ID — catches the same song under a different filename). **R1 is non-destructive and never
+  auto-deletes an existing file (ADR-009, T-009 build decision — supersedes the "drop the other"
+  wording below):** keep the existing copy when it *covers* the incoming one (at least as good on
+  **both** bitrate and tag richness); otherwise **park to the review queue** ("you already have this
+  — keep which?") for the owner to confirm. The original intent — *auto-keep the better copy and drop
+  the other; tie-break higher bitrate, then more complete tags, still ambiguous → review* — held a
+  data-loss window (beets deletes before it copies), so auto-replace (copy-first/delete-after) is
+  deferred to **R2 migrate**. Full cross-library dedup by acoustic fingerprint is also R2.
 - **Failure of one stage.** Any stage error (download, transcode, identify, tag, land, scan) emits
   a per-track `track.error` event naming the stage and a human-readable message, and the staging
   file is removed. AcoustID is flaky/rate-limited — the identify stage **retries with backoff**

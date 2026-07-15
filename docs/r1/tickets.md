@@ -124,8 +124,8 @@ side effect for pipeline tickets, transcribe corrections to `docs/learnings.md`.
   written into `docs/r1/adr.md`. (ADR-006 "must be re-measured … once the fingerprint-trust rule
   exists".)
 
-### T-009 — Acquire-time duplicate handling (`resolve_duplicate`)
-- **Status:** todo
+### T-009 — Acquire-time duplicate handling (`get_duplicate_action`)
+- **Status:** done — non-destructive per ADR-009 (never auto-deletes; upgrade/trade-off → review)
 - **Depends on:** T-007
 - **Agent:** build
 - **What:** Override `resolve_duplicate(task)`: when the incoming song matches one already in the

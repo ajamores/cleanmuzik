@@ -501,3 +501,155 @@ def test_art_failure_does_not_unland_the_track(store):
 
     assert outcomes[-1].action == "landed"  # still landed
     assert outcomes[-1].art_embedded is False
+
+
+# --- T-009: acquire-time duplicate handling (get_duplicate_action) -----------
+#
+# The song already exists in the library. R1 is deliberately NON-destructive: it
+# never auto-deletes the owner's file. get_duplicate_action keeps the existing copy
+# (SKIP) whenever an existing copy *covers* the incoming one — at least as good on
+# both bitrate AND tag richness — and otherwise parks it for the owner to choose
+# ("keep which?"). These run offline: a SimpleNamespace stands in for a beets Item
+# (getattr is all the quality helpers touch), against the real temp Store so a
+# parked row is real.
+
+
+def _dup_item(bitrate, *, mb_trackid="rec-A", **tags):
+    """A stand-in for a library/staged item: bitrate + whatever tags a test sets.
+
+    Carries `path` too so the same double works as a task's staged item when a test
+    routes through choose_item (which reads task.item.path)."""
+    return SimpleNamespace(
+        bitrate=bitrate, mb_trackid=mb_trackid, path=b"/staging/song.mp3", **tags
+    )
+
+
+def _dup_task(bitrate, *, track_ids=("rec-A",), mb_trackid="rec-A", **tags):
+    return SimpleNamespace(
+        item=_dup_item(bitrate, mb_trackid=mb_trackid, **tags),
+        candidates=[_candidate(t) for t in track_ids],
+        rec=Recommendation.medium,
+    )
+
+
+def test_duplicate_existing_covers_keeps_existing(store):
+    # The everyday re-paste: same 320 bitrate, the existing copy already MB-tagged,
+    # the fresh download barer. Existing covers it on both axes → keep existing, drop
+    # the redundant new copy. No review nag, no second copy (spec §7).
+    session = _session(store, Dominance(0.97, 0.30, ("rec-A",)))
+    task = _dup_task(320000, artist="A", title="T")
+    existing = _dup_item(320000, artist="A", title="T", album="Al", year=2010)
+
+    action = session.get_duplicate_action(task, [existing])
+
+    assert action is seam.DuplicateAction.SKIP
+    assert store.list_reviews() == []
+
+
+def test_duplicate_lower_bitrate_keeps_existing(store):
+    # New copy is worse on bitrate and no richer → existing covers it → keep existing.
+    session = _session(store, Dominance(0.97, 0.30, ("rec-A",)))
+    task = _dup_task(128000, artist="A", title="T", album="Al")
+    existing = _dup_item(320000, artist="A", title="T", album="Al")
+
+    action = session.get_duplicate_action(task, [existing])
+
+    assert action is seam.DuplicateAction.SKIP
+    assert store.list_reviews() == []
+
+
+def test_duplicate_exact_tie_keeps_existing(store):
+    # Byte-for-byte tie (equal bitrate AND equal tags): existing covers (>= on both),
+    # so keep it — an identical re-paste must NOT nag the owner with a review.
+    session = _session(store, Dominance(0.97, 0.30, ("rec-A",)))
+    task = _dup_task(320000, artist="A", title="T", album="Al")
+    existing = _dup_item(320000, artist="A", title="T", album="Al")
+
+    action = session.get_duplicate_action(task, [existing])
+
+    assert action is seam.DuplicateAction.SKIP
+    assert store.list_reviews() == []
+
+
+def test_duplicate_higher_bitrate_parks_for_review(store):
+    # New copy is a genuine upgrade (higher bitrate). R1 never auto-deletes the old
+    # file, so instead of destructively replacing it, hand the choice to the owner.
+    session = _session(store, Dominance(0.97, 0.30, ("rec-A",)))
+    task = _dup_task(320000, artist="A", title="T", album="Al")
+    existing = _dup_item(256000, artist="A", title="T", album="Al")
+
+    action = session.get_duplicate_action(task, [existing])
+
+    assert action is seam.DuplicateAction.SKIP  # never REMOVE — no auto-delete
+    assert len(store.list_reviews()) == 1
+    assert session.outcomes[-1].action == "parked"
+
+
+def test_duplicate_incomparable_trade_off_parks_for_review(store):
+    # Each wins an axis: existing has richer tags, the incoming has the higher
+    # bitrate. Neither covers the other → genuinely "keep which?" → park.
+    session = _session(store, Dominance(0.97, 0.30, ("rec-A",)))
+    task = _dup_task(320000, artist="A", title="T")  # higher bitrate, barer
+    existing = _dup_item(300000, artist="A", title="T", album="Al", year=2010)
+
+    action = session.get_duplicate_action(task, [existing])
+
+    assert action is seam.DuplicateAction.SKIP
+    assert len(store.list_reviews()) == 1
+
+
+def test_duplicate_review_row_shape(store):
+    # A parked duplicate is marked rec="duplicate" and carries the existing copy's
+    # recording id so the resolve path (T-014) can re-find it; staging_path is the
+    # new copy awaiting the owner's call.
+    session = _session(store, Dominance(0.97, 0.30, ("rec-A",)))
+    task = _dup_task(320000, artist="A", title="T", album="Al")
+    existing = _dup_item(256000, mb_trackid="rec-A", artist="A", title="T")
+
+    session.get_duplicate_action(task, [existing])
+
+    reviews = store.list_reviews()
+    assert len(reviews) == 1
+    assert reviews[0].rec == "duplicate"
+    assert reviews[0].candidate_ids == ["rec-A"]
+    assert reviews[0].staging_path == "/staging/song.mp3"
+    assert session.outcomes[-1].action == "parked"
+
+
+def test_accepted_then_duplicate_park_has_exactly_one_outcome(store):
+    # End to end: choose_item accepts the match (queued in _accepted), then the
+    # duplicate stage finds a non-covering copy and parks. The accept must NOT also
+    # finalize as landed/skipped — the song ends with exactly one outcome, the park.
+    session = _session(store, Dominance(0.97, 0.30, ("rec-A",)))
+    task = _dup_task(320000, artist="A", title="T", album="Al")
+
+    session.choose_item(task)  # accepts → _accepted holds it
+    action = session.get_duplicate_action(
+        task, [_dup_item(256000, artist="A", title="T", album="Al")]
+    )
+    task.skip = True  # DuplicateAction.SKIP would set this on the real task
+    outcomes = session.finalize_outcomes()
+
+    assert action is seam.DuplicateAction.SKIP
+    parked = [o for o in outcomes if o.action == "parked"]
+    assert len(parked) == 1 and parked[0].review_id
+    # No phantom landed/skipped for the same song.
+    assert not any(o.action in ("landed", "skipped") for o in outcomes)
+    assert parked[0].top_score == pytest.approx(0.97)  # reused the accept's score
+
+
+def test_duplicate_skips_if_any_existing_covers(store):
+    # Multiple existing copies: if ANY of them covers the incoming one, the new copy
+    # adds nothing → keep existing, no review. (Cross-copy cleanup of the weaker
+    # existing 256 is R2's job, not acquire-time.)
+    session = _session(store, Dominance(0.97, 0.30, ("rec-A",)))
+    task = _dup_task(320000, artist="A", title="T", album="Al")
+    existing = [
+        _dup_item(256000, artist="A", title="T"),
+        _dup_item(320000, artist="A", title="T", album="Al"),
+    ]
+
+    action = session.get_duplicate_action(task, existing)
+
+    assert action is seam.DuplicateAction.SKIP
+    assert store.list_reviews() == []

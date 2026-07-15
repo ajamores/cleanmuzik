@@ -107,3 +107,24 @@ Format: `- <date> — what went wrong → the correction / rule now in place`
   the configured `localhost` is correct, so the `.env` value stays `http://localhost:8096` — only
   in-WSL manual `/verify` probes need the gateway override (via `settings.model_copy`). (→
   `server/app/jellyfin.py`)
+- 2026-07-15 — (T-009) **Never let a library tool auto-delete the owner's file — beets' duplicate
+  REMOVE deletes before it copies.** The obvious "keep the better copy" implementation returns
+  `DuplicateAction.REMOVE`, but beets 2.12 `manipulate_files` runs `remove_duplicates()` (which
+  `item.remove()`s and `util.remove()`s the OLD file off disk) *first*, then copies the new one — no
+  rollback. A copy failure after the delete (disk full, permission, bad path) loses BOTH copies. For
+  a music library that's an unacceptable data-loss window. R1 fix: **never auto-delete.** Keep the
+  existing copy (SKIP) whenever an existing copy *covers* the incoming one; otherwise park to review
+  and let the owner confirm any replacement. Auto-replace-with-deletion is deferred to R2 migrate,
+  where it can be done copy-first / delete-after. (→ `server/app/import_seam.py`)
+- 2026-07-15 — (T-009) **`get_duplicate_action` runs BEFORE beets applies the match, so the incoming
+  item is still un-tagged.** In the 2.12 importer, `_resolve_duplicates` (which calls
+  `get_duplicate_action`) fires before `_apply_choice`/`apply_metadata`, so `task.item` carries only
+  the raw download's tags at decision time — comparing its "tag completeness" against a fully-tagged
+  library item is apples-to-oranges and would systematically misjudge the incoming copy. The fix that
+  also killed the destructive branch: model quality as a **partial order** on `(bitrate, tag
+  completeness)` and only SKIP-keep-existing when an existing copy is `>=` on **both** axes. A bare
+  fresh download can only *fail* to cover an already-tagged copy — never wrongly displace it — so
+  reading pre-apply tags becomes correct rather than a bug, and every genuine upgrade / trade-off
+  falls through to review. (Also: the 2.12 duplicate hook is `get_duplicate_action(task,
+  found_duplicates) -> DuplicateAction`, not the older `resolve_duplicate` the ticket named.) (→
+  `server/app/import_seam.py`)

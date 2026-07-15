@@ -95,3 +95,21 @@ Format: `ADR-NNN — decision. Rationale. [date]`
   "auto-refresh metadata from internet" is set to **Never** so it never overwrites beets' tags
   (beets is the sole tagger, ADR-005). Revisit the native-vs-Docker call at Phase 1 (dedicated
   always-on box), not before. [2026-07-12]
+
+- **ADR-009 — Acquire-time duplicate handling is non-destructive in R1: never auto-delete the
+  owner's existing library file.** This deviates, deliberately, from spec §5's "auto-keep the
+  better copy and drop the other." Rationale: beets 2.12's `DuplicateAction.REMOVE` deletes the old
+  file (`item.remove()` + `util.remove()`) in `manipulate_files` *before* it copies the new one, with
+  no rollback — a copy failure after the delete loses **both** copies. For a music library that
+  data-loss window is unacceptable. Instead, the import seam keeps the existing copy (`SKIP`) whenever
+  an existing copy *covers* the incoming one — at least as good on **both** bitrate and tag richness
+  (a partial order, not a ranking) — and otherwise **parks the incoming copy to the review queue** for
+  the owner to choose ("you already have this — keep which?"). No file is ever deleted automatically.
+  Consequence worth noting: the "keep the better copy" upgrade is a human-confirmed action in R1, not
+  an automatic one; in practice it almost never fires (the library is all MP3 320, so an incoming rip
+  rarely out-qualities an existing copy). True auto-replace — done the safe way, copy-first then
+  delete-after — is deferred to **R2 migrate**, where varying-bitrate legacy files make it worth the
+  care. Detection is by MusicBrainz recording id (`duplicate_keys.item = mb_trackid`), which is
+  complete for R1 by construction (every landed copy carries an MBID); untagged legacy files are R2
+  migrate input, paired there with acoustic-fingerprint dedup. Owner signed off the non-destructive
+  call. (born in the build, T-009; owner review found the REMOVE data-loss window) [2026-07-15]

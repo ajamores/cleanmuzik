@@ -53,7 +53,7 @@ from pathlib import Path
 import acoustid
 from beets import config, library, util
 from beets.autotag import Recommendation
-from beets.importer import Action, ImportSession
+from beets.importer import Action, DuplicateAction, ImportSession
 
 from app.artwork import embed_cover, fetch_cover_art
 from app.beets_engine import LIBRARY_DIRECTORY, configure_beets
@@ -504,26 +504,76 @@ class FingerprintTrustSession(ImportSession):
         self._park(task, list(task.candidates or []), Dominance(0.0, 0.0, ()))
         return Action.SKIP
 
+    def get_duplicate_action(self, task, found_duplicates) -> DuplicateAction:
+        """T-009: the incoming song already exists — keep the existing copy, or park.
+
+        beets calls this only after a task we ACCEPTED (choose_item returned a match)
+        is found to share a MusicBrainz recording id with a library item. R1 makes a
+        deliberately safe, **non-destructive** call: it NEVER auto-deletes the owner's
+        existing file. beets' REMOVE path deletes the old copy *before* writing the new
+        one, with no rollback — a copy failure would lose both (a data-loss risk the
+        library must never take). Auto-replace-with-deletion is deferred to R2 migrate,
+        where it can be done copy-first, delete-after.
+
+        So there are only two outcomes here, both keyed on whether any existing copy
+        already *covers* the incoming one (`_covers`: at least as good on BOTH bitrate
+        and tag richness):
+
+        - **an existing copy covers the new one → SKIP it.** The everyday re-paste of
+          an already-owned song lands here: the fresh rip is the same recording at the
+          same 320 bitrate, and the library copy is already MB-tagged, so the new copy
+          adds nothing. Dropped, no second copy (spec §7: "re-pasting the same URL is
+          caught, no silent second copy"). Reading the incoming file's *pre-apply* tags
+          is correct here, not a bug: a bare fresh download can only fail to cover an
+          already-tagged copy, never wrongly displace it.
+        - **nothing covers it → park for the owner to choose.** The new copy is a
+          genuine upgrade (higher bitrate) or an incomparable trade-off (better on one
+          axis, worse on another). Rather than silently pick — and never by deleting a
+          file automatically — hand it to the review queue ("keep which?"). This is the
+          only branch that parks, so it pulls the accepted match out of `_accepted`
+          (else finalize_outcomes would also emit a "skipped" for the same task, since
+          DuplicateAction.SKIP sets task.skip) and reuses the accept's dominance so the
+          parked receipt still carries the score that got it this far.
+        """
+        new_quality = _copy_quality(task.item)
+        if any(_covers(_copy_quality(dup), new_quality) for dup in found_duplicates):
+            logger.info(
+                "duplicate of %s already covered by an equal-or-better library copy "
+                "%s — keeping existing, skipping the new copy",
+                self.staging_path,
+                new_quality,
+            )
+            return DuplicateAction.SKIP
+
+        entry = next((e for e in self._accepted if e[0] is task), None)
+        dominance = entry[2] if entry is not None else Dominance(0.0, 0.0, ())
+        if entry is not None:
+            self._accepted.remove(entry)
+        self._park_duplicate(task, found_duplicates, dominance)
+        return DuplicateAction.SKIP
+
     def should_resume(self, path) -> bool:
         # Long-lived backend, no interactive prompts: never ask to resume.
         return False
 
     # --- parking ----------------------------------------------------------
 
-    def _park(self, task, candidates, dominance: Dominance) -> Review:
-        """Record candidate IDs + `task.rec` to the reviews table and note it."""
-        candidate_ids = [
-            c.info.track_id for c in candidates if getattr(c.info, "track_id", None)
-        ]
-        rec = getattr(task, "rec", None)
-        rec_name = rec.name.lower() if isinstance(rec, Recommendation) else str(rec)
+    def _record_review(
+        self, candidate_ids: list[str], rec: str, dominance: Dominance
+    ) -> Review:
+        """Create a parked review row + its "parked" Outcome, and log the receipt.
 
+        The one place a review is written, so both park callers — a weak/ambiguous
+        match (`_park`) and an indistinguishable duplicate (`_park_duplicate`) — stay
+        in lockstep on the row shape and the outcome. They differ only in what fills
+        `candidate_ids` and `rec`.
+        """
         review = self.store.create_review(
             job_id=self.job_id,
             staging_path=self.staging_path,
             query=self.normalized_query,
             candidate_ids=candidate_ids,
-            rec=rec_name,
+            rec=rec,
         )
         self.outcomes.append(
             Outcome(
@@ -537,12 +587,39 @@ class FingerprintTrustSession(ImportSession):
             "parking %s as review %s: rec=%s candidates=%d score=%.3f gap=%.3f",
             self.staging_path,
             review.id,
-            rec_name,
+            rec,
             len(candidate_ids),
             dominance.top_score,
             dominance.gap,
         )
         return review
+
+    def _park(self, task, candidates, dominance: Dominance) -> Review:
+        """Record candidate IDs + `task.rec` to the reviews table and note it."""
+        candidate_ids = [
+            c.info.track_id for c in candidates if getattr(c.info, "track_id", None)
+        ]
+        rec = getattr(task, "rec", None)
+        rec_name = rec.name.lower() if isinstance(rec, Recommendation) else str(rec)
+        return self._record_review(candidate_ids, rec_name, dominance)
+
+    def _park_duplicate(self, task, duplicates, dominance: Dominance) -> Review:
+        """Park a duplicate the owner must resolve — an upgrade or a trade-off (T-009).
+
+        Shares the reviews table and UI with a weak-match park, marked by
+        `rec="duplicate"` so T-014/T-017 render it as "you already have this — keep
+        which?" instead of a candidate list. The competing existing copy is
+        recoverable from its MusicBrainz recording id (how it was detected as a
+        duplicate) via the beets library, so no extra column is needed:
+        `candidate_ids` carries the existing recording id(s), `staging_path` the new
+        copy awaiting the owner's call.
+        """
+        existing_ids = [
+            mbid
+            for dup in duplicates
+            if (mbid := getattr(dup, "mb_trackid", None))
+        ]
+        return self._record_review(existing_ids, "duplicate", dominance)
 
 
 def _matching_candidate(candidates, recording_ids: tuple[str, ...]):
@@ -560,6 +637,62 @@ def _matching_candidate(candidates, recording_ids: tuple[str, ...]):
     return None
 
 
+# --- T-009: acquire-time duplicate quality ----------------------------------
+#
+# When an incoming song matches one already in the library (detected by
+# MusicBrainz recording id — see _configure_import_options), spec §5 wants the
+# *better* copy kept. R1 measures "better" on two axes — bitrate and tag richness
+# — but treats them as a PARTIAL order, not a ranking: a copy is only clearly
+# better when it's at least as good on both. Anything else (a genuine upgrade or an
+# each-wins-one trade-off) is handed to the owner via review rather than resolved
+# by deleting a file. See get_duplicate_action for why R1 never auto-deletes.
+
+# The core descriptive tags that make a copy "richly tagged" — the product's whole
+# point. Completeness (how many are populated) is the second quality axis. Weighted
+# toward MusicBrainz identity + release context: the copy carrying its MBIDs and
+# album/label/year is the one worth keeping.
+_CORE_TAG_FIELDS = (
+    "artist",
+    "albumartist",
+    "album",
+    "title",
+    "year",
+    "original_year",
+    "label",
+    "mb_trackid",
+    "mb_albumid",
+    "mb_artistid",
+    "mb_releasetrackid",
+)
+
+
+def _tag_completeness(item) -> int:
+    """How many core descriptive tags are populated on `item` (0..len)."""
+    return sum(1 for field in _CORE_TAG_FIELDS if getattr(item, field, None))
+
+
+def _copy_quality(item) -> tuple[int, int]:
+    """A copy's quality on two axes: (bitrate, tag completeness).
+
+    NOT a single ranking — the axes can disagree (higher bitrate but sparser tags).
+    `_covers` interprets the pair as a partial order. Reads via getattr so a real
+    beets `Item` and a test double both work (an absent/zero field counts as
+    unpopulated).
+    """
+    bitrate = int(getattr(item, "bitrate", 0) or 0)
+    return (bitrate, _tag_completeness(item))
+
+
+def _covers(existing: tuple[int, int], incoming: tuple[int, int]) -> bool:
+    """Does the `existing` copy make the `incoming` one redundant?
+
+    True when existing is at least as good on BOTH axes (bitrate and tag richness) —
+    i.e. keeping existing loses nothing. False when incoming wins on some axis, which
+    is exactly the "upgrade or trade-off" case get_duplicate_action sends to review.
+    """
+    return existing[0] >= incoming[0] and existing[1] >= incoming[1]
+
+
 # --- driving beets ----------------------------------------------------------
 
 
@@ -569,11 +702,11 @@ def _configure_import_options() -> None:
     Every value here has a reason: singletons because a YouTube rip is always a
     lone track; autotag so candidates are looked up; copy+write so the tagged
     file lands in the library and staging survives for T-012 to clean up; the
-    non-interactive flags so `choose_item` is the *only* decision point; and
-    duplicate_action=skip as a safe R1 default (T-009 replaces it with the
-    keep-better-copy tie-break). threaded=False keeps beets' pipeline in our
-    caller's thread — T-012 owns the worker thread, and ADR-001 forbids
-    parallelizing the pipeline anyway.
+    non-interactive flags so `choose_item` is the *only* per-song identity decision;
+    duplicate detection keyed on the MusicBrainz recording id and resolved by
+    get_duplicate_action (T-009 keep-better-copy tie-break). threaded=False keeps
+    beets' pipeline in our caller's thread — T-012 owns the worker thread, and
+    ADR-001 forbids parallelizing the pipeline anyway.
     """
     imp = config["import"]
     imp["singletons"].set(True)
@@ -586,6 +719,18 @@ def _configure_import_options() -> None:
     imp["quiet"].set(False)
     imp["timid"].set(False)
     imp["group_albums"].set(False)
+    # T-009: detect duplicates by MusicBrainz recording id, not the default
+    # "artist title". The same recording under a different filename or sloppier tags
+    # is still caught, and two genuinely different recordings that share a title
+    # (a live take vs the studio cut) are not falsely merged. This is complete for R1
+    # by construction: the CleanMuzik library only ever receives songs WE landed, and
+    # we only land via a matched recording, so every existing copy carries an
+    # mb_trackid to match on. Legacy hand-added files with no MBID are the migrate
+    # flow's input (R2), which pairs this with acoustic fingerprint dedup. The
+    # per-song decision is get_duplicate_action's (below); we always decide there, so
+    # this config action is only beets' unreached fallback — kept a valid value so
+    # as_choice never trips.
+    imp["duplicate_keys"]["item"].set("mb_trackid")
     imp["duplicate_action"].set("skip")
     config["threaded"].set(False)
 
