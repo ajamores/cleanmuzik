@@ -86,3 +86,15 @@ Format: `- <date> — what went wrong → the correction / rule now in place`
   generic "invalid URL" / can't-resolve error with no hint that visibility is the cause. A playlist
   must be **public or unlisted** to resolve. First thing to check when a playlist won't load: its
   privacy setting. (Owner-reported; hours lost to it once.)
+- 2026-07-14 — (T-011) **Retry only *transient* failures — classify AcoustID errors by code.**
+  pyacoustid's `_api_request` does **not** call `raise_for_status()`; it returns the parsed JSON, so
+  a rate-limit (HTTP 429) AND an invalid key (HTTP 400) both arrive the same way — a non-ok `status`
+  in the returned dict, distinguishable only by `error.code`. A naive "retry every `AcoustidError`"
+  loop therefore retries a permanently-bad key: it burns the full exponential backoff on *every* song
+  and then silently parks the whole run with no signal the key is wrong. Fix: split the errors —
+  invalid-key / malformed-request codes (a denylist incl. 4 & 6) raise a non-retryable
+  `AcoustidPermanentError` that fails fast and logs at ERROR ("check ACOUSTID_APIKEY"); everything
+  else (rate limit 14, service-unavailable 13, internal 5, network/timeout, unknown code) stays a
+  retryable `AcoustidLookupError`. Denylist not allowlist, so an unrecognised code errs toward retry
+  (harmless wasted backoff), never toward hammering a doomed key. Also: retry the *lookup* only —
+  the fingerprint is deterministic local work, generate it once. (→ `server/app/import_seam.py`)

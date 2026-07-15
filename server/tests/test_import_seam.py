@@ -22,6 +22,7 @@ import app.import_seam as seam
 from app.db import Store
 from app.import_seam import (
     AcoustidLookupError,
+    AcoustidPermanentError,
     Dominance,
     FingerprintTrustSession,
     fingerprint_dominance,
@@ -147,9 +148,11 @@ def test_dominance_missing_backend_raises_loudly(monkeypatch):
 
 
 def test_dominance_bad_status_raises_for_retry(monkeypatch):
+    # A non-ok status with no error code is treated as transient (retryable). retries=0
+    # isolates the classification from the backoff loop (covered separately).
     _patch_acoustid(monkeypatch, lookup={"status": "error"})
     with pytest.raises(AcoustidLookupError):
-        fingerprint_dominance("/tmp/song.mp3")
+        fingerprint_dominance("/tmp/song.mp3", retries=0)
 
 
 def test_dominance_lookup_error_raises_for_retry(monkeypatch):
@@ -160,7 +163,130 @@ def test_dominance_lookup_error_raises_for_retry(monkeypatch):
 
     monkeypatch.setattr(seam.acoustid, "lookup", boom)
     with pytest.raises(AcoustidLookupError):
-        fingerprint_dominance("/tmp/song.mp3")
+        fingerprint_dominance("/tmp/song.mp3", retries=0)
+
+
+# --- T-011: retry-with-backoff on the transient lookup ----------------------
+
+
+def test_dominance_retries_lookup_then_succeeds(monkeypatch):
+    # The flaky free tier fails then recovers — the whole point of the retry. Verify
+    # it lands the match, fingerprints ONCE (only the network hop retries), and backs
+    # off exponentially between attempts.
+    calls = {"fp": 0, "lookup": 0}
+
+    def fake_fp(_path):
+        calls["fp"] += 1
+        return (180, b"AQAAfake")
+
+    def flaky_lookup(*a, **k):
+        calls["lookup"] += 1
+        if calls["lookup"] < 3:
+            raise seam.acoustid.WebServiceError("rate limited")
+        return {"status": "ok", "results": [{"score": 0.97, "recordings": [{"id": "rec-A"}]}]}
+
+    monkeypatch.setattr(seam.acoustid, "fingerprint_file", fake_fp)
+    monkeypatch.setattr(seam.acoustid, "lookup", flaky_lookup)
+    slept = []
+
+    dom = fingerprint_dominance("/tmp/song.mp3", sleep_fn=slept.append)
+
+    assert dom.top_score == pytest.approx(0.97)
+    assert dom.top_recording_ids == ("rec-A",)
+    assert calls["lookup"] == 3  # failed twice, succeeded on the third attempt
+    assert calls["fp"] == 1  # fingerprinted once despite the retries
+    assert slept == [1.0, 2.0]  # exponential backoff before attempts 2 and 3
+
+
+def test_dominance_retries_exhausted_reraises(monkeypatch):
+    # A lookup that never recovers must re-raise after the configured retries so the
+    # session parks it — not retry forever.
+    _patch_acoustid(monkeypatch)
+
+    def always_boom(*a, **k):
+        raise seam.acoustid.WebServiceError("service down")
+
+    monkeypatch.setattr(seam.acoustid, "lookup", always_boom)
+    slept = []
+
+    with pytest.raises(AcoustidLookupError):
+        fingerprint_dominance("/tmp/song.mp3", retries=2, sleep_fn=slept.append)
+
+    assert slept == [1.0, 2.0]  # slept before each retry, not after the final failure
+
+
+def test_dominance_no_match_is_not_retried(monkeypatch):
+    # A clean empty result is a real no-match, not a transient error — it must return
+    # immediately, never burn retries/backoff on a song AcoustID simply doesn't know.
+    calls = {"lookup": 0}
+
+    def counting_lookup(*a, **k):
+        calls["lookup"] += 1
+        return {"status": "ok", "results": []}
+
+    _patch_acoustid(monkeypatch)
+    monkeypatch.setattr(seam.acoustid, "lookup", counting_lookup)
+    slept = []
+
+    dom = fingerprint_dominance("/tmp/song.mp3", sleep_fn=slept.append)
+
+    assert dom == Dominance(0.0, 0.0, ())
+    assert calls["lookup"] == 1  # one attempt, no retries
+    assert slept == []
+
+
+def test_dominance_invalid_key_is_permanent_not_retried(monkeypatch):
+    # The review's core finding: an invalid API key (code 4) returns the same error
+    # every time. It must fail fast as an AcoustidPermanentError — NOT retry the full
+    # backoff on a doomed request — so the gate can park loudly instead of silently.
+    calls = {"lookup": 0}
+
+    def bad_key_lookup(*a, **k):
+        calls["lookup"] += 1
+        return {"status": "error", "error": {"code": 4, "message": "invalid API key"}}
+
+    _patch_acoustid(monkeypatch)
+    monkeypatch.setattr(seam.acoustid, "lookup", bad_key_lookup)
+    slept = []
+
+    with pytest.raises(AcoustidPermanentError):
+        fingerprint_dominance("/tmp/song.mp3", sleep_fn=slept.append)
+
+    assert calls["lookup"] == 1  # failed once, never retried
+    assert slept == []  # no backoff burned on a permanently-bad key
+
+
+def test_dominance_rate_limit_status_is_retryable(monkeypatch):
+    # A rate-limit arrives as a non-ok status too (code 14, not in the permanent set),
+    # but IS transient — it must be retried and recover, not fail fast like a bad key.
+    calls = {"lookup": 0}
+
+    def throttled_then_ok(*a, **k):
+        calls["lookup"] += 1
+        if calls["lookup"] < 2:
+            return {"status": "error", "error": {"code": 14, "message": "rate limit"}}
+        return {"status": "ok", "results": [{"score": 0.96, "recordings": [{"id": "r"}]}]}
+
+    _patch_acoustid(monkeypatch)
+    monkeypatch.setattr(seam.acoustid, "lookup", throttled_then_ok)
+
+    dom = fingerprint_dominance("/tmp/song.mp3", sleep_fn=lambda _s: None)
+
+    assert dom.top_score == pytest.approx(0.96)
+    assert calls["lookup"] == 2  # retried past the throttle
+
+
+# --- T-011: owner AcoustID key resolution -----------------------------------
+
+
+def test_resolve_api_key_prefers_owner_key():
+    settings = SimpleNamespace(acoustid_apikey="ownerPrivateKey")
+    assert seam._resolve_api_key(settings) == "ownerPrivateKey"
+
+
+def test_resolve_api_key_falls_back_to_shared_when_unset():
+    settings = SimpleNamespace(acoustid_apikey="")
+    assert seam._resolve_api_key(settings) == seam.API_KEY
 
 
 def test_dominance_fingerprint_failure_is_no_match(monkeypatch):
@@ -242,6 +368,22 @@ def test_transient_lookup_failure_parks_not_crashes(store):
         raise seam.AcoustidLookupError("flaky free tier")
 
     session.dominance_fn = boom
+    choice = session.choose_item(_task(["rec-A"]))
+
+    assert choice is Action.SKIP
+    assert len(store.list_reviews()) == 1
+    assert session.outcomes[-1].action == "parked"
+
+
+def test_permanent_lookup_failure_parks_not_crashes(store):
+    # A permanent AcoustID error (bad key) reaches choose_item without retrying; it must
+    # also park the song rather than unwind out of beets' pipeline and crash the run.
+    session = _session(store, Dominance(0.0, 0.0, ()))
+
+    def bad_key(_path):
+        raise seam.AcoustidPermanentError("acoustid error 4: invalid API key")
+
+    session.dominance_fn = bad_key
     choice = session.choose_item(_task(["rec-A"]))
 
     assert choice is Action.SKIP

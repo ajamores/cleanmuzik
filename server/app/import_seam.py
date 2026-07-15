@@ -23,10 +23,11 @@ the number the gate trusts; beets is still driven for the actual tagging /
 art / genre / lyrics / organize, because a dominant fingerprint's recording MBID
 almost always *is* beets' top candidate (chroma gives it a -10 distance bonus).
 
-Cost: this means one extra AcoustID lookup per song beyond chroma's own (two
-total). For a single-user, one-song-at-a-time tool with ADR-001 delays that's
-acceptable for R1; deduping it against chroma's cached fingerprint is a later
-optimization, not a correctness issue.
+Cost: this means one extra AcoustID lookup per song beyond chroma's own — and up
+to `LOOKUP_RETRIES` more on the score-critical hop when the free tier throttles
+(T-011 retry). For a single-user, one-song-at-a-time tool with ADR-001 delays
+that's acceptable for R1; deduping it against chroma's cached fingerprint is a
+later optimization, not a correctness issue.
 
 ## What lands vs. what parks
 
@@ -42,8 +43,10 @@ off by default) and stay injectable per session for tests and any future re-tuni
 This module never lowers beets' global `strong_rec_thresh` (ADR-006).
 """
 
+import functools
 import logging
 import os
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -60,13 +63,22 @@ from app.db import Review, Store
 logger = logging.getLogger("cleanmuzik")
 
 # pyacoustid's *shared built-in* AcoustID application key — the same one beets'
-# `chroma` uses for its own lookups. It works with no owner setup, but it's pooled
-# across every pyacoustid user, so it throttles hard under load (T-008 measurement:
-# 5 of 30 batch lookups rate-limited). The owner's `acoustid_apikey` is ALSO a valid
-# application / lookup key with its own private quota (verified 2026-07-14,
-# `acoustid.lookup` → status=ok) — T-011 wires it in here to replace this shared key
-# and adds retry/backoff. Until then this default keeps the seam working key-free.
+# `chroma` uses for its own lookups. It's pooled across every pyacoustid user, so it
+# throttles hard under load (T-008 measurement: 5 of 30 batch lookups rate-limited).
+# T-011 makes this a *fallback*: `fingerprint_dominance` now runs the score-critical
+# lookup on the owner's private `acoustid_apikey` when set (a valid application/lookup
+# key with its own quota — verified 2026-07-14, `acoustid.lookup` → status=ok),
+# resolved by `_resolve_api_key()` and bound in `import_song()`. This shared key is
+# used only when the owner hasn't set one. (beets' *internal* chroma lookup during
+# candidate generation still uses beets' own built-in key — a separate concern.)
 API_KEY = "1vOwZtEn"
+
+# T-011 retry-with-backoff for the identify lookup. AcoustID's free/shared tier is
+# flaky and rate-limits under load, but recovers within a couple of seconds (T-008:
+# every one of the 5 throttled lookups recovered on retry). Retry ONLY the network
+# lookup — the fingerprint is generated once — and space attempts out per ADR-001.
+LOOKUP_RETRIES = 3  # attempts after the first → 4 total before parking as a failure.
+LOOKUP_BASE_DELAY = 1.0  # seconds; exponential: 1s → 2s → 4s between attempts.
 
 # ADR-006 dominance thresholds — SET BY T-008 measurement (25 real songs across the
 # owner's library + a YouTube playlist, 2026-07-14), not a guess. See docs/r1/adr.md.
@@ -86,12 +98,52 @@ _LOOKUP_TIMEOUT = 10
 
 
 class AcoustidLookupError(Exception):
-    """A transient AcoustID service failure (bad status / network / rate limit).
+    """A *transient* AcoustID service failure (network / timeout / rate limit / 5xx).
 
-    Distinct from a clean "no acoustic match": this is retryable, and T-011 wraps
-    the identify stage in retry-with-backoff around exactly this exception. A real
-    no-match returns an all-zero `Dominance` instead (it simply can't be dominant).
+    Distinct from a clean "no acoustic match": this is retryable. `fingerprint_dominance`
+    retries the lookup with exponential backoff around exactly this exception (T-011) and
+    only re-raises once retries are exhausted; the session then parks the song rather than
+    crash the run (ADR-003). A real no-match returns an all-zero `Dominance` instead (it
+    simply can't be dominant) and is never retried.
     """
+
+
+class AcoustidPermanentError(Exception):
+    """A *non-retryable* AcoustID failure — a bad API key or malformed request.
+
+    Deliberately NOT a subclass of `AcoustidLookupError`, so the retry loop lets it
+    propagate immediately instead of retrying. Retrying these can't help: an invalid
+    key returns the same error every time, so retrying would burn the full backoff on
+    every song and then silently park the entire run (T-011 review finding). The gate
+    parks the song (recoverable) but logs at ERROR so a misconfigured `ACOUSTID_APIKEY`
+    is visible, not buried under a pile of "no match" parks.
+    """
+
+
+# AcoustID application-level error codes that no retry can fix — the key or request is
+# wrong, not the service being briefly unavailable (codes per the AcoustID web-service
+# API). Crucially includes the invalid-key codes (4, 6): a typo'd owner key must fail
+# fast + loud, not retry. Any OTHER non-ok status (rate limit, service unavailable,
+# internal error, or an unrecognised/absent code) is treated as transient and retried —
+# a denylist, so an unknown code errs toward "retry" (harmless: at worst the pre-T-011
+# behaviour of a wasted backoff), never toward "silently hammer a bad key".
+_PERMANENT_ERROR_CODES = frozenset(
+    {
+        1,  # unknown format
+        2,  # missing parameter
+        3,  # invalid fingerprint
+        4,  # invalid API key            ← the typo'd/revoked owner-key case
+        6,  # invalid user API key
+        7,  # invalid UUID
+        8,  # invalid duration
+        9,  # invalid bitrate
+        10,  # invalid foreign id
+        12,  # not allowed
+        15,  # invalid MusicBrainz access token
+        16,  # insecure request
+        17,  # unknown application
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -115,38 +167,32 @@ class Dominance:
         return self.top_score - self.runner_up_score
 
 
-def fingerprint_dominance(
-    path: bytes | str,
-    *,
-    api_key: str = API_KEY,
-    meta: str = _LOOKUP_META,
-    timeout: int = _LOOKUP_TIMEOUT,
-) -> Dominance:
-    """Fingerprint `path` and read its AcoustID score + runner-up gap.
+def _resolve_api_key(settings: Settings) -> str:
+    """The owner's private AcoustID quota if set, else the shared built-in key.
 
-    THE crux of T-007 (see module docstring): the number beets throws away. Runs
-    an independent `acoustid.lookup` and returns a `Dominance`. Raises
-    `AcoustidLookupError` on a transient service failure so the caller can retry;
-    a fingerprint that generates but matches nothing returns an all-zero
-    `Dominance` (not an error — it just parks).
+    The owner's `acoustid_apikey` (T-011) is a valid application/lookup key with its
+    own rate budget; the shared `API_KEY` is pooled across every pyacoustid user and
+    throttles hard under load (T-008). Prefer the owner's whenever present. An empty
+    string in `.env` (the "absent is not a failure" default) falls back cleanly.
     """
-    try:
-        duration, fp = acoustid.fingerprint_file(util.syspath(path))
-    except acoustid.NoBackendError:
-        # fpcalc/Chromaprint is unreachable AT RUNTIME — the boot smoke_check
-        # passed but the backend has since vanished (FPCALC points at a cleared
-        # scratchpad binary, a shared lib went missing, …). This is a *systemic*
-        # engine failure, not a per-file miss: swallowing it as a no-match would
-        # silently park every song with zero signal — the exact degradation the
-        # boot receipt treats as hard-red. Surface it loudly instead. (Caught
-        # before FingerprintGenerationError below, of which it is a subclass.)
-        raise
-    except acoustid.FingerprintGenerationError as exc:
-        # This *one* file won't fingerprint (corrupt audio). Not retryable and not
-        # a match: park it rather than crash the run.
-        logger.warning("fingerprint generation failed for %r: %s", path, exc)
-        return Dominance(0.0, 0.0, ())
+    return settings.acoustid_apikey or API_KEY
 
+
+def _lookup_dominance(
+    fp: bytes,
+    duration: float,
+    *,
+    api_key: str,
+    meta: str,
+    timeout: int,
+) -> Dominance:
+    """One AcoustID lookup on an already-generated fingerprint → `Dominance`.
+
+    The retryable network hop, split out so `fingerprint_dominance` can retry *only*
+    this (the fingerprint above is deterministic local work). Raises
+    `AcoustidLookupError` on a transient service failure; a clean no-match returns an
+    all-zero `Dominance` (not an error).
+    """
     try:
         res = acoustid.lookup(api_key, fp, duration, meta=meta, timeout=timeout)
     except acoustid.AcoustidError as exc:
@@ -154,8 +200,16 @@ def fingerprint_dominance(
         raise AcoustidLookupError(str(exc)) from exc
 
     if res.get("status") != "ok":
-        # AcoustID sometimes returns a non-ok status that clears on retry.
-        raise AcoustidLookupError(f"acoustid status={res.get('status')!r}")
+        # pyacoustid doesn't raise on an application-level error (no raise_for_status);
+        # it returns the JSON, so a rate-limit AND an invalid key both land here as a
+        # non-ok status. Split them by error code: a permanent one (bad key / malformed
+        # request) fails fast, everything else is transient and retried.
+        error = res.get("error") or {}
+        code = error.get("code")
+        message = error.get("message") or res.get("status")
+        if code in _PERMANENT_ERROR_CODES:
+            raise AcoustidPermanentError(f"acoustid error {code}: {message}")
+        raise AcoustidLookupError(f"acoustid error {code}: {message}")
 
     results = res.get("results") or []
     if not results:
@@ -197,6 +251,71 @@ def fingerprint_dominance(
             break
 
     return Dominance(top_score, runner_up_score, recording_ids, release_ids)
+
+
+def fingerprint_dominance(
+    path: bytes | str,
+    *,
+    api_key: str = API_KEY,
+    meta: str = _LOOKUP_META,
+    timeout: int = _LOOKUP_TIMEOUT,
+    retries: int = LOOKUP_RETRIES,
+    base_delay: float = LOOKUP_BASE_DELAY,
+    sleep_fn=time.sleep,
+) -> Dominance:
+    """Fingerprint `path` and read its AcoustID score + runner-up gap.
+
+    THE crux of T-007 (see module docstring): the number beets throws away. Generates
+    the fingerprint once, then runs an independent `acoustid.lookup` — retried with
+    exponential backoff on a transient failure (T-011) — and returns a `Dominance`.
+    Raises `AcoustidLookupError` only after retries are exhausted, so the caller parks
+    rather than crashes. A fingerprint that generates but matches nothing returns an
+    all-zero `Dominance` (not an error — it just parks) and is never retried.
+    """
+    try:
+        duration, fp = acoustid.fingerprint_file(util.syspath(path))
+    except acoustid.NoBackendError:
+        # fpcalc/Chromaprint is unreachable AT RUNTIME — the boot smoke_check
+        # passed but the backend has since vanished (FPCALC points at a cleared
+        # scratchpad binary, a shared lib went missing, …). This is a *systemic*
+        # engine failure, not a per-file miss: swallowing it as a no-match would
+        # silently park every song with zero signal — the exact degradation the
+        # boot receipt treats as hard-red. Surface it loudly instead. (Caught
+        # before FingerprintGenerationError below, of which it is a subclass.)
+        raise
+    except acoustid.FingerprintGenerationError as exc:
+        # This *one* file won't fingerprint (corrupt audio). Not retryable and not
+        # a match: park it rather than crash the run.
+        logger.warning("fingerprint generation failed for %r: %s", path, exc)
+        return Dominance(0.0, 0.0, ())
+
+    # Retry ONLY the lookup — the fingerprint above is generated once. A transient
+    # AcoustidLookupError (bad status / network / rate-limit) backs off and retries;
+    # a clean no-match returns from _lookup_dominance without raising and stops here.
+    last_exc: AcoustidLookupError | None = None
+    for attempt in range(retries + 1):
+        try:
+            return _lookup_dominance(
+                fp, duration, api_key=api_key, meta=meta, timeout=timeout
+            )
+        except AcoustidLookupError as exc:
+            last_exc = exc
+            if attempt < retries:
+                delay = base_delay * (2**attempt)
+                logger.warning(
+                    "acoustid lookup for %r failed (%s) — retry %d/%d in %.1fs",
+                    path,
+                    exc,
+                    attempt + 1,
+                    retries,
+                    delay,
+                )
+                sleep_fn(delay)
+
+    # Retries exhausted — surface the last transient error so the session parks the
+    # song (ADR-003). The loop body always runs ≥ once, so last_exc is set.
+    assert last_exc is not None
+    raise last_exc
 
 
 @dataclass
@@ -260,12 +379,26 @@ class FingerprintTrustSession(ImportSession):
         """The one decision. Return a `TrackMatch` to land, or `Action.SKIP` to park."""
         try:
             dominance = self.dominance_fn(task.item.path)
+        except AcoustidPermanentError as exc:
+            # A bad key / malformed request — no retry helps, so it arrived here
+            # immediately (not after the backoff). Park the song (recoverable) but log
+            # LOUDLY: an invalid ACOUSTID_APIKEY would otherwise park every song in the
+            # run with no hint why (T-011 review finding). ERROR, not WARNING, and it
+            # names the likely cause so the misconfig is actionable.
+            logger.error(
+                "acoustid permanently rejected the lookup for %s (%s) — parking; "
+                "check ACOUSTID_APIKEY in .env",
+                self.staging_path,
+                exc,
+            )
+            self._park(task, list(task.candidates or []), Dominance(0.0, 0.0, ()))
+            return Action.SKIP
         except AcoustidLookupError as exc:
-            # The seam's own AcoustID lookup failed transiently (flaky free tier).
-            # Don't let it unwind out of beets' pipeline and crash the import —
-            # park to review so the song is recoverable, and log distinctly. T-011
-            # adds retry-with-backoff ahead of this fallback; until then a
-            # transient failure surfaces as a review, not a lost track (ADR-003).
+            # The seam's own AcoustID lookup failed transiently AND exhausted its
+            # retries (fingerprint_dominance backs off and retries first, T-011). Don't
+            # let it unwind out of beets' pipeline and crash the import — park to review
+            # so the song is recoverable, and log distinctly (ADR-003: one failure never
+            # stops the run).
             logger.warning(
                 "acoustid lookup failed for %s (%s) — parking for review",
                 self.staging_path,
@@ -492,7 +625,7 @@ def import_song(
     settings: Settings | None = None,
     score_min: float = SCORE_MIN,
     gap_min: float = GAP_MIN,
-    dominance_fn=fingerprint_dominance,
+    dominance_fn=None,
 ) -> list[Outcome]:
     """Run one staged MP3 through the gate. Returns the outcome(s).
 
@@ -509,6 +642,15 @@ def import_song(
     configure_beets(s)
     _configure_import_options()
     lib = lib or get_library(s)
+
+    if dominance_fn is None:
+        # T-011: run the score-critical lookup on the owner's private AcoustID quota
+        # when set, else the shared built-in key — bound here so the session's call
+        # site stays key-agnostic and test doubles need no key. Retry/backoff defaults
+        # ride along from fingerprint_dominance.
+        dominance_fn = functools.partial(
+            fingerprint_dominance, api_key=_resolve_api_key(s)
+        )
 
     session = FingerprintTrustSession(
         lib,

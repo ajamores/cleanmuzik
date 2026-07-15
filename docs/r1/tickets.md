@@ -147,7 +147,7 @@ side effect for pipeline tickets, transcribe corrections to `docs/learnings.md`.
   within seconds"; ADR-008.)
 
 ### T-011 — Identify-stage retry with backoff
-- **Status:** todo
+- **Status:** done (2026-07-14; retry only the lookup — fingerprint generated once — with exponential 1→2→4s backoff on transient `AcoustidLookupError`; owner's `acoustid_apikey` wired into `fingerprint_dominance` via `_resolve_api_key` (private quota, shared key as fallback). `/code-review` high workflow-backed: 5 findings, load-bearing one applied — classify AcoustID errors by code, so an invalid key raises a non-retryable `AcoustidPermanentError` (fail fast + ERROR log) instead of burning 7s and silently mass-parking. 167 tests green.)
 - **Depends on:** T-007
 - **Agent:** build
 - **What:** Wrap the AcoustID/identify lookup in **retry-with-backoff** before calling it a
