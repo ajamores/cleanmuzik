@@ -1,0 +1,567 @@
+<title>CleanMuzik — the music library that tags itself</title>
+<style>
+  :root {
+    --bg:#0f1216; --bg-2:#161a20; --bg-3:#1d222a; --ink:#e8ece7; --muted:#8b968d;
+    --line:#2a3139; --green:#3ad07f; --green-ink:#8bf0b6; --green-deep:#153a28;
+    --amber:#f0ad3c; --amber-ink:#ffd28a; --amber-deep:#3a2c12;
+    --red:#e5595d; --red-ink:#ff9ea1;
+    --shadow:0 1px 0 rgba(255,255,255,.03), 0 24px 50px -30px rgba(0,0,0,.8);
+    --mono: ui-monospace, "JetBrains Mono", "Cascadia Code", "SF Mono", Menlo, Consolas, monospace;
+    --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg:#f3f5f0; --bg-2:#ffffff; --bg-3:#e9ede3; --ink:#161a14; --muted:#5b655b;
+      --line:#d7ddd1; --green:#1a9a56; --green-ink:#0f6f3d; --green-deep:#d5efdf;
+      --amber:#9c6710; --amber-ink:#7c5106; --amber-deep:#f6e9cf;
+      --red:#c53539; --red-ink:#9e2b2e;
+      --shadow:0 1px 0 rgba(0,0,0,.02), 0 24px 46px -32px rgba(30,40,30,.45);
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg:#0f1216; --bg-2:#161a20; --bg-3:#1d222a; --ink:#e8ece7; --muted:#8b968d;
+    --line:#2a3139; --green:#3ad07f; --green-ink:#8bf0b6; --green-deep:#153a28;
+    --amber:#f0ad3c; --amber-ink:#ffd28a; --amber-deep:#3a2c12;
+    --red:#e5595d; --red-ink:#ff9ea1;
+    --shadow:0 1px 0 rgba(255,255,255,.03), 0 24px 50px -30px rgba(0,0,0,.8);
+  }
+  :root[data-theme="light"] {
+    --bg:#f3f5f0; --bg-2:#ffffff; --bg-3:#e9ede3; --ink:#161a14; --muted:#5b655b;
+    --line:#d7ddd1; --green:#1a9a56; --green-ink:#0f6f3d; --green-deep:#d5efdf;
+    --amber:#9c6710; --amber-ink:#7c5106; --amber-deep:#f6e9cf;
+    --red:#c53539; --red-ink:#9e2b2e;
+    --shadow:0 1px 0 rgba(0,0,0,.02), 0 24px 46px -32px rgba(30,40,30,.45);
+  }
+
+  * { box-sizing: border-box; }
+  body { margin:0; }
+  .page {
+    background: var(--bg); color: var(--ink);
+    font-family: var(--sans); line-height: 1.6;
+    font-size: clamp(17px, 1.05vw + 13px, 21px);
+    -webkit-font-smoothing: antialiased; overflow-x: hidden;
+  }
+  .wrap { width: min(1180px, 92vw); margin-inline: auto; }
+  section { padding-block: clamp(3.2rem, 7vw, 6.5rem); border-top: 1px solid var(--line); }
+  .alt { background: var(--bg-2); }
+
+  .eyebrow {
+    font-family: var(--mono); font-size: .8rem; letter-spacing: .24em; text-transform: uppercase;
+    color: var(--green); margin: 0 0 1.3rem; display:flex; align-items:center; gap:.7rem;
+  }
+  .eyebrow::before { content:""; width:2.1rem; height:1px; background:var(--green); }
+  .eyebrow.amber { color: var(--amber); }
+  .eyebrow.amber::before { background: var(--amber); }
+
+  h1 {
+    font-family: var(--mono); font-weight: 600; letter-spacing:-.02em;
+    font-size: clamp(2.5rem, 6.2vw, 5.4rem); line-height: .98; margin: 0; text-wrap: balance;
+  }
+  h2 {
+    font-family: var(--mono); font-weight:600; letter-spacing:-.01em;
+    font-size: clamp(1.7rem, 3.4vw, 2.9rem); line-height:1.06; margin:0 0 1.1rem; text-wrap: balance;
+  }
+  h3 { font-family: var(--mono); font-weight:600; font-size:1.08rem; margin:0 0 .45rem; letter-spacing:-.005em; }
+  p { max-width: 64ch; }
+  .lede { font-size: clamp(1.18rem, 1.7vw, 1.6rem); color: var(--muted); max-width: 46ch; margin:1.7rem 0 0; }
+  .kicker { font-family:var(--mono); font-size:.78rem; letter-spacing:.16em; text-transform:uppercase; color:var(--muted); margin:0 0 1.3rem; }
+  strong { color: var(--ink); font-weight: 640; }
+  em { color: var(--green-ink); font-style: normal; }
+  code { font-family: var(--mono); font-size:.82em; background: var(--bg-3); padding:.14em .45em; border-radius:6px; border:1px solid var(--line); color:var(--green-ink); word-break: break-word; }
+
+  /* ---------- HERO ---------- */
+  .hero { padding-top: clamp(3.6rem, 9vw, 7rem); position:relative; overflow:hidden; }
+  .hero .lede { max-width: 44ch; }
+  .badge-line { display:flex; flex-wrap:wrap; gap:.55rem; margin-top:2.1rem; }
+  .chip { font-family:var(--mono); font-size:.74rem; letter-spacing:.09em; text-transform:uppercase;
+    color:var(--muted); border:1px solid var(--line); background:var(--bg-2); padding:.46rem .8rem; border-radius:100px; }
+  .chip b { color: var(--green-ink); font-weight:600; }
+
+  .wave { display:flex; align-items:flex-end; gap:.34rem; height:96px; margin:2.6rem 0 .5rem; }
+  .wave span { flex:1; background:linear-gradient(var(--green), var(--green-deep)); border-radius:3px; min-height:6px;
+    animation: eq 1.4s ease-in-out infinite; transform-origin:bottom; opacity:.9; }
+  @keyframes eq { 0%,100%{ transform:scaleY(.28);} 50%{ transform:scaleY(1);} }
+  @media (prefers-reduced-motion: reduce){ .wave span { animation:none; } }
+
+  /* ---------- generic cards / grids ---------- */
+  .grid-2 { display:grid; grid-template-columns:1fr 1fr; gap:clamp(1.2rem,3vw,2.2rem); align-items:start; }
+  @media (max-width:800px){ .grid-2 { grid-template-columns:1fr; } }
+
+  .panel { background:var(--bg-2); border:1px solid var(--line); border-left:4px solid var(--green); border-radius:16px;
+    padding:clamp(1.4rem,3vw,2.2rem); box-shadow:var(--shadow); }
+  .panel.amber { border-left-color:var(--amber); }
+  .panel.red { border-left-color:var(--red); }
+  .panel h3 { color:var(--green-ink); }
+  .panel.amber h3 { color:var(--amber-ink); }
+  .panel.red h3 { color:var(--red-ink); }
+  .panel p { color:var(--ink); margin:.4rem 0 0; }
+
+  /* ---------- old-workflow junk drawer ---------- */
+  .drawer { display:grid; grid-template-columns:repeat(auto-fill,minmax(215px,1fr)); gap:.7rem; margin-top:1.8rem; }
+  .file { background:var(--bg-3); border:1px solid var(--line); border-radius:10px; padding:.75rem .85rem;
+    font-family:var(--mono); font-size:.76rem; line-height:1.4; color:var(--muted); position:relative; }
+  .file .fn { color:var(--amber-ink); word-break:break-all; }
+  .file .meta { margin-top:.4rem; color:var(--muted); font-size:.72rem; }
+  .file.broken { border-style:dashed; border-color:color-mix(in srgb,var(--red) 45%,var(--line)); opacity:.72; }
+  .file.broken .fn { color:var(--red-ink); }
+  .tag-x { color:var(--red-ink); }
+
+  .steps-old { counter-reset:s; display:grid; gap:.7rem; margin-top:1.8rem; }
+  .steps-old li { list-style:none; display:flex; gap:1rem; align-items:flex-start;
+    background:var(--bg-2); border:1px solid var(--line); border-radius:12px; padding:1rem 1.2rem; }
+  .steps-old li::before { counter-increment:s; content:counter(s); flex:0 0 auto; width:2rem; height:2rem;
+    display:grid; place-items:center; border-radius:8px; background:var(--amber-deep); color:var(--amber-ink);
+    font-family:var(--mono); font-weight:600; font-size:.95rem; }
+  .steps-old p { margin:0; }
+
+  /* ---------- pain grid ---------- */
+  .pains { display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:1rem; margin-top:1.9rem; }
+  .pain { background:var(--bg-2); border:1px solid var(--line); border-radius:14px; padding:1.3rem 1.35rem; }
+  .pain .ic { font-family:var(--mono); color:var(--amber); font-size:1.4rem; line-height:1; }
+  .pain h3 { margin:.7rem 0 .35rem; color:var(--ink); }
+  .pain p { color:var(--muted); margin:0; font-size:.94rem; }
+
+  /* ---------- before/after transform ---------- */
+  .ba { display:grid; grid-template-columns:1fr auto 1fr; gap:1.1rem; align-items:center; margin-top:1.9rem; }
+  @media (max-width:760px){ .ba { grid-template-columns:1fr; } .ba .arrow{ transform:rotate(90deg); justify-self:center; } }
+  .trackcard { border:1px solid var(--line); border-radius:16px; padding:1.3rem; background:var(--bg-2); box-shadow:var(--shadow); }
+  .trackcard.after { border-color:color-mix(in srgb,var(--green) 40%,var(--line)); }
+  .cover { aspect-ratio:1; border-radius:10px; display:grid; place-items:center; margin-bottom:1rem;
+    font-family:var(--mono); font-size:.78rem; text-align:center; }
+  .cover.empty { background:repeating-linear-gradient(45deg,var(--bg-3),var(--bg-3) 10px,transparent 10px,transparent 20px);
+    border:1px dashed var(--line); color:var(--muted); }
+  .cover.art { background:linear-gradient(135deg,#2a6f4e,#3ad07f 55%,#e8c15a); color:#0c1a12; font-weight:600;
+    box-shadow:inset 0 0 0 1px rgba(255,255,255,.15); }
+  .idtag { font-family:var(--mono); font-size:.8rem; display:grid; gap:.34rem; }
+  .idtag .row { display:grid; grid-template-columns:5.2rem 1fr; gap:.6rem; }
+  .idtag .k { color:var(--muted); }
+  .idtag .v { color:var(--ink); word-break:break-word; }
+  .idtag .v.miss { color:var(--red-ink); }
+  .idtag .v.ok { color:var(--green-ink); }
+  .arrow { font-family:var(--mono); color:var(--green); font-size:2rem; justify-self:center; }
+  .cardlabel { font-family:var(--mono); font-size:.72rem; letter-spacing:.14em; text-transform:uppercase; margin-bottom:.9rem; }
+  .cardlabel.old { color:var(--amber); }
+  .cardlabel.new { color:var(--green); }
+
+  /* ---------- assembly line ---------- */
+  .line { display:flex; gap:0; margin-top:2rem; overflow-x:auto; padding-bottom:.6rem; }
+  .station { flex:0 0 auto; width:150px; text-align:center; position:relative; padding:0 .2rem; }
+  .station:not(:last-child)::after { content:"→"; position:absolute; right:-.4rem; top:1.15rem;
+    font-family:var(--mono); color:var(--green); font-size:1.2rem; }
+  .station .dot { width:2.6rem; height:2.6rem; margin:0 auto .7rem; border-radius:50%; display:grid; place-items:center;
+    background:var(--bg-3); border:1px solid color-mix(in srgb,var(--green) 40%,var(--line)); color:var(--green-ink);
+    font-family:var(--mono); font-weight:600; }
+  .station h3 { font-size:.92rem; margin-bottom:.3rem; }
+  .station p { font-size:.78rem; color:var(--muted); margin:0; max-width:none; }
+  .station .tool { font-family:var(--mono); font-size:.7rem; color:var(--green); margin-top:.35rem; letter-spacing:.04em; }
+
+  /* ---------- tool cast ---------- */
+  .cast { display:grid; grid-template-columns:repeat(auto-fill,minmax(255px,1fr)); gap:1rem; margin-top:1.9rem; }
+  .tool-card { background:var(--bg-2); border:1px solid var(--line); border-radius:14px; padding:1.3rem 1.35rem; transition:border-color .2s ease, transform .2s ease; }
+  .tool-card:hover { border-color:color-mix(in srgb,var(--green) 45%,var(--line)); transform:translateY(-2px); }
+  .tool-card .name { font-family:var(--mono); font-weight:600; color:var(--green-ink); font-size:1rem; }
+  .tool-card .role { font-family:var(--mono); font-size:.68rem; letter-spacing:.12em; text-transform:uppercase; color:var(--muted); margin:.15rem 0 .7rem; }
+  .tool-card p { font-size:.92rem; color:var(--ink); margin:0; }
+
+  /* ---------- network diagram ---------- */
+  .diagram-frame { background:var(--bg-2); border:1px solid var(--line); border-radius:20px; padding:clamp(1rem,2.2vw,1.6rem); box-shadow:var(--shadow); margin-top:1.9rem; overflow-x:auto; }
+  .diagram-frame svg { width:100%; min-width:720px; height:auto; display:block; }
+  .legend { display:flex; flex-wrap:wrap; gap:1.3rem; margin-top:1.4rem; font-family:var(--mono); font-size:.8rem; color:var(--muted); }
+  .legend span { display:inline-flex; align-items:center; gap:.5rem; }
+  .sw { width:.85rem; height:.85rem; border-radius:3px; flex:0 0 auto; }
+
+  .phase-toggle { display:inline-flex; gap:.3rem; margin-top:1.6rem; background:var(--bg-3); border:1px solid var(--line); border-radius:100px; padding:.3rem; }
+  .phase-toggle button { font-family:var(--mono); font-size:.78rem; border:0; background:transparent; color:var(--muted); padding:.4rem .95rem; border-radius:100px; cursor:pointer; }
+  .phase-toggle button[aria-pressed="true"] { background:var(--green); color:#0c1a12; font-weight:600; }
+  .phase-toggle button:focus-visible { outline:2px solid var(--green); outline-offset:2px; }
+
+  /* ---------- stat row ---------- */
+  .stats { display:grid; grid-template-columns:repeat(4,1fr); gap:1rem; margin-top:1.9rem; }
+  @media (max-width:720px){ .stats { grid-template-columns:1fr 1fr; } }
+  .stat { background:var(--bg-2); border:1px solid var(--line); border-radius:14px; padding:1.3rem 1.2rem; }
+  .stat .v { font-family:var(--mono); font-size:clamp(1.7rem,3.2vw,2.5rem); font-weight:600; letter-spacing:-.02em; line-height:1; color:var(--green-ink); font-variant-numeric:tabular-nums; }
+  .stat .v.amber { color:var(--amber-ink); }
+  .stat .k { color:var(--muted); font-size:.85rem; margin-top:.55rem; }
+
+  .quote { font-family:var(--mono); font-size:clamp(1.15rem,2vw,1.6rem); line-height:1.4; color:var(--ink); max-width:24ch; text-wrap:balance; }
+  .quote .hl { color:var(--green-ink); }
+
+  footer { border-top:1px solid var(--line); padding-block:2.6rem; color:var(--muted); font-size:.85rem; }
+  footer .wrap { display:flex; flex-wrap:wrap; gap:.6rem 1.4rem; align-items:baseline; }
+
+  .reveal { opacity:0; transform: translateY(18px); transition: opacity .6s ease, transform .6s ease; }
+  .reveal.in { opacity:1; transform:none; }
+  @media (prefers-reduced-motion: reduce){ .reveal{ opacity:1; transform:none; transition:none; } }
+
+  .theme-toggle { position:fixed; top:1rem; right:1rem; z-index:20; font-family:var(--mono); font-size:.72rem; letter-spacing:.06em;
+    background:var(--bg-2); color:var(--muted); border:1px solid var(--line); border-radius:20px; padding:.42rem .8rem; cursor:pointer; }
+  .theme-toggle:hover{ color:var(--ink); }
+  .theme-toggle:focus-visible { outline:2px solid var(--green); outline-offset:2px; }
+</style>
+
+<div class="page">
+  <button class="theme-toggle" id="themeToggle" aria-label="Toggle colour theme">◐ theme</button>
+
+  <!-- ===== HERO ===== -->
+  <section class="hero">
+    <div class="wrap">
+      <p class="eyebrow">CleanMuzik · a personal project</p>
+      <h1>The music library<br>that tags itself.</h1>
+      <p class="lede">I download a lot of music off YouTube. It always landed as a mess. So I built a machine that takes the mess and hands back a clean, beautifully-labelled library — album art and all — with basically zero effort from me.</p>
+      <div class="wave" aria-hidden="true">
+        <span style="animation-delay:0s"></span><span style="animation-delay:.1s"></span>
+        <span style="animation-delay:.25s"></span><span style="animation-delay:.05s"></span>
+        <span style="animation-delay:.3s"></span><span style="animation-delay:.15s"></span>
+        <span style="animation-delay:.4s"></span><span style="animation-delay:.2s"></span>
+        <span style="animation-delay:.35s"></span><span style="animation-delay:.08s"></span>
+        <span style="animation-delay:.28s"></span><span style="animation-delay:.5s"></span>
+        <span style="animation-delay:.12s"></span><span style="animation-delay:.42s"></span>
+        <span style="animation-delay:.22s"></span><span style="animation-delay:.06s"></span>
+        <span style="animation-delay:.33s"></span><span style="animation-delay:.18s"></span>
+        <span style="animation-delay:.46s"></span><span style="animation-delay:.26s"></span>
+        <span style="animation-delay:.14s"></span><span style="animation-delay:.38s"></span>
+        <span style="animation-delay:.02s"></span><span style="animation-delay:.3s"></span>
+      </div>
+      <div class="badge-line">
+        <span class="chip">Paste a link · <b>walk away</b></span>
+        <span class="chip"><b>~88%</b> filed with zero clicks</span>
+        <span class="chip">Your own private <b>Spotify</b></span>
+        <span class="chip">Nothing ever leaves <b>home</b></span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== THE OLD WAY ===== -->
+  <section class="alt">
+    <div class="wrap">
+      <p class="eyebrow amber">The way it used to go</p>
+      <h2>My old download routine</h2>
+      <p>For years, getting a song meant the same tired dance. Every step added a little more chaos, and nothing ever cleaned up after itself.</p>
+      <ol class="steps-old reveal">
+        <li><p>Find the song on YouTube — sometimes on my phone, sometimes my laptop, whichever was closest.</p></li>
+        <li><p>Google "youtube to mp3" and click <strong>whatever converter came up first</strong> — a different random site almost every time.</p></li>
+        <li><p>Download the MP3. It crammed the <strong>whole video title into the title field</strong> and left everything else — artist, album, year, genre, cover art — completely blank.</p></li>
+        <li><p>Do it <strong>from my phone</strong> next time, through a different site, and get a differently-broken file for the same kind of song.</p></li>
+        <li><p>Drop it all into whatever folder I'd made that month — <code>April2024MUsic</code>, <code>July music</code> — buried in OneDrive, and lose track.</p></li>
+        <li><p>End up with hundreds of files, <strong>no two tagged the same way</strong>. Nothing could sort, search, or make a playlist from it.</p></li>
+      </ol>
+
+      <h3 style="margin-top:2.6rem; color:var(--amber-ink)">What the folder actually looked like</h3>
+      <div class="drawer reveal">
+        <div class="file"><div class="fn">Bad Bunny - Me Fui (Official Video).webm</div><div class="meta">webm · <span class="tag-x">no tags · no art</span></div></div>
+        <div class="file"><div class="fn">videoplayback (3).mp3</div><div class="meta">128 kbps · <span class="tag-x">Unknown Artist</span></div></div>
+        <div class="file"><div class="fn">No One Knows.mp3</div><div class="meta"><span class="tag-x">which "No One Knows"?</span></div></div>
+        <div class="file"><div class="fn">y2mate.com - kendrick_luther.mp3</div><div class="meta">160 kbps · <span class="tag-x">no album</span></div></div>
+        <div class="file broken"><div class="fn">Frank Ocean - Monks.part</div><div class="meta">broken · half-downloaded</div></div>
+        <div class="file broken"><div class="fn">On Sum.ytdl</div><div class="meta">broken · download debris</div></div>
+        <div class="file"><div class="fn">track01_final_FINAL.mp3</div><div class="meta"><span class="tag-x">duplicate of track01</span></div></div>
+        <div class="file broken"><div class="fn">playlist_page.mhtml</div><div class="meta">not even audio</div></div>
+      </div>
+
+      <div class="stats reveal">
+        <div class="stat"><div class="v amber">855</div><div class="k">MP3s scattered across folders</div></div>
+        <div class="stat"><div class="v amber">15</div><div class="k">random "month" folders in OneDrive</div></div>
+        <div class="stat"><div class="v amber">3.2<span style="font-size:.6em"> GB</span></div><div class="k">of mostly-untagged audio</div></div>
+        <div class="stat"><div class="v amber">37</div><div class="k">unplayable <code style="font-size:.85em">.webm</code> files + junk</div></div>
+      </div>
+      <p style="margin-top:1.4rem; color:var(--muted); font-size:.95rem">Real numbers, measured from my actual library. And a near-identical mess living on my phone at the same time.</p>
+    </div>
+  </section>
+
+  <!-- ===== PAIN POINTS ===== -->
+  <section>
+    <div class="wrap">
+      <p class="eyebrow amber">Why it drove me up the wall</p>
+      <h2>The six things that broke</h2>
+      <p>The root of it was <strong>inconsistency</strong>. Different converter each time, phone one day and computer the next — so every single download was broken in its own way, and none of them agreed.</p>
+      <div class="pains reveal">
+        <div class="pain"><div class="ic">✕</div><h3>Just a title, nothing else</h3><p>The Googled converters shoved the whole video title into one field and left artist, album, year and genre completely blank.</p></div>
+        <div class="pain"><div class="ic">⇄</div><h3>Every download different</h3><p>A different random site each time, phone vs computer — so no two files were tagged the same way. Pure chaos.</p></div>
+        <div class="pain"><div class="ic">▢</div><h3>A wall of grey squares</h3><p>Zero cover art, ever. Scrolling my library was a joyless grid of blank placeholders.</p></div>
+        <div class="pain"><div class="ic">♪</div><h3>No genres, no structure</h3><p>Couldn't make a "hip-hop" or "chill" mix, or filter by decade. The data to do it simply wasn't there.</p></div>
+        <div class="pain"><div class="ic">⧉</div><h3>Duplicates across devices</h3><p>The same song grabbed on my phone <em>and</em> laptop, under two different junk names. No way to spot them.</p></div>
+        <div class="pain"><div class="ic">⁂</div><h3>Scattered &amp; cloud-bloated</h3><p>Fifteen "month" folders eating my OneDrive storage and syncing over and over. No structure at all.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== THE FIX / TRANSFORM ===== -->
+  <section class="alt">
+    <div class="wrap">
+      <p class="eyebrow">What CleanMuzik does instead</p>
+      <h2>One link in. One clean track out.</h2>
+      <p>Now the whole routine is: <strong>paste a YouTube link and click Go.</strong> A minute later the song is sitting in my library, perfectly labelled, with real album art baked in — and it plays on every device I own. Here's the exact same song, before and after.</p>
+
+      <div class="ba reveal">
+        <div class="trackcard old">
+          <div class="cardlabel old">Before · the download</div>
+          <div class="cover empty">no<br>artwork</div>
+          <div class="idtag">
+            <div class="row"><span class="k">title</span><span class="v miss">Bad Bunny - Me Fui de Vacaciones (Official Video)</span></div>
+            <div class="row"><span class="k">artist</span><span class="v miss">— blank —</span></div>
+            <div class="row"><span class="k">album</span><span class="v miss">— blank —</span></div>
+            <div class="row"><span class="k">genre</span><span class="v miss">— blank —</span></div>
+            <div class="row"><span class="k">year</span><span class="v miss">— blank —</span></div>
+          </div>
+          <p style="font-family:var(--mono); font-size:.72rem; color:var(--amber-ink); margin:.9rem 0 0">↑ the whole video title dumped into one field</p>
+        </div>
+        <div class="arrow" aria-hidden="true">→</div>
+        <div class="trackcard after">
+          <div class="cardlabel new">After · filed itself</div>
+          <div class="cover art">DeBÍ<br>TiRAR MáS<br>FOToS</div>
+          <div class="idtag">
+            <div class="row"><span class="k">file</span><span class="v ok">Bad Bunny/…/Me Fui de Vacaciones.mp3</span></div>
+            <div class="row"><span class="k">title</span><span class="v ok">Me fui de vacaciones</span></div>
+            <div class="row"><span class="k">artist</span><span class="v ok">Bad Bunny</span></div>
+            <div class="row"><span class="k">album</span><span class="v ok">DeBÍ TiRAR MáS FOToS</span></div>
+            <div class="row"><span class="k">genre</span><span class="v ok">Reggaeton</span></div>
+            <div class="row"><span class="k">year</span><span class="v ok">2025</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="grid-2" style="margin-top:2.2rem">
+        <div class="panel">
+          <h3>MP3 320 — the same quality, every time</h3>
+          <p>Whatever it grabs, it converts to one consistent, high-quality MP3 that plays on literally anything. No more random webm files.</p>
+        </div>
+        <div class="panel">
+          <h3>Filed by artist &amp; album — automatically</h3>
+          <p>It lands in the right folder, cover art embedded, lyrics attached, and shows up in my library within seconds. I never touch a folder again.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== ASSEMBLY LINE ===== -->
+  <section>
+    <div class="wrap">
+      <p class="eyebrow">Under the hood</p>
+      <h2>The assembly line</h2>
+      <p>Behind that one "Go" button, the song rides down a little factory line. Each station does one job and hands the track to the next — all on my own machine, one song at a time.</p>
+      <div class="line reveal">
+        <div class="station"><div class="dot">1</div><h3>Grab</h3><p>Pull the raw audio off the YouTube link.</p><div class="tool">yt-dlp</div></div>
+        <div class="station"><div class="dot">2</div><h3>Convert</h3><p>Re-encode to a clean MP3 320.</p><div class="tool">ffmpeg</div></div>
+        <div class="station"><div class="dot">3</div><h3>Listen</h3><p>Fingerprint the sound to identify it.</p><div class="tool">AcoustID</div></div>
+        <div class="station"><div class="dot">4</div><h3>Label</h3><p>Pull real title, artist, album, year.</p><div class="tool">MusicBrainz</div></div>
+        <div class="station"><div class="dot">5</div><h3>Dress</h3><p>Add genre, cover art &amp; lyrics.</p><div class="tool">Last.fm · art</div></div>
+        <div class="station"><div class="dot">6</div><h3>File</h3><p>Land it, organised, in the library.</p><div class="tool">beets</div></div>
+      </div>
+
+      <div class="panel amber reveal" style="margin-top:2.4rem">
+        <h3>When it isn't sure, it asks — it never guesses</h3>
+        <p>About 88% of the time it's certain and files the song silently. When a rip is genuinely ambiguous — a live version, a remix, a mystery title — it doesn't mislabel it. It sets that one aside in a <strong>review queue</strong> and shows me a few candidates to pick from. Certainty or a question, never a wrong guess.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== THE CLEVER BIT ===== -->
+  <section class="alt">
+    <div class="wrap">
+      <div class="grid-2">
+        <div>
+          <p class="eyebrow">The clever bit</p>
+          <h2>It knows the song by its sound, not its name.</h2>
+          <p>This is my favourite part. The filename lies constantly — "Official Video", "y2mate", or just plain wrong. So CleanMuzik ignores the name entirely. It takes an <strong>acoustic fingerprint</strong> of the actual audio — like Shazam — and asks a giant open database "which exact recording is this?"</p>
+          <p>The answer comes back with the real title, artist, album and year attached. Names are a guess. <em>Sound is proof.</em></p>
+        </div>
+        <div>
+          <div class="panel">
+            <h3>A real example from my library</h3>
+            <p style="font-family:var(--mono); font-size:.9rem; margin-bottom:.9rem">
+              <span style="color:var(--amber-ink)">The file was named only:</span><br>
+              <span style="color:var(--muted)">"No One Knows.mp3"</span>
+            </p>
+            <p style="font-family:var(--mono); font-size:.9rem; margin:0">
+              <span style="color:var(--green-ink)">The sound was identified as:</span><br>
+              <span style="color:var(--ink)">"No One Knows" — <strong>Brent Faiyaz</strong></span><br>
+              <span style="color:var(--muted); font-size:.85em">confidence: 0.981 · dead certain</span>
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== TOOL CAST ===== -->
+  <section>
+    <div class="wrap">
+      <p class="eyebrow">The cast of characters</p>
+      <h2>The tools that solve it</h2>
+      <p>I didn't hand-build any of the hard parts — the smart move was wiring together brilliant free tools that each already do one thing incredibly well. Here's the whole crew, in plain terms.</p>
+      <div class="cast reveal">
+        <div class="tool-card"><div class="name">yt-dlp</div><div class="role">The grabber</div><p>Pulls the raw audio straight off a YouTube link. Handles single songs and whole playlists.</p></div>
+        <div class="tool-card"><div class="name">ffmpeg</div><div class="role">The converter</div><p>Turns whatever got grabbed into one clean MP3 320 — the same high quality, every single time.</p></div>
+        <div class="tool-card"><div class="name">beets</div><div class="role">The librarian</div><p>The brain of the whole thing. Identifies, tags, and files each track. Everything below plugs into it.</p></div>
+        <div class="tool-card"><div class="name">AcoustID + Chromaprint</div><div class="role">The ear</div><p>Listens to the actual sound and says exactly which recording it is — even when the filename is nonsense.</p></div>
+        <div class="tool-card"><div class="name">MusicBrainz</div><div class="role">The encyclopedia</div><p>A giant open music database with the real title, artist, album, and year for millions of songs.</p></div>
+        <div class="tool-card"><div class="name">Last.fm</div><div class="role">The genre tagger</div><p>Fills in what <em>kind</em> of music each track is, so genre and decade playlists actually work.</p></div>
+        <div class="tool-card"><div class="name">Cover Art Archive</div><div class="role">The album art</div><p>Finds the real, high-resolution album cover and bakes it right into the file.</p></div>
+        <div class="tool-card"><div class="name">LRCLib</div><div class="role">The lyrics</div><p>Grabs synced lyrics so the words scroll in time while the song plays.</p></div>
+        <div class="tool-card"><div class="name">FastAPI</div><div class="role">The engine room</div><p>The Python backend that runs the assembly line and keeps everything moving in order.</p></div>
+        <div class="tool-card"><div class="name">React</div><div class="role">The face</div><p>The slick screen where I paste a link and watch each song animate through the pipeline live.</p></div>
+        <div class="tool-card"><div class="name">Jellyfin</div><div class="role">The home shelf</div><p>My own private Spotify — it stores, streams, and plays the finished library on any device.</p></div>
+        <div class="tool-card"><div class="name">Tailscale</div><div class="role">The private tunnel</div><p>Lets my phone reach the music at home from anywhere — without ever putting it on the open internet.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== NETWORK DIAGRAM ===== -->
+  <section class="alt">
+    <div class="wrap">
+      <p class="eyebrow">How it all connects</p>
+      <h2>Where the music actually lives</h2>
+      <p>Here's the shape of the whole thing. The big idea: <strong>my music only ever lives on my own machine at home.</strong> My devices talk only to that server — the server is the one that reaches out to the internet to fetch and identify songs. When I stream on my phone, it's not "the cloud"; it's a private tunnel reaching back to files that never left the house.</p>
+
+      <div class="phase-toggle" role="group" aria-label="Which phase to show">
+        <button id="p0" aria-pressed="true">Phase 0 · now</button>
+        <button id="p1" aria-pressed="false">Phase 1 · later</button>
+      </div>
+
+      <div class="diagram-frame reveal">
+        <svg viewBox="0 0 1000 560" role="img" aria-label="Network diagram: your devices talk to a home server, which reaches out to the internet; music stays home.">
+          <defs>
+            <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+              <path d="M0,0 L8,3 L0,6 Z" fill="var(--green)"></path>
+            </marker>
+            <marker id="arrowM" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+              <path d="M0,0 L8,3 L0,6 Z" fill="var(--muted)"></path>
+            </marker>
+          </defs>
+
+          <!-- ZONE 1: your devices -->
+          <rect id="zDevices" x="24" y="70" width="228" height="420" rx="18" fill="var(--bg-3)" stroke="var(--line)"></rect>
+          <text x="138" y="102" text-anchor="middle" font-family="var(--mono)" font-size="15" fill="var(--green)" letter-spacing="1.5">YOUR DEVICES</text>
+
+          <g font-family="var(--mono)" font-size="14" fill="var(--ink)">
+            <rect x="52" y="130" width="172" height="66" rx="11" fill="var(--bg-2)" stroke="var(--line)"></rect>
+            <text x="138" y="160" text-anchor="middle">Laptop</text>
+            <text x="138" y="180" text-anchor="middle" font-size="11" fill="var(--muted)">paste a link · watch it work</text>
+
+            <rect id="phoneBox" x="52" y="230" width="172" height="66" rx="11" fill="var(--bg-2)" stroke="var(--line)"></rect>
+            <text x="138" y="260" text-anchor="middle">Phone</text>
+            <text x="138" y="280" text-anchor="middle" font-size="11" fill="var(--muted)">stream anywhere</text>
+
+            <rect id="otherBox" x="52" y="330" width="172" height="66" rx="11" fill="var(--bg-2)" stroke="var(--line)"></rect>
+            <text x="138" y="360" text-anchor="middle">Other computers</text>
+            <text x="138" y="380" text-anchor="middle" font-size="11" fill="var(--muted)">listen &amp; browse</text>
+          </g>
+
+          <!-- ZONE 2: home server -->
+          <rect x="360" y="40" width="290" height="480" rx="18" fill="var(--green-deep)" stroke="var(--green)" opacity="0.95"></rect>
+          <text x="505" y="72" text-anchor="middle" font-family="var(--mono)" font-size="15" fill="var(--green-ink)" letter-spacing="1.5">YOUR SERVER · AT HOME</text>
+
+          <g font-family="var(--mono)" font-size="14" fill="var(--ink)">
+            <rect x="388" y="100" width="234" height="74" rx="11" fill="var(--bg-2)" stroke="var(--green)"></rect>
+            <text x="505" y="132" text-anchor="middle" fill="var(--green-ink)">CleanMuzik app</text>
+            <text x="505" y="153" text-anchor="middle" font-size="11" fill="var(--muted)">the assembly line (FastAPI + beets)</text>
+
+            <rect x="388" y="200" width="234" height="74" rx="11" fill="var(--bg-2)" stroke="var(--green)"></rect>
+            <text x="505" y="232" text-anchor="middle" fill="var(--green-ink)">Jellyfin</text>
+            <text x="505" y="253" text-anchor="middle" font-size="11" fill="var(--muted)">library · streaming · playback</text>
+
+            <rect x="388" y="300" width="234" height="74" rx="11" fill="var(--bg-2)" stroke="var(--green)"></rect>
+            <text x="505" y="332" text-anchor="middle" fill="var(--green-ink)">The library on disk</text>
+            <text x="505" y="353" text-anchor="middle" font-size="11" fill="var(--muted)">…\Music\CleanMuzik</text>
+
+            <rect x="388" y="410" width="234" height="70" rx="11" fill="none" stroke="var(--line)" stroke-dasharray="5 5"></rect>
+            <text x="505" y="440" text-anchor="middle" font-size="12" fill="var(--muted)">one song at a time,</text>
+            <text x="505" y="459" text-anchor="middle" font-size="12" fill="var(--muted)">quietly, in order</text>
+          </g>
+
+          <!-- ZONE 3: internet -->
+          <rect x="758" y="70" width="218" height="420" rx="18" fill="var(--bg-3)" stroke="var(--line)"></rect>
+          <text x="867" y="102" text-anchor="middle" font-family="var(--mono)" font-size="15" fill="var(--muted)" letter-spacing="1.5">THE INTERNET</text>
+
+          <g font-family="var(--mono)" font-size="13" fill="var(--ink)">
+            <rect x="782" y="130" width="170" height="66" rx="11" fill="var(--bg-2)" stroke="var(--line)"></rect>
+            <text x="867" y="160" text-anchor="middle">YouTube</text>
+            <text x="867" y="180" text-anchor="middle" font-size="11" fill="var(--muted)">the raw audio</text>
+
+            <rect x="782" y="230" width="170" height="66" rx="11" fill="var(--bg-2)" stroke="var(--line)"></rect>
+            <text x="867" y="256" text-anchor="middle" font-size="12">AcoustID ·</text>
+            <text x="867" y="274" text-anchor="middle" font-size="12">MusicBrainz</text>
+
+            <rect x="782" y="330" width="170" height="66" rx="11" fill="var(--bg-2)" stroke="var(--line)"></rect>
+            <text x="867" y="356" text-anchor="middle" font-size="12">Last.fm · art ·</text>
+            <text x="867" y="374" text-anchor="middle" font-size="12">lyrics</text>
+          </g>
+
+          <!-- CONNECTIONS: devices <-> server (local / tunnel) -->
+          <line id="lLaptop" x1="224" y1="163" x2="388" y2="150" stroke="var(--green)" stroke-width="2.5" marker-end="url(#arrow)"></line>
+          <line id="lPhone" x1="224" y1="263" x2="388" y2="230" stroke="var(--green)" stroke-width="2.5" stroke-dasharray="6 5" marker-end="url(#arrow)"></line>
+          <line id="lOther" x1="224" y1="363" x2="388" y2="337" stroke="var(--green)" stroke-width="2.5" stroke-dasharray="6 5" marker-end="url(#arrow)"></line>
+          <text id="linkLabel" x="305" y="150" text-anchor="middle" font-family="var(--mono)" font-size="12" fill="var(--green-ink)">localhost</text>
+
+          <!-- CONNECTIONS: server -> internet (outbound only) -->
+          <line x1="622" y1="140" x2="782" y2="160" stroke="var(--muted)" stroke-width="2" marker-end="url(#arrowM)"></line>
+          <line x1="622" y1="235" x2="782" y2="260" stroke="var(--muted)" stroke-width="2" marker-end="url(#arrowM)"></line>
+          <line x1="622" y1="330" x2="782" y2="360" stroke="var(--muted)" stroke-width="2" marker-end="url(#arrowM)"></line>
+          <text x="702" y="205" text-anchor="middle" font-family="var(--mono)" font-size="12" fill="var(--muted)">outbound only</text>
+        </svg>
+      </div>
+      <div class="legend">
+        <span><span class="sw" style="background:var(--green)"></span> your devices ⇄ your server (private)</span>
+        <span><span class="sw" style="background:var(--muted)"></span> server → internet (fetch &amp; identify)</span>
+        <span><span class="sw" style="background:var(--green-deep); border:1px solid var(--green)"></span> home — the music never leaves</span>
+      </div>
+      <p style="margin-top:1.6rem; color:var(--muted); font-size:.95rem"><strong style="color:var(--ink)">Phase 0 (now):</strong> it's just my laptop talking to itself over <code>localhost</code>. <strong style="color:var(--ink)">Phase 1 (later):</strong> the same server moves to a dedicated always-on PC, and my phone reaches it through a private Tailscale tunnel from anywhere — flip the toggle above to see it.</p>
+    </div>
+  </section>
+
+  <!-- ===== CLOSING ===== -->
+  <section>
+    <div class="wrap">
+      <div class="grid-2" style="align-items:center">
+        <div>
+          <p class="eyebrow">The whole point</p>
+          <p class="quote">A pile of downloads became <span class="hl">a library I actually love opening.</span></p>
+        </div>
+        <div>
+          <p>That's it. Paste a link, walk away, and later there's a properly-labelled song with real art sitting in a library I can browse by artist, genre, or decade — on any device, streamed from my own machine.</p>
+          <p style="color:var(--muted); font-size:.95rem">Still building. Next up: a one-tap trigger so new songs show in the library instantly, and smarter handling for songs I already own so I never get a duplicate again.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <div class="wrap">
+      <span style="font-family:var(--mono); color:var(--green-ink)">CleanMuzik</span>
+      <span>A personal tool for a clean, richly-tagged music library.</span>
+      <span style="margin-left:auto">Built with beets · yt-dlp · ffmpeg · FastAPI · React · Jellyfin</span>
+    </div>
+  </footer>
+</div>
+
+<script>
+  (function () {
+    var root = document.documentElement;
+    var btn = document.getElementById('themeToggle');
+    btn.addEventListener('click', function () {
+      var cur = root.getAttribute('data-theme');
+      if (!cur) cur = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+      root.setAttribute('data-theme', cur === 'dark' ? 'light' : 'dark');
+    });
+
+    // scroll reveal
+    var io = new IntersectionObserver(function (es) {
+      es.forEach(function (e) { if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); } });
+    }, { threshold: 0.12 });
+    document.querySelectorAll('.reveal').forEach(function (el) { io.observe(el); });
+
+    // phase toggle for the network diagram
+    var p0 = document.getElementById('p0'), p1 = document.getElementById('p1');
+    var label = document.getElementById('linkLabel');
+    function setPhase(now) {
+      p0.setAttribute('aria-pressed', now ? 'true' : 'false');
+      p1.setAttribute('aria-pressed', now ? 'false' : 'true');
+      label.textContent = now ? 'localhost' : 'Tailscale tunnel';
+      ['phoneBox', 'otherBox'].forEach(function (id) {
+        document.getElementById(id).setAttribute('opacity', now ? '0.45' : '1');
+      });
+    }
+    p0.addEventListener('click', function () { setPhase(true); });
+    p1.addEventListener('click', function () { setPhase(false); });
+    setPhase(true);
+  })();
+</script>
