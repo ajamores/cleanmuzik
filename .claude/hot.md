@@ -2,7 +2,7 @@
 type: meta
 title: "Hot — cleanmuzik"
 updated: 2026-07-14
-last-commit: a353ec7
+last-commit: 6e8f205
 tags:
   - meta
   - hot-cache
@@ -20,17 +20,46 @@ CleanMuzik — personal YouTube → Jellyfin music tool. Full description, stack
 live in `CLAUDE.md` and `cleanmuzik-prd.md` (this board holds *volatile state*, not evergreen
 description — see there, don't restate here).
 
-**Phase: R1 IN BUILD — T-001…T-008 done, committed + pushed.** Spec signed off, `docs/r1/tickets.md`
-holds 19 build-ordered tickets. **T-008 (threshold tuning) committed + pushed** to `origin/main`
-(`a353ec7`). Next: **T-009** (acquire-time duplicate handling — `resolve_duplicate`, keep-better-copy
-tie-break, ambiguous → review) or continue the spine (T-010 Jellyfin scan, T-011 identify retry+
-backoff — which now also owns wiring the owner's AcoustID app key). See `docs/r1/tickets.md`.
+**Phase: R1 IN BUILD — T-001…T-008 + T-011 done, committed (push pending).** Spec signed off,
+`docs/r1/tickets.md` holds 19 build-ordered tickets. **T-011 (identify retry+backoff + owner AcoustID
+key) committed** (`1c3b952`); intro primer committed (`6e8f205`). Next: **T-009** (acquire-time
+duplicate handling — `resolve_duplicate`, keep-better-copy tie-break, ambiguous → review) or **T-010**
+(Jellyfin scan trigger — the one remaining spine sibling that gates Phase B / T-012). See
+`docs/r1/tickets.md`.
 
 ## Current State (2026-07-14)
 
-- **Branch `main`** — **T-008 committed + pushed** (`a353ec7`: `import_seam.py` threshold flip + test
-  split + ADR-006 addendum + learnings + tickets status + primer A3). Working tree: this board,
-  landing next as `docs(hot)`.
+- **Branch `main`** — **T-011 + intro primer committed** (`1c3b952`, `6e8f205`); this board lands
+  next as `docs(hot)`. **Push pending** (owner asked to push this session — do it).
+- **T-011 DONE — identify retry/backoff + owner AcoustID key wired.** `import_seam.py`: retry only the
+  *lookup* (fingerprint generated once) with exponential **1→2→4s** backoff on transient
+  `AcoustidLookupError`; `_resolve_api_key(settings)` picks the owner's `acoustid_apikey` (private
+  quota, verified 10-char, resolves over the shared key) with the shared `1vOwZtEn` as fallback, bound
+  in `import_song` via `functools.partial` so `choose_item`'s call site stays key-agnostic.
+  - **Load-bearing review fix (the flaw I introduced, then fixed):** pyacoustid's `_api_request`
+    does **not** `raise_for_status`, so a **rate-limit AND an invalid key both arrive as a non-ok
+    `status`** — distinguishable only by `error.code`. Naive "retry every error" would hammer a
+    typo'd key 4× (~7s) per song then silently mass-park the whole run with no signal. Fix:
+    `_PERMANENT_ERROR_CODES` **denylist** (incl. invalid-key 4/6) → raises non-retryable
+    `AcoustidPermanentError` → `choose_item` parks **but logs ERROR** ("check ACOUSTID_APIKEY").
+    Everything else (rate-limit 14, service-unavailable 13, network, unknown code) stays retryable.
+    Denylist not allowlist, so an unknown code errs toward retry (harmless), never toward hammering
+    a bad key. (→ learnings.md)
+  - **`/code-review` high (workflow):** 5 findings, 0 refuted — #1 permanent-retry / #4 stale
+    docstring / #5 tests-run-full-loop **applied**; **#2** (blocking sleep / no SSE progress) mostly
+    moot after #1 (invalid-key 7s-stall gone; batches are R2, SSE is T-013, beets runs off the event
+    loop in a worker thread — deferred to owning tickets); **#3** auto-fallback-to-shared-key on a bad
+    owner key **rejected** (masks a misconfig the owner should fix; a *rate-limited* owner key still
+    recovers via the transient path). **167 tests green** (+8: retry-recovers, retry-exhausted,
+    no-match-not-retried, invalid-key-permanent, rate-limit-retryable, permanent-parks, 2 key-resolve).
+- **Intro primer built + committed** (`6e8f205`) — `docs/primers/00-what-is-cleanmuzik.html`, a
+  friendly non-technical walkthrough (old Googled-converter routine, inconsistency/title-only pains,
+  the tool cast in plain words, an SVG network diagram with a Phase 0/1 toggle). Published Artifact:
+  `https://claude.ai/code/artifact/9288627e-39b4-45f7-874d-bec3cedfc31b`. "Start here" ahead of the
+  numbered tracks.
+- **Primer A3 redeployed** — the claude.ai 500 cleared; the public copy at
+  `https://claude.ai/code/artifact/b2d9e8f0-7902-4f09-979e-bd4e0f908df1` now shows the final
+  gap-decided verdict (git source was already correct; no file change).
 - **T-008 DONE — thresholds tuned on 25 real songs. `SCORE_MIN=0.90` held, `GAP_MIN=0.10→0.0`.**
   Measured owner-library (15, incl. tag-less bare-title files — the worst case) + a YouTube playlist
   (10 usable, 5 lost to rate-limit): **22 correct auto-accepts, 0 wrong, 3 genuine no-matches**;
@@ -182,6 +211,39 @@ backoff — which now also owns wiring the owner's AcoustID app key). See `docs/
   skeleton (Express dropped in T-001); the pipeline stages (download/transcode/beets) don't exist yet.
 
 ## Session log
+
+### 2026-07-14 (session 10) — T-011 retry/backoff + owner key; intro primer; A3 redeployed
+
+- **Redeployed primer A3** (item 1 carry-over) — the claude.ai 500 cleared; the public copy now shows
+  the final gap-decided verdict. Git source was already correct, no file change.
+- **Built + published an intro primer for a friend** (owner request) — full-bleed non-technical
+  walkthrough: the old Googled-"youtube to mp3" routine, the real pain (inconsistency + title-only
+  tags across phone/computer), the tool cast in plain words, and an **SVG network diagram** (devices ⇄
+  home server → internet, Phase 0/1 toggle). Refined the pain section per owner correction (it was the
+  *inconsistency* — a different random converter each time, one crammed title field, nothing else).
+  Committed `6e8f205` as `docs/primers/00-what-is-cleanmuzik.html`.
+- **Built T-011** (committed `1c3b952`) — the identify-stage retry + owner AcoustID key. Discussed the
+  fork with the owner (T-009/T-010/T-011 are *siblings*, all deps only T-007 — "next" = highest-value
+  unblocked, not lowest number) and recommended T-011: it removes a *measured, live* pain (T-008's
+  shared-key throttling) rather than adding surface. Owner approved value-order.
+  - Retry only the lookup (fingerprint once), 1→2→4s backoff; `_resolve_api_key` wires the owner's key
+    with the shared key as fallback (verified against real `.env`).
+  - **`/code-review` high (workflow) caught a real flaw I'd introduced:** retrying an invalid key is
+    futile and would silently mass-park every song after a 7s stall each. Root cause: pyacoustid
+    surfaces a rate-limit and a bad key identically (non-ok status), split only by `error.code`. Fixed
+    with a permanent-vs-transient split (`AcoustidPermanentError`, fail-fast + ERROR log). Adjudicated
+    all 5 findings (3 applied, 1 moot-after-fix, 1 rejected — see Current State). Transcribed the
+    lesson to learnings.md. **167 tests green.**
+- **NEXT:**
+  1. **Push `main`** — `1c3b952` (T-011) + `6e8f205` (primer) + this `docs(hot)` are committed but
+     **not yet pushed** to `origin/main`. (Owner asked to push this session.)
+  2. **T-010** (Jellyfin scan trigger) — small, and the one remaining spine sibling that gates Phase B
+     (T-012 lists it as a dep). Then **T-009** (acquire-time dedup: keep-better-copy tie-break,
+     ambiguous → review). After the spine siblings: Phase B (T-012 worker-thread job queue + routes).
+  3. Optional: a targeted re-review of T-011's permanent/transient split (I introduced the flaw and
+     fixed it same-session — tests cover it, but an extra pass is cheap confidence).
+  4. Carry-overs (housekeeping): "proactively flag learnable moments" → global `~/.claude/CLAUDE.md`;
+     build the **artifact-visual-style skill**, then drop the redundant project-memory copy.
 
 ### 2026-07-14 (session 9) — T-008: thresholds tuned on 25 real songs; gap switched off
 
