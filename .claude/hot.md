@@ -2,7 +2,7 @@
 type: meta
 title: "Hot — cleanmuzik"
 updated: 2026-07-15
-last-commit: 2c3c3d9
+last-commit: ea5fd6b
 tags:
   - meta
   - hot-cache
@@ -31,29 +31,36 @@ are disjoint (server vs `client/`). See `docs/r1/tickets.md`.
 
 ## Current State (2026-07-15)
 
-- **Branch `main` == `origin/main`** — session-10's pending push landed (`53bea61`), then **T-009
-  committed + pushed** (`2c3c3d9`). This board lands next as `docs(hot)`.
-- **T-009 DONE — acquire-time duplicate handling (`get_duplicate_action`), NON-DESTRUCTIVE (ADR-009).**
-  The 2.12 hook is `get_duplicate_action(task, found_duplicates)`, not the ticket's older
-  `resolve_duplicate` name. Detection by **MusicBrainz recording id** (`duplicate_keys.item =
-  mb_trackid`) — complete for R1 by construction (every landed copy has an MBID; untagged legacy
-  files are R2 migrate input). **R1 never auto-deletes the owner's file** — quality is a *partial
-  order* on `(bitrate, tag richness)`: keep existing (`SKIP`) when an existing copy *covers* the
-  incoming one on **both** axes; else **park to review** ("you already have this — keep which?").
-  Owner picked non-destructive (the recommended option); auto-replace (copy-first/delete-after) is
-  deferred to R2. **184 tests green** (+8 dup tests). ADR-009 recorded; spec §5 + tickets updated.
-  - **`/code-review` high (workflow): 4 findings, all mine, all confirmed, all handled.** The
-    load-bearing one (#1): my first cut returned `DuplicateAction.REMOVE`, but beets 2.12
-    `manipulate_files` **deletes the old file before it copies the new one** — a copy failure loses
-    BOTH. That data-loss window drove the whole non-destructive rework. #3: `get_duplicate_action`
-    runs *before* beets applies tags, so reading the incoming item's "completeness" was pre-apply —
-    the partial-order/cover model makes that read *correct* (a bare download can only fail to cover a
-    tagged copy, never wrongly displace it). #2: mb_trackid-only misses untagged legacy copies —
-    documented as R1-scoped. #4: folded `_park`/`_park_duplicate` into `_record_review`. → learnings.md.
-  - **Verify note:** decision logic proven by unit tests (cover → skip; upgrade/trade-off → review;
-    one-outcome bookkeeping); detection-by-mbid proven against real beets (`duplicates_query` on
-    `mb_trackid` matches a committed row; a different recording does not). A full live re-paste
-    end-to-end rides with **T-012/T-019** (needs the job pipeline to drive two real downloads).
+- **Branch `main` == `origin/main`** — session-10's push landed (`53bea61`), then **T-009**
+  (`2c3c3d9`) + this session's board (`9048f2a`) + the **T-009 fix** (`ea5fd6b`). Board re-lands as
+  `docs(hot)`.
+- **T-009 DONE — acquire-time duplicate handling, NON-DESTRUCTIVE (ADR-009). Detect via a DIRECT
+  library query, not beets' import stage.** Two review passes; the design changed twice (both caught
+  real bugs I introduced), final shape below.
+  - **Mechanism:** in `choose_item`, when the accepted song shares a MusicBrainz recording id with a
+    library item — found by our own `lib.items(MatchQuery("mb_trackid", rec_id))` — keep the existing
+    copy (`SKIP`, emit `"skipped"`) if it's at **>= bitrate**; else **park the strictly-higher-bitrate
+    upgrade** (`rec="duplicate"`). **Never auto-deletes** (ADR-009). **Bitrate-only** compare (tags
+    aren't applied yet + tie for the same recording; tag/acoustic tie-break → R2). **183 tests green.**
+  - **Why not beets' own duplicate stage (the load-bearing trap):** its probe is built from the
+    match's `TrackInfo`, whose recording id is under `track_id`, **before** the `track_id→mb_trackid`
+    mapping — so a `duplicate_keys=mb_trackid` query finds **nothing** and detection silently never
+    fires (→ a silent second copy on every re-paste, the exact bug T-009 prevents). The default
+    `artist title` key *does* fire but over-matches (merges a live take with the studio cut). So we
+    detect ourselves and keep `duplicate_keys=mb_trackid` only to make beets' stage an inert no-op.
+    **My first "verification" was a false green** — it used the ASIS path with a pre-populated Item;
+    the real APPLY path (`TrackMatch`/`TrackInfo`) exposes the mismatch. (→ learnings.md)
+  - **Two `/code-review` high (workflow) passes.** Pass 1 (4 findings, all confirmed) killed a
+    **data-loss window** — my first cut returned `DuplicateAction.REMOVE`, but beets `manipulate_files`
+    **deletes the old file before it copies the new one** (copy failure loses BOTH) → drove the
+    non-destructive rework. Pass 2 (owner-requested re-review of the rework, 2 confirmed correctness +
+    cleanup) caught the **detection-silently-dead** bug above (#1) and the dead two-axis tag machinery
+    (#0 → simplified to bitrate-only); also dropped an unused param and clarified the staging contract
+    (only `"parked"` retains staging; `landed`/`skipped` are safe for T-012 to clean).
+  - **Verify:** detection now proven **end-to-end against a real in-memory beets library** (tests drive
+    `choose_item` → `_library_duplicates` → skip/park; a MatchQuery on `mb_trackid` finds a committed
+    row, a different recording does not). A full live re-paste (two real downloads) rides with
+    **T-012/T-019** once the job pipeline can drive it.
 - **T-010 DONE — Jellyfin scan trigger (`server/app/jellyfin.py`).** `trigger_scan()` POSTs
   Jellyfin's `/Library/Refresh` with `X-Emby-Token` auth after a track lands so it appears in
   seconds. Three-way contract (spec §6): **True** = scan requested; **False** = degraded (missing OR
@@ -261,28 +268,39 @@ are disjoint (server vs `client/`). See `docs/r1/tickets.md`.
   the T-002/03/04 fan-out clean. T-009 solo, **T-012 solo by design** (it's the integration keystone —
   parallelizing the thing that stitches the others is a merge mess), and the one genuine pocket is
   **T-013 (server SSE) ∥ T-015 (client paste+Go)** after T-012. Recorded in the phase line above.
-- **Built T-009** (`2c3c3d9`) — acquire-time duplicate handling; **the spine's last sibling, so
-  Phase A is now complete.** Read the beets 2.12 importer to find the real hook is
-  `get_duplicate_action` (not the ticket's `resolve_duplicate`), that it fires *before* the file is
-  copied/added (so a SKIP leaves no phantom), and that REMOVE deletes-before-copies.
-  - **First cut had a data-loss bug I introduced; the review caught it.** `/code-review` high
-    (workflow) returned 4 findings, all confirmed: the destructive REMOVE window (#1, load-bearing),
-    a pre-apply tag read (#3), mb_trackid detection scope (#2), and a park-path dup (#4). #1 drove a
-    full rework to a **non-destructive** design (never auto-delete; cover-based partial order; upgrade
-    → review). Adjudicated + fixed all four. **184 tests green.** Two learnings transcribed.
-  - **Surfaced the spec deviation to the owner** (spec §5 said "drop the other"). Owner chose the
-    **non-destructive** option (the one I recommended). Recorded as **ADR-009**; annotated spec §5 and
-    tickets so code and the signed-off spec don't silently disagree.
+- **Built T-009** (`2c3c3d9`, then fixed in `ea5fd6b`) — acquire-time duplicate handling; **the
+  spine's last sibling, so Phase A is now complete.** The design changed **twice**, each rev caught by
+  a review finding a real bug I'd introduced — worth remembering how easily this one hid mistakes.
+  - **Pass 1 (`/code-review` high, 4 findings, all confirmed):** my first cut returned
+    `DuplicateAction.REMOVE`, but beets `manipulate_files` **deletes the old file before it copies the
+    new one** — a copy failure loses BOTH. That data-loss window drove a rework to a **non-destructive**
+    design. Surfaced the resulting spec §5 deviation ("drop the other"); **owner chose non-destructive**
+    (the recommended option) → **ADR-009**.
+  - **Pass 2 (owner-requested re-review of the rework — the one he said "just do it now"):** caught a
+    **worse, silent bug** — my rework detected dupes via beets' import stage keyed on `mb_trackid`,
+    which **never fires** (its probe carries the recording id under `track_id`, before the
+    `track_id→mb_trackid` mapping) → a silent second copy on every re-paste, the exact thing T-009
+    prevents. My earlier "verification" was a **false green** (ASIS path w/ a pre-populated Item, not
+    the real APPLY path). Fix (`ea5fd6b`): **detect ourselves against the library** at accept time in
+    `choose_item` (`MatchQuery("mb_trackid", rec_id)`); keep `duplicate_keys=mb_trackid` only to make
+    beets' stage inert. Also simplified the dead two-axis tag machinery to **bitrate-only** (tags are
+    pre-apply + tie for the same recording; tag/acoustic tie-break → R2), dropped an unused param, and
+    clarified the staging-cleanup contract. Tests now drive detection through a **real in-memory beets
+    library**. **183 tests green.** Two learnings transcribed; ADR-009 / spec §5 / tickets updated to
+    the built design.
+  - **Lesson banked:** this ticket hid two of my own bugs behind plausible-looking code and a false
+    green — the re-review the owner asked for was the thing that caught the spine-breaker. Do the live
+    re-paste under T-012 before calling the dedup fully proven.
 - **NEXT:**
   1. **T-012 — Phase B keystone: worker-thread job queue + `/api/jobs` routes.** Wires every stage
      into one sequential run (ADR-001), creates the job row before the pipeline (import_song's FK
-     precondition), owns staging cleanup + the playlist-422, and is where a full **live re-paste**
-     verify of T-009 finally becomes drivable. Keep it **solo** (integration point).
+     precondition), owns staging cleanup (only `"parked"` retains staging — see finalize_outcomes'
+     contract) + the playlist-422, and is where the full **live re-paste** verify of T-009 finally
+     becomes drivable (two real downloads → prove no second copy lands). Keep it **solo** (integration
+     point).
   2. After T-012: the **T-013 ∥ T-015** fan-out (server SSE + client shell, disjoint), then T-016
      (convergence) → T-014 → T-017.
-  3. Optional cheap confidence: a targeted re-review of T-009's reworked non-destructive path (I
-     changed the model substantially mid-ticket; tests cover it, an extra pass is cheap).
-  4. Carry-overs (housekeeping): "proactively flag learnable moments" → global `~/.claude/CLAUDE.md`;
+  3. Carry-overs (housekeeping): "proactively flag learnable moments" → global `~/.claude/CLAUDE.md`;
      build the **artifact-visual-style skill**, then drop the redundant project-memory copy.
 
 ### 2026-07-14 (session 10) — T-011 retry/backoff + owner key; intro primer; A3 redeployed
