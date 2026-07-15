@@ -116,15 +116,21 @@ Format: `- <date> — what went wrong → the correction / rule now in place`
   existing copy (SKIP) whenever an existing copy *covers* the incoming one; otherwise park to review
   and let the owner confirm any replacement. Auto-replace-with-deletion is deferred to R2 migrate,
   where it can be done copy-first / delete-after. (→ `server/app/import_seam.py`)
-- 2026-07-15 — (T-009) **`get_duplicate_action` runs BEFORE beets applies the match, so the incoming
-  item is still un-tagged.** In the 2.12 importer, `_resolve_duplicates` (which calls
-  `get_duplicate_action`) fires before `_apply_choice`/`apply_metadata`, so `task.item` carries only
-  the raw download's tags at decision time — comparing its "tag completeness" against a fully-tagged
-  library item is apples-to-oranges and would systematically misjudge the incoming copy. The fix that
-  also killed the destructive branch: model quality as a **partial order** on `(bitrate, tag
-  completeness)` and only SKIP-keep-existing when an existing copy is `>=` on **both** axes. A bare
-  fresh download can only *fail* to cover an already-tagged copy — never wrongly displace it — so
-  reading pre-apply tags becomes correct rather than a bug, and every genuine upgrade / trade-off
-  falls through to review. (Also: the 2.12 duplicate hook is `get_duplicate_action(task,
-  found_duplicates) -> DuplicateAction`, not the older `resolve_duplicate` the ticket named.) (→
+- 2026-07-15 — (T-009) **beets' import duplicate stage CANNOT detect our duplicates by MBID —
+  `chosen_info()` exposes the recording id under `track_id`, not `mb_trackid`.** On the APPLY path,
+  `SingletonImportTask.find_duplicates` builds its probe from `chosen_info()` — the match's
+  `TrackInfo`, whose recording id is `track_id`. `library.Item(**chosen_info)` therefore has
+  `mb_trackid == ''` (the `track_id`→`mb_trackid` mapping only happens later, in `apply_metadata`), so
+  a `duplicate_keys.item = mb_trackid` query matches **nothing** and `get_duplicate_action` never
+  fires — every re-paste lands a silent second copy, the exact thing T-009 exists to prevent. The
+  default `artist title` key *does* fire (those keys are in `chosen_info`) but over-matches — it
+  falsely merges a live take with the studio cut (same artist+title, different recording). Fix: don't
+  use beets' import stage at all — detect **directly against the library at accept time** in
+  `choose_item`, where we already hold the winning recording id and the library:
+  `lib.items(dbcore.query.MatchQuery("mb_trackid", recording_id))`. Set `duplicate_keys = mb_trackid`
+  only to keep beets' own stage an inert no-op. **Verification lesson:** the ASIS path with a
+  pre-populated `library.Item` probe gives a false green — you must reproduce the real APPLY path (a
+  `TrackMatch`/`TrackInfo`) to see the `track_id` vs `mb_trackid` mismatch. (Also killed the
+  earlier two-axis "tag completeness" comparison: it's read pre-apply and is a wash for same-recording
+  copies anyway, so acquire-time dedup compares **bitrate only**; tag/acoustic tie-breaks are R2.) (→
   `server/app/import_seam.py`)

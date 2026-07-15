@@ -102,14 +102,21 @@ Format: `ADR-NNN — decision. Rationale. [date]`
   file (`item.remove()` + `util.remove()`) in `manipulate_files` *before* it copies the new one, with
   no rollback — a copy failure after the delete loses **both** copies. For a music library that
   data-loss window is unacceptable. Instead, the import seam keeps the existing copy (`SKIP`) whenever
-  an existing copy *covers* the incoming one — at least as good on **both** bitrate and tag richness
-  (a partial order, not a ranking) — and otherwise **parks the incoming copy to the review queue** for
-  the owner to choose ("you already have this — keep which?"). No file is ever deleted automatically.
-  Consequence worth noting: the "keep the better copy" upgrade is a human-confirmed action in R1, not
-  an automatic one; in practice it almost never fires (the library is all MP3 320, so an incoming rip
-  rarely out-qualities an existing copy). True auto-replace — done the safe way, copy-first then
-  delete-after — is deferred to **R2 migrate**, where varying-bitrate legacy files make it worth the
-  care. Detection is by MusicBrainz recording id (`duplicate_keys.item = mb_trackid`), which is
-  complete for R1 by construction (every landed copy carries an MBID); untagged legacy files are R2
-  migrate input, paired there with acoustic-fingerprint dedup. Owner signed off the non-destructive
-  call. (born in the build, T-009; owner review found the REMOVE data-loss window) [2026-07-15]
+  an existing copy is at **>= bitrate**, and otherwise **parks the strictly-higher-bitrate incoming
+  copy to the review queue** for the owner to choose ("you already have this — keep which?"). No file
+  is ever deleted automatically. The comparison is **bitrate-only** at acquire time: it's the one axis
+  that's honest before beets applies tags, and for the same recording both copies get identical tags
+  anyway, so tag richness can't legitimately differentiate an acquire-time duplicate — the
+  tag-richness / acoustic-fingerprint tie-break belongs to **R2 migrate**, where two already-tagged
+  files are genuinely compared. Consequence worth noting: the upgrade is a human-confirmed action in
+  R1, not automatic, and in practice it almost never fires (the library is all MP3 320). True
+  auto-replace — copy-first then delete-after — is deferred to R2. **Detection is by MusicBrainz
+  recording id via a direct library query in `choose_item`, NOT beets' import duplicate stage:** that
+  stage's probe is built from the match's `TrackInfo` (recording id under `track_id`) *before* the
+  `track_id`→`mb_trackid` mapping, so a `duplicate_keys` query on `mb_trackid` always finds nothing
+  (verified). `duplicate_keys.item = mb_trackid` is set only to make beets' stage an inert no-op so it
+  can't act on a false artist+title match behind our back; the real detection is our own
+  `MatchQuery("mb_trackid", …)` at accept time. Complete for R1 by construction (every landed copy
+  carries an MBID); untagged legacy files are R2 migrate input. Owner signed off the non-destructive
+  call. (born in the build, T-009; two owner reviews found the REMOVE data-loss window and then the
+  silently-dead import-stage detection) [2026-07-15]

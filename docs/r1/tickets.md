@@ -125,15 +125,18 @@ side effect for pipeline tickets, transcribe corrections to `docs/learnings.md`.
   exists".)
 
 ### T-009 — Acquire-time duplicate handling (`get_duplicate_action`)
-- **Status:** done — non-destructive per ADR-009 (never auto-deletes; upgrade/trade-off → review)
+- **Status:** done — non-destructive per ADR-009 (never auto-deletes; higher-bitrate upgrade → review)
 - **Depends on:** T-007
 - **Agent:** build
-- **What:** Override `resolve_duplicate(task)`: when the incoming song matches one already in the
-  library by MusicBrainz ID, **auto-keep the better copy** — higher bitrate wins; on equal
-  bitrate, more complete tags win; **still ambiguous → park to the review queue** ("these two look
-  identical — keep which?", same UI). Full cross-library acoustic dedup is R2, not here.
-- **Done when:** re-pasting the **same** URL is caught (no silent second copy) and the better copy
-  is kept; a constructed ambiguous case routes to review. (Spec §7 duplicate item; §5 tie-break.)
+- **What:** In `choose_item`, when the accepted song matches one already in the library by MusicBrainz
+  recording id (a **direct `MatchQuery` against the library** — beets' own import duplicate stage can't
+  see MBID dupes; see ADR-009 / learnings), keep the existing copy when it's at **>= bitrate** (drop
+  the redundant download, no second copy), else **park the strictly-higher-bitrate upgrade to the
+  review queue** ("you already have this — keep which?"). **Non-destructive: never auto-deletes**
+  (ADR-009, supersedes spec §5's "drop the other" + tag-richness tie-break, which is deferred to R2
+  migrate). Full cross-library acoustic dedup is R2.
+- **Done when:** re-pasting the **same** URL is caught (no silent second copy) and the existing copy
+  is kept; a constructed higher-bitrate case routes to review. (Spec §7 duplicate item; ADR-009.)
 
 ### T-010 — Jellyfin scan trigger
 - **Status:** todo
