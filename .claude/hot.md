@@ -1,8 +1,8 @@
 ---
 type: meta
 title: "Hot — cleanmuzik"
-updated: 2026-07-15
-last-commit: 71c21d1
+updated: 2026-07-16
+last-commit: 439fdf3
 tags:
   - meta
   - hot-cache
@@ -20,14 +20,81 @@ CleanMuzik — personal YouTube → Jellyfin music tool. Full description, stack
 live in `CLAUDE.md` and `cleanmuzik-prd.md` (this board holds *volatile state*, not evergreen
 description — see there, don't restate here).
 
-**Phase: R1 IN BUILD — Phase A engine spine COMPLETE. Phase B STARTED: T-012 (the keystone)
-DONE + verified live.** Spec signed off, `docs/r1/tickets.md` holds 19 build-ordered tickets. T-012
-wired every stage — download → transcode → normalize → identify/tag/art → Jellyfin scan — into one
-sequential worker-thread run; a-ha "Take On Me" pasted and landed a real 320 CBR MP3 end-to-end
-(`1c14f3a`). **Next is the one genuine fan-out pocket: T-013 (server SSE) ∥ T-015 (client paste+Go)**,
-disjoint (server vs `client/`), then T-016 (convergence) → T-014 → T-017. See `docs/r1/tickets.md`.
+**Phase: R1 IN BUILD — Phase A engine spine COMPLETE. Phase B: T-012 keystone + T-013 SSE DONE
+(verified live). Phase C STARTED: T-015 shell DONE. The fan-out pocket is CLOSED.** Spec signed
+off, `docs/r1/tickets.md` holds 19 build-ordered tickets. Session 13 ran the one genuine R1 fan-out:
+**T-013 (server SSE) ∥ T-015 (client paste+Go)** as parallel worktree agents — both integrated,
+reviewed, committed (`6a7675e`, `439fdf3`). **Next pocket: T-016 (card consumes SSE) ∥ T-014 (review
+API)** — both unblocked now, disjoint (client vs server), then T-017 (review panel) needs both.
+See `docs/r1/tickets.md`.
 
-## Current State (2026-07-15)
+## Current State (2026-07-16)
+
+- **Session 13 pushed to `origin/main`** — T-013 (`6a7675e`), T-015 (`439fdf3`), + this board as a
+  `docs(hot)` follow-up. Both agent worktrees retired; `main` is the sole branch, tree clean.
+- **Next work: the T-016 ∥ T-014 fan-out** (see the phase line). T-016 = drop an `EventSource` +
+  `setStage` into `client/src/components/TrackCard.tsx` (the seam T-015 left — the `Stage` union +
+  `useState` are already there), animating the card off the live §6 stream. T-014 = the review API
+  (`GET /api/reviews` re-hydrating candidates from stored MBIDs — reuse `events.candidate_row()`;
+  `POST /api/reviews/{id}/resolve` resumes the import and emits the tail SSE events). Disjoint files.
+- **T-015 DONE + committed (`439fdf3`, a merge commit) — frontend shell: paste URL + Go → create
+  job.** Stock Vite template replaced. `App.tsx` owns form state + a newest-first `jobs[]` list;
+  `src/api.ts` `createJob()` POSTs same-origin `/api/jobs` (dev proxy `/api→:8000` in
+  `vite.config.ts`); `components/TrackCard.tsx` is the **T-016 seam** (declares the full `Stage`
+  union matching §6 event names, owns `useState<Stage>` — T-016 adds only `EventSource`+`setStage`
+  there). 422 (playlist / missing-url) surfaces the server's `detail` inline (`role="alert"`);
+  empty-input + double-submit guarded.
+  - **`/code-review` (workflow) caught two real UX bugs, fixed:** (1) `type="url"` natively **blocked
+    a schemeless paste** ("www.youtube.com/…") before submit fired — Go looked dead → switched to
+    `type="text"` (the backend is the real gate); (2) a **rejected fetch** (backend down / no proxy)
+    bypassed the friendly copy and showed raw "Failed to fetch" → `createJob` now catches the
+    rejection and raises `ApiError`. Also: guard a 2xx non-JSON body to a clean message; dropped a
+    redundant `instanceof ApiError` (it subclasses Error). **Skipped** 2 latent findings (FastAPI
+    array-`detail` — the routes raise string detail by construction). **lint + build green.**
+  - **Not verified live** (UI shell, not a pipeline ticket — CLAUDE.md scopes `/verify` to pipeline
+    tickets; build+lint+review is the bar here). The real browser round-trip (paste→card, 422)
+    **rides with T-016**, which drives the browser for the SSE animation anyway. Sockets are blocked
+    in this sandbox, so a live localhost E2E isn't drivable regardless (same constraint as the server
+    TestClient handle). Kept the newest-first multi-card list (owner-acknowledged) + the Vite favicon.
+- **T-013 DONE + VERIFIED LIVE — SSE stream + event emission through stages (`6a7675e`, a merge
+  commit; parents `76843ba` + the worktree tip).** The wire from the back-room pipeline to the UI.
+  - **Shape:** `server/app/events.py` (new) — `EventBus`, the thread→event-loop bridge. Per-job
+    `_JobChannel` = replay buffer + `closed` flag + subscriber `asyncio.Queue`s. `publish()` (worker
+    thread) appends to the buffer + registers subscribers under one lock, then fans out via
+    `loop.call_soon_threadsafe` OUTSIDE the lock. `stream()` (loop) snapshots the buffer AND
+    registers its queue under the same lock (so an event lands in exactly one of replay/live), then
+    replays → live-streams → `ping` on idle → closes on an internal `_CLOSE` sentinel. `run_pipeline`
+    emits at each existing stage site; `Outcome` extended to carry the rich §6 payloads (chosen /
+    landed path+tags / candidates) at the moment they're true. **Hand-rolled SSE (no sse-starlette)**
+    so `ping` is a real named event; `/events` route stays import-light (lazy-engine preserved).
+  - **`/code-review` high (workflow, 4 finders → 6 verified, 1 refuted) — the real catch was a
+    hang-forever bug:** reconnecting to a completed job whose channel was evicted by the 256-cap
+    fabricated a fresh never-closed channel → stream emits only pings forever, card never terminates.
+    **Fixed:** the route passes durable status as a `terminal` hint; an absent channel + terminal
+    status closes the stream at once (client falls back to the `GET /api/jobs` snapshot). Also
+    applied: one canonical `candidate_row()` builder in `events.py` (killed a duplicated 7-key SSE
+    shape across 2 sites — 3 with T-014's coming re-hydration), dead logger removed, `_dispatch`
+    loop-None guard hoisted out of the per-subscriber loop. Refuted: shutting-down-loop RuntimeError.
+  - **`/verify` PASS — drove the REAL pipeline over HTTP+SSE via TestClient** (isolated `DB_PATH` +
+    beets library to a temp dir so a-ha lands clean past T-012's copy; cleared Jellyfin env so scan
+    degrades not errors). a-ha "Take On Me" streamed the full ordered sequence **3× reproducibly**:
+    `job.queued→downloading→transcoding→identifying→tagging→done`. **The thing the build agent
+    couldn't prove offline is now proven:** `track.done.path` = the organized LIBRARY location
+    (`…/library/a‐ha/Take On Me.mp3`, NOT staging), tags populated (year 2010, `has_art`+`has_lyrics`
+    true; `album:""` + `genre:null` are honest degrades). `track.error` observed naming **both**
+    `scan` (real Jellyfin present-but-unreachable) and `download` (a real YT 403) stages. `ping` seen.
+    Not driven live (covered by the offline suite + rides with T-016): a real weak-match park
+    (`track.review_required`) and the early-connect replay race. **221 tests green (+3 regression).**
+- **T-015 DONE (built, in worktree `73a7f13`) — frontend shell: paste URL + Go → create job.** See
+  the ⚠️ resume block above for its integration state. Stock Vite template replaced: `App.tsx` owns
+  form state + a newest-first `jobs[]` list; `src/api.ts` `createJob()` POSTs same-origin `/api/jobs`
+  (dev proxy `/api→:8000` in `vite.config.ts`); `components/TrackCard.tsx` is the **T-016 seam** — it
+  already exports the full `Stage` union matching the §6 event names and owns `useState<Stage>` so
+  T-016 just adds an `EventSource` + `setStage` in that one file. 422 (playlist / missing-url)
+  surfaces the server's `detail` string inline (`role="alert"`); empty-input + double-submit guarded.
+  Dead template assets removed. `npm run lint` + `npm run build` green in the agent's worktree.
+
+## Current State — carried from session 12 (T-012, still true)
 
 - **Branch `main`** — session-12 lands **T-012** (`1c14f3a`) + **A4 primer** (`71c21d1`) + this board
   as `docs(hot)`, pushed to `origin/main`. (Prior: `ea5fd6b` T-009 fix closed Phase A.)
@@ -291,6 +358,45 @@ disjoint (server vs `client/`), then T-016 (convergence) → T-014 → T-017. Se
   skeleton (Express dropped in T-001); the pipeline stages (download/transcode/beets) don't exist yet.
 
 ## Session log
+
+### 2026-07-16 (session 13) — the fan-out pocket: T-013 ∥ T-015; T-013 landed + verified
+
+- **Ran the one genuine R1 fan-out pocket.** Spawned two parallel worktree build agents — **T-013**
+  (server SSE, `server/` only) and **T-015** (client paste+Go, `client/` only) — disjoint file sets,
+  so no merge collision. Gave each a self-contained brief flagging the load-bearing risks (for T-013:
+  the thread→loop bridge, early-connect event buffering, and sourcing the rich §6 payloads the
+  `Outcome` didn't carry). Established integration order: **T-013 first** (its stream is what makes
+  T-015's card do anything).
+- **T-013 integrated → reviewed → verified → committed (`6a7675e`).** Merged onto `main`'s working
+  tree (`--no-commit`), suite 218 green. `/code-review` high (workflow) caught **one real hang-forever
+  bug** (evicted-completed-job reconnect fabricates a never-closed channel → pings forever) + 3
+  cleanups; adjudicated all, applied, added 3 regression tests → **221 green**. `/verify` drove the
+  REAL pipeline over HTTP+SSE (TestClient handle): a-ha streamed the full ordered event sequence 3×,
+  **`track.done.path` proven to be the organized library location** (the build agent's open question),
+  tags populated, `track.error` seen naming both `scan` and `download`. Details in Current State.
+- **T-015 integrated → reviewed → committed (`439fdf3`).** Resumed after the sleep interrupt: `client`
+  lint+build green on main; `/code-review` (workflow) caught **two real UX bugs** (schemeless-paste
+  `type="url"` silently blocking Go; a rejected fetch showing raw "Failed to fetch") — fixed both,
+  plus a 2xx-non-JSON guard + a redundant-`instanceof` cleanup; skipped 2 latent findings. Committed,
+  retired the worktree. Not verified live (UI shell, not a pipeline ticket; real E2E rides with T-016).
+- **Taught the owner the SSE ticket in plain terms** (coffee-shop order screen / back-room conveyor
+  belt) — the three hard bits: two-rooms-different-languages (thread vs loop), the start-race
+  (buffer/replay), and the screen-wants-more-than-the-belt-records (rich payloads). Also explained why
+  **T-014 wasn't in the fan-out** — it depends on T-013 (its resolve route emits tail SSE events), so
+  it's next-but-one, not idle.
+- **Field note (owner-reported) — the session-12 a-ha "Take On Me" file is on disk but NOT showing in
+  Jellyfin.** Confirmed on disk at `…/Music/CleanMuzik/a‐ha/Take On Me.mp3`. Two things: (1) **it was
+  landed by a WSL-side verify run whose Jellyfin scan-trigger couldn't reach the Windows-hosted
+  server** (the documented WSL2→Windows `localhost` gap, T-010) — so Jellyfin was never told to scan;
+  a file on disk is invisible until a library scan imports it. Fix = manual "Scan All Libraries" in
+  Jellyfin (or run the app on Windows in Phase 0, where the trigger reaches `localhost:8096`). (2)
+  The artist dir is **`a‐ha` with a Unicode HYPHEN (U+2010)**, not ASCII `-` — MusicBrainz's canonical
+  name; harmless for indexing but a search for "a-ha" (ASCII) may not match. Belongs in learnings.md.
+- **NEXT:**
+  1. **The next fan-out pocket: T-016 (card consumes SSE) ∥ T-014 (review API)** — both now unblocked,
+     disjoint (client vs server). Then **T-017** (review panel) needs both.
+  2. Carry-overs (housekeeping): "proactively flag learnable moments" → global `~/.claude/CLAUDE.md`;
+     build the **artifact-visual-style skill**, then drop the redundant project-memory copy.
 
 ### 2026-07-15 (session 12) — T-012: the whole pipeline runs end to end
 
