@@ -52,6 +52,7 @@ from mediafile import MediaFile
 from app.config import Settings, get_settings
 from app.db import Store
 from app.download import download_song
+from app.events import EventBus
 from app.import_seam import import_song
 from app.jellyfin import JellyfinScanError, trigger_scan
 from app.normalize import normalize_title
@@ -192,6 +193,7 @@ def run_pipeline(
     registry: JobRegistry,
     settings: Settings | None = None,
     staging_root: Path | None = None,
+    bus: EventBus | None = None,
     download_fn=download_song,
     transcode_fn=transcode_to_mp3_320,
     import_fn=import_song,
@@ -206,11 +208,28 @@ def run_pipeline(
     staging directory cleaned up. The stage functions are injectable so the
     orchestration is unit-testable offline (matches the seam's `dominance_fn`).
 
+    ## SSE emission (T-013)
+
+    Each stage transition also publishes its spec §6 event to `bus` — wired into the
+    *same* `registry.start` / `registry.set_stage` call sites and outcome branches, so
+    the streamed sequence is exactly the state machine, never a parallel copy of it.
+    `job.queued` opens it; a terminal event (`track.done` / `track.review_required`) or
+    `track.error` closes it, and `_finish` fires `bus.close` on every path (a duplicate
+    *skip* has no §6 event, so the sentinel — not an event name — is what ends the
+    stream). `bus` defaults to a throwaway `EventBus`: a caller with no SSE (the offline
+    orchestration tests) simply never subscribes, so emission is a harmless no-op and
+    every call site stays unconditional.
+
     Precondition: `job_id` names a row already created via `store.create_job` — the
     seam parks reviews against it as a foreign key.
     """
     s = settings or get_settings()
+    bus = bus or EventBus()  # no subscribers ⇒ emission just buffers into a discarded bus
+    bus.publish(job_id, "job.queued", {"job_id": job_id, "url": url})
     registry.start(job_id)  # constructs the state at stage "download"
+    # pct is omitted, not invented: the download stage doesn't report progress (spec §6
+    # marks pct optional). The event still fires so the card leaves "queued".
+    bus.publish(job_id, "track.downloading", {"job_id": job_id})
     _set_status(store, job_id, STATUS_RUNNING)
 
     # One staging dir per job — download/transcode both write here, and it is the
@@ -230,6 +249,7 @@ def run_pipeline(
 
         # 2. Transcode to MP3 320 CBR (ADR-002), alongside the source in staging.
         registry.set_stage(job_id, STAGE_TRANSCODE)
+        bus.publish(job_id, "track.transcoding", {"job_id": job_id})
         try:
             mp3 = transcode_fn(source)
         except Exception as exc:  # noqa: BLE001
@@ -243,6 +263,7 @@ def run_pipeline(
         #    errors (it parks); what escapes is a vanished fingerprint backend
         #    (identify) or a beets apply/organize failure (land).
         registry.set_stage(job_id, STAGE_IDENTIFY)
+        bus.publish(job_id, "track.identifying", {"job_id": job_id})
         try:
             outcomes = import_fn(mp3, store=store, job_id=job_id, query=query, settings=s)
         except acoustid.NoBackendError as exc:
@@ -261,8 +282,18 @@ def run_pipeline(
                     "treating as review",
                     job_id, exc,
                 )
+                # The rich candidate rows were lost when the seam raised (they ride the
+                # in-memory Outcome, never the row). Recover what the durable row does
+                # keep — the candidate MBIDs — as id-only rows so the event is honest
+                # about what's known rather than empty. T-014 re-hydrates the rest.
+                bus.publish(job_id, "track.review_required", {
+                    "job_id": job_id,
+                    "review_id": parked.id,
+                    "query": query,
+                    "candidates": _id_only_candidates(parked.candidate_ids),
+                })
                 return _finish(
-                    store, registry, job_id,
+                    store, registry, job_id, bus=bus,
                     status=STATUS_REVIEW, review_id=parked.id,
                 )
             raise _StageFailure(STAGE_LAND, str(exc)) from exc
@@ -274,13 +305,25 @@ def run_pipeline(
         parked = next((o for o in outcomes if o.action == "parked"), None)
         if parked is not None:
             retain_staging = True
+            bus.publish(job_id, "track.review_required", {
+                "job_id": job_id,
+                "review_id": parked.review_id,
+                "query": query,
+                "candidates": parked.candidates or [],
+            })
             return _finish(
-                store, registry, job_id,
+                store, registry, job_id, bus=bus,
                 status=STATUS_REVIEW, review_id=parked.review_id,
             )
 
-        landed = any(o.action == "landed" for o in outcomes)
-        if landed:
+        landed = next((o for o in outcomes if o.action == "landed"), None)
+        if landed is not None:
+            # The tags/art/organize already happened inside the gate; emit tagging
+            # here (with the chosen match) so the card shows the match before the
+            # scan, matching spec §6's identifying → tagging → done ordering.
+            bus.publish(job_id, "track.tagging", {
+                "job_id": job_id, "chosen": landed.chosen or {},
+            })
             # 6. Nudge Jellyfin so the track appears in seconds (T-010). A missing
             #    config degrades to a warning (still landed); a present-but-failed
             #    config is a genuine scan-stage error (the file stays on disk).
@@ -289,32 +332,40 @@ def run_pipeline(
                 scan_fn(settings=s)
             except JellyfinScanError as exc:
                 raise _StageFailure(STAGE_SCAN, str(exc)) from exc
-            return _finish(store, registry, job_id, status=STATUS_DONE)
+            bus.publish(job_id, "track.done", {
+                "job_id": job_id, "path": landed.landed_path, "tags": landed.tags or {},
+            })
+            return _finish(store, registry, job_id, bus=bus, status=STATUS_DONE)
 
         # No outcome at all: the song neither landed nor parked (e.g. beets skipped
         # the task before choose_item could decide). That is a silent vanish, not a
         # success — surface it as an error the owner can act on, not a false "done".
         if not outcomes:
             return _finish(
-                store, registry, job_id, status=STATUS_ERROR, stage=STAGE_IDENTIFY,
+                store, registry, job_id, bus=bus, status=STATUS_ERROR,
+                stage=STAGE_IDENTIFY,
                 error="the song neither landed nor parked — nothing to show",
             )
 
         # All skipped (duplicate already in the library, or beets skipped it): the
-        # job succeeded — nothing new to land or scan.
-        return _finish(store, registry, job_id, status=STATUS_DONE)
+        # job succeeded — nothing new to land or scan. No §6 event fits a "nothing
+        # landed" success, so the stream closes on the sentinel (bus.close in _finish)
+        # and the client falls back to the GET /api/jobs snapshot (status=done).
+        return _finish(store, registry, job_id, bus=bus, status=STATUS_DONE)
 
     except _StageFailure as failure:
         logger.warning(
             "job %s failed at %s: %s", job_id, failure.stage, failure.message
         )
         return _finish(
-            store, registry, job_id,
+            store, registry, job_id, bus=bus,
             status=STATUS_ERROR, stage=failure.stage, error=failure.message,
         )
     except Exception as exc:  # noqa: BLE001 — never let the worker thread die
         logger.exception("job %s failed unexpectedly", job_id)
-        return _finish(store, registry, job_id, status=STATUS_ERROR, error=str(exc))
+        return _finish(
+            store, registry, job_id, bus=bus, status=STATUS_ERROR, error=str(exc)
+        )
     finally:
         # The seam's contract: only a parked song keeps its staging file.
         if not retain_staging:
@@ -326,19 +377,54 @@ def _finish(
     registry: JobRegistry,
     job_id: str,
     *,
+    bus: EventBus,
     status: str,
     stage: str | None = None,
     review_id: str | None = None,
     error: str | None = None,
 ) -> JobState:
-    """Record a terminal outcome to both the durable row and the live registry."""
+    """Record a terminal outcome to the durable row, the live registry, and the SSE bus.
+
+    The single terminal choke point, so it also owns SSE closure: it emits `track.error`
+    for a failure (the success/park events are emitted at their branch, where the rich
+    payload is in hand) and then `bus.close` on *every* path — including a skip, which
+    has no §6 event — so no stream is ever left hanging.
+    """
+    # Capture the live stage BEFORE finish() overwrites it: an unattributed error (the
+    # defensive catch-all passes stage=None) is best named by whatever stage the job
+    # was in, which is always one of spec §6's six names.
+    prev = registry.get(job_id)
     _set_status(store, job_id, status)
     state = registry.finish(
         job_id, status=status, stage=stage, review_id=review_id, error=error
     )
+    if status == STATUS_ERROR:
+        error_stage = stage or (prev.stage if prev else None) or STAGE_LAND
+        bus.publish(job_id, "track.error", {
+            "job_id": job_id, "stage": error_stage, "message": error or "",
+        })
+    bus.close(job_id)
     # finish() only returns None if the job was never started, which can't happen —
     # run_pipeline calls registry.start() before any _finish. Fall back defensively.
     return state or JobState(job_id, status, stage, review_id, error)
+
+
+def _id_only_candidates(candidate_ids: list[str]) -> list[dict]:
+    """Minimal `track.review_required.candidates[]` rows from bare MBIDs — the fallback
+    when the rich rows were lost (the seam raised after parking). Only `candidate_id`
+    is known; the display fields degrade to null and T-014 re-hydrates them."""
+    return [
+        {
+            "candidate_id": cid,
+            "title": None,
+            "artist": None,
+            "album": None,
+            "year": None,
+            "art_url": None,
+            "score": None,
+        }
+        for cid in candidate_ids
+    ]
 
 
 def _set_status(store: Store, job_id: str, status: str) -> None:
@@ -363,6 +449,9 @@ class JobWorker:
         self._store = store
         self._settings = settings
         self.registry = JobRegistry()
+        # The SSE fan-out (T-013). Written by this worker thread via run_pipeline,
+        # read by the /events route on the loop; main.py binds the loop at startup.
+        self.bus = EventBus()
         self._queue: queue.Queue = queue.Queue()
         self._thread: threading.Thread | None = None
 
@@ -413,7 +502,7 @@ class JobWorker:
                 # outliving one bad job matters more than any single job.
                 run_pipeline(
                     job_id, url, store=self._store,
-                    registry=self.registry, settings=self._settings,
+                    registry=self.registry, settings=self._settings, bus=self.bus,
                 )
             except Exception:  # noqa: BLE001 — the loop must survive any job
                 logger.exception("worker loop caught an unexpected error")

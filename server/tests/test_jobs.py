@@ -13,6 +13,8 @@ Two layers:
    a minimal app (no lifespan → no beets) and a fake worker on app.state.
 """
 
+import asyncio
+
 import acoustid
 import pytest
 from fastapi import FastAPI
@@ -20,9 +22,11 @@ from fastapi.testclient import TestClient
 
 import app.jobs as jobs
 from app.db import Store
+from app.events import EventBus
 from app.import_seam import Outcome
 from app.jellyfin import JellyfinScanError
 from app.jobs import JobRegistry, JobWorker, run_pipeline
+from test_events import parse_sse  # sibling test module (server/tests on sys.path)
 
 
 # --- helpers ----------------------------------------------------------------
@@ -221,6 +225,120 @@ def test_park_then_raise_keeps_staging_and_reports_review(tmp_path):
     assert record["staging_dir"].exists(), "the parked review's file must survive"
 
 
+# --- run_pipeline: the SSE event sequence emitted through the stages (T-013) --
+#
+# The pipeline emits each spec §6 event at its stage transition. These drive the
+# REAL run_pipeline with a real EventBus (no subscribers, so publishing just buffers)
+# and then read the buffered stream back — proving the ordered sequence and payloads
+# without a socket. The rich payloads (chosen / tags / candidates) are set on the
+# injected Outcome, exactly as the seam would fill them at land / park time.
+
+
+def _events_after_run(tmp_path, **overrides):
+    """Run the pipeline with a real bus, then drain its (now-closed) stream to the
+    ordered (event, payload) list a subscriber would have seen."""
+    bus = EventBus()
+    state, rec = _run(tmp_path, bus=bus, **overrides)
+
+    async def drain():
+        return "".join([frame async for frame in bus.stream(rec["job_id"])])
+
+    return state, parse_sse(asyncio.run(drain()))
+
+
+def test_sse_landed_emits_full_ordered_sequence(tmp_path):
+    landed = Outcome(
+        "landed", 0.95, 0.5, track_id="rec-A",
+        chosen={"title": "Song", "artist": "Band", "album": "LP", "year": 2020},
+        tags={
+            "title": "Song", "artist": "Band", "album": "LP", "year": 2020,
+            "genre": "Rock", "has_art": True, "has_lyrics": True,
+        },
+        landed_path="/lib/Band/Song.mp3",
+    )
+    state, events = _events_after_run(tmp_path, import_fn=lambda *a, **k: [landed])
+    assert state.status == "done"
+    assert [name for name, _ in events] == [
+        "job.queued",
+        "track.downloading",
+        "track.transcoding",
+        "track.identifying",
+        "track.tagging",
+        "track.done",
+    ]
+    payloads = dict(events)
+    assert payloads["job.queued"]["url"] == "https://youtu.be/abc"
+    assert payloads["track.tagging"]["chosen"]["title"] == "Song"
+    done = payloads["track.done"]
+    assert done["path"] == "/lib/Band/Song.mp3"
+    assert done["tags"]["genre"] == "Rock"
+    assert done["tags"]["has_art"] is True
+    assert done["tags"]["has_lyrics"] is True
+
+
+def test_sse_parked_emits_review_required_with_candidates(tmp_path):
+    candidates = [
+        {
+            "candidate_id": "rec-A", "title": "Song", "artist": "Band",
+            "album": "LP", "year": 2019, "art_url": None, "score": 0.8,
+        }
+    ]
+    parked = Outcome("parked", 0.2, 0.0, review_id="rev-9", candidates=candidates)
+    state, events = _events_after_run(tmp_path, import_fn=lambda *a, **k: [parked])
+    assert state.status == "review"
+    assert [name for name, _ in events] == [
+        "job.queued",
+        "track.downloading",
+        "track.transcoding",
+        "track.identifying",
+        "track.review_required",
+    ]
+    rr = dict(events)["track.review_required"]
+    assert rr["review_id"] == "rev-9"
+    assert rr["query"] == ""  # a 3-byte fake mp3 has no readable title → empty query
+    assert rr["candidates"][0]["candidate_id"] == "rec-A"
+    assert rr["candidates"][0]["score"] == 0.8
+    assert rr["candidates"][0]["art_url"] is None  # documented degrade at park time
+
+
+def test_sse_error_names_the_failing_stage(tmp_path):
+    state, events = _events_after_run(tmp_path, transcode_fn=_boom)
+    assert state.status == "error"
+    assert [name for name, _ in events] == [
+        "job.queued",
+        "track.downloading",
+        "track.transcoding",
+        "track.error",
+    ]
+    err = dict(events)["track.error"]
+    assert err["stage"] == "transcode"
+    assert err["message"]  # a human-readable message rides along
+
+
+def test_sse_download_error_names_download_stage(tmp_path):
+    def failing_download(url, staging_dir):
+        (staging_dir / "x").write_bytes(b"")
+        raise RuntimeError("yt-dlp died")
+
+    state, events = _events_after_run(tmp_path, download_fn=failing_download)
+    assert dict(events)["track.error"]["stage"] == "download"
+
+
+def test_sse_skipped_duplicate_emits_no_terminal_event_but_closes(tmp_path):
+    # A duplicate skip lands nothing, so no §6 event fits — the stream still closes
+    # (drain returns), and the client falls back to the GET /api/jobs snapshot.
+    state, events = _events_after_run(
+        tmp_path, import_fn=lambda *a, **k: [Outcome("skipped", 0.95, 0.5)]
+    )
+    assert state.status == "done"
+    assert [name for name, _ in events] == [
+        "job.queued",
+        "track.downloading",
+        "track.transcoding",
+        "track.identifying",
+    ]  # no track.done — nothing landed
+
+
 # --- boot reconciliation: no job is left 'running' after a restart ----------
 
 
@@ -264,6 +382,7 @@ def test_worker_runs_jobs_sequentially_in_order(tmp_path, monkeypatch):
 class _FakeWorker:
     def __init__(self):
         self.registry = JobRegistry()
+        self.bus = EventBus()  # T-013: the /events route reaches the stream through this
         self.submitted = []
 
     def submit(self, job_id, url):
@@ -346,3 +465,35 @@ def test_get_review_id_recovered_after_cold_registry(client):
     body = client.get(f"/api/jobs/{job.id}").json()
     assert body["status"] == "review"
     assert body["review_id"] == review.id
+
+
+# --- the /events route: early-connect replay, headers, 404 ------------------
+
+
+def test_events_route_replays_everything_emitted_before_connect(client):
+    # The T-016 case: the worker emits the whole sequence and closes BEFORE the card
+    # opens the stream. Connecting late must replay all of it — nothing lost.
+    job = client.store.create_job("https://youtu.be/x")
+    bus = client.worker.bus
+    bus.publish(job.id, "job.queued", {"job_id": job.id, "url": "https://youtu.be/x"})
+    bus.publish(job.id, "track.downloading", {"job_id": job.id})
+    bus.publish(job.id, "track.transcoding", {"job_id": job.id})
+    bus.publish(job.id, "track.identifying", {"job_id": job.id})
+    bus.publish(job.id, "track.done", {"job_id": job.id, "path": "/x.mp3", "tags": {}})
+    bus.close(job.id)
+
+    resp = client.get(f"/api/jobs/{job.id}/events")
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].startswith("text/event-stream")
+    assert resp.headers["cache-control"] == "no-cache"
+    assert [name for name, _ in parse_sse(resp.text)] == [
+        "job.queued",
+        "track.downloading",
+        "track.transcoding",
+        "track.identifying",
+        "track.done",
+    ]
+
+
+def test_events_route_unknown_job_404(client):
+    assert client.get("/api/jobs/nope/events").status_code == 404
