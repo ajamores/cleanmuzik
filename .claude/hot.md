@@ -24,7 +24,8 @@ are in `CLAUDE.md`; scope in `cleanmuzik-prd.md`. Not restated here.
 - **Phase: R1 build.** Phase A (engine spine) + Phase B (T-012 orchestration, T-013 SSE) **done and
   verified live**. Phase C started — T-015 shell done. `docs/r1/tickets.md` is the status ledger and
   is now **accurate**: the only open tickets are **T-014, T-016, T-017, T-019**.
-- **Branch `main`.** Uncommitted: a 7-file docs sweep (no code touched) — see the session note below.
+- **Branch `main`, tree clean, pushed.** Session 14 was docs-only (`d7b620f` doc-bug fixes,
+  `c99e76d` board prune) — no code changed since T-015.
 - **NEXT — the T-016 ∥ T-014 fan-out.** Disjoint (client vs server), both unblocked; run them as
   parallel worktree agents per the fan-out mechanics in `CLAUDE.md`. T-017 needs both.
   - **T-016** — add `EventSource` + `setStage` to `client/src/components/TrackCard.tsx`. That's the
@@ -45,11 +46,12 @@ are in `CLAUDE.md`; scope in `cleanmuzik-prd.md`. Not restated here.
   not journal, rewrite-don't-append, a routing table, and ~500 words as a *tripwire* (over budget ⇒
   unfiled content, on load and save). Same bug found upstream in claude-obsidian — evidence, not
   anecdote. → `learnings.md`
-- **Two live doc bugs found and fixed** (uncommitted): `spec.md` never carved parks out of
-  staging-cleanup (T-014 would have deleted the file it resolves); `architecture.md` + `backlog/`
-  still described the **data-loss** duplicate design ADR-009 withdrew. Also filed 4 orphans to
-  `learnings.md`, fan-out mechanics + the routing table to `CLAUDE.md`, primer 00 to its index, and
-  corrected **9 ticket statuses**.
+- **Two live doc bugs found and fixed** (`d7b620f`): `spec.md` never carved parks out of
+  staging-cleanup (**T-014 would have deleted the file it resolves** — read §5 before building it);
+  `architecture.md` + `backlog/` still described the **data-loss** duplicate design ADR-009 withdrew,
+  in the doc agents read *before* the ADR. Also filed 4 orphans to `learnings.md`, fan-out mechanics
+  + the routing table to `CLAUDE.md`, primer 00 to its index, and corrected **9 ticket statuses** —
+  the ledger is accurate for the first time, which is what made the board disposable.
 
 ### 2026-07-16 (session 13) — T-013 ∥ T-015 fan-out
 
