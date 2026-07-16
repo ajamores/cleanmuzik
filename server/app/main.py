@@ -56,6 +56,10 @@ async def lifespan(app: FastAPI):
 
     worker = JobWorker(get_store(), s)
     worker.start()
+    # Bind the running loop so the worker thread can hand SSE events to it via
+    # call_soon_threadsafe (T-013). Done here — the lifespan runs on the loop — so
+    # cross-thread delivery works from the very first event, before any subscriber.
+    worker.bus.bind_loop(asyncio.get_running_loop())
     app.state.worker = worker
     try:
         yield

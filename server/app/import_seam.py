@@ -59,6 +59,7 @@ from app.artwork import embed_cover, fetch_cover_art
 from app.beets_engine import LIBRARY_DIRECTORY, configure_beets
 from app.config import Settings, get_settings
 from app.db import Review, Store
+from app.events import candidate_row
 
 logger = logging.getLogger("cleanmuzik")
 
@@ -324,6 +325,19 @@ class Outcome:
 
     T-012/T-013 turn this into SSE events; the standalone driver and tests read it
     to confirm the real side effect (spine is script-provable before any web layer).
+
+    ## Why the SSE-shaped fields live on the receipt (T-013)
+
+    spec §6's rich payloads — `track.tagging.chosen`, `track.done.tags`+`path`, and
+    `track.review_required.candidates[]` — are only knowable *inside the seam*: the
+    chosen candidate is the `TrackMatch` we accepted, the final tags/path are the
+    beets `Item` after it applied and organized, and the candidate list is the beets
+    candidates in hand at park time. `run_pipeline` emits the events but has none of
+    that data. Rather than have the emitter reach back into beets (re-reading the
+    landed file, or re-hydrating candidates — the latter is T-014's job), the seam,
+    which already holds every value, hands them up on this receipt. That keeps the
+    seam the single source of truth and the emitter a thin, honest relay. `art_url`
+    on a candidate is the one field deliberately left null — see `_candidate_rows`.
     """
 
     action: str  # "landed" | "skipped" | "parked"
@@ -332,6 +346,11 @@ class Outcome:
     track_id: str | None = None  # the accepted recording MBID (landed)
     review_id: str | None = None  # the parked review row id (parked)
     art_embedded: bool = False  # Door B: did a cover land on the file (landed only)
+    # --- T-013 SSE payloads, sourced where the data is in hand ------------------
+    chosen: dict | None = None  # landed: {title, artist, album, year} of the match
+    tags: dict | None = None  # landed: {title,artist,album,year,genre,has_art,has_lyrics}
+    landed_path: str | None = None  # landed: the organized library path (str, decoded)
+    candidates: list[dict] | None = None  # parked: rich candidate rows for the UI
 
 
 class FingerprintTrustSession(ImportSession):
@@ -474,6 +493,11 @@ class FingerprintTrustSession(ImportSession):
             # Door B: fetchart skips singletons, so embed the cover ourselves — but
             # only for a track that actually landed, and never let it un-land one.
             art_embedded = False if skipped else self._embed_art(task.item, dominance)
+            # T-013 rich payloads, read at the one moment they're all true: post-run,
+            # so task.item carries the applied tags AND its final organized path, and
+            # match.info is the candidate we chose to apply. Only for a real landing —
+            # a skip lands nothing, so it carries none of them (the receipt must not
+            # imply a file that isn't there).
             self.outcomes.append(
                 Outcome(
                     "skipped" if skipped else "landed",
@@ -481,6 +505,9 @@ class FingerprintTrustSession(ImportSession):
                     gap=dominance.gap,
                     track_id=match.info.track_id,
                     art_embedded=art_embedded,
+                    chosen=None if skipped else _chosen_tags(match.info),
+                    tags=None if skipped else _landed_tags(task.item, art_embedded),
+                    landed_path=None if skipped else _item_path(task.item),
                 )
             )
         self._accepted.clear()
@@ -589,7 +616,11 @@ class FingerprintTrustSession(ImportSession):
     # --- parking ----------------------------------------------------------
 
     def _record_review(
-        self, candidate_ids: list[str], rec: str, dominance: Dominance
+        self,
+        candidate_ids: list[str],
+        rec: str,
+        dominance: Dominance,
+        candidates: list[dict] | None = None,
     ) -> Review:
         """Create a parked review row + its "parked" Outcome, and log the receipt.
 
@@ -597,6 +628,13 @@ class FingerprintTrustSession(ImportSession):
         match (`_park`) and an indistinguishable duplicate (`_park_duplicate`) — stay
         in lockstep on the row shape and the outcome. They differ only in what fills
         `candidate_ids` and `rec`.
+
+        `candidates` is the rich per-candidate payload for T-013's
+        `track.review_required` event (title/artist/album/…), distinct from the bare
+        `candidate_ids` persisted to the row: the DB keeps only MBIDs (ADR-006), while
+        the SSE event carries the display fields that are in hand *right now* so the
+        card can render without a re-hydration round-trip. A duplicate park has no
+        such candidates (it's a "keep which copy?" prompt), so it defaults to empty.
         """
         review = self.store.create_review(
             job_id=self.job_id,
@@ -611,6 +649,7 @@ class FingerprintTrustSession(ImportSession):
                 top_score=dominance.top_score,
                 gap=dominance.gap,
                 review_id=review.id,
+                candidates=candidates or [],
             )
         )
         logger.info(
@@ -631,7 +670,11 @@ class FingerprintTrustSession(ImportSession):
         ]
         rec = getattr(task, "rec", None)
         rec_name = rec.name.lower() if isinstance(rec, Recommendation) else str(rec)
-        return self._record_review(candidate_ids, rec_name, dominance)
+        # The rich rows ride along for T-013's event only — the row still persists IDs
+        # alone. Built from the same candidates so the two never drift.
+        return self._record_review(
+            candidate_ids, rec_name, dominance, candidates=_candidate_rows(candidates)
+        )
 
     def _park_duplicate(self, duplicates, dominance: Dominance) -> Review:
         """Park a higher-bitrate duplicate the owner must resolve — an upgrade (T-009).
@@ -684,6 +727,86 @@ def _bitrate(item) -> int:
     """A copy's bitrate in bits/sec (0 if unknown). Read via getattr so a real beets
     `Item` and a test double both work."""
     return int(getattr(item, "bitrate", 0) or 0)
+
+
+# --- T-013: shaping the seam's data into spec §6 payloads -------------------
+#
+# Read straight off the objects the seam already holds — the chosen `TrackMatch`,
+# the landed beets `Item`, the beets candidates at park time. Everything is `getattr`
+# with a null default so a real beets object and a bare test double both work, and a
+# genuinely-absent field degrades to null rather than fabricating a value.
+
+
+def _chosen_tags(info) -> dict:
+    """spec §6 `track.tagging.chosen`: what the gate decided to apply (the match)."""
+    return {
+        "title": getattr(info, "title", None),
+        "artist": getattr(info, "artist", None),
+        "album": getattr(info, "album", None),
+        "year": getattr(info, "year", None) or None,
+    }
+
+
+def _landed_tags(item, has_art: bool) -> dict:
+    """spec §6 `track.done.tags`: what actually landed on the file, post-organize.
+
+    `genre` is whatever `lastgenre` wrote (null if no Last.fm key — a documented
+    degrade, not a failure, spec §6). `has_art` is Door B's own result (whether a
+    cover was embedded), passed in rather than re-read off disk. `has_lyrics` is the
+    presence of the `lyrics` plugin's text on the item.
+    """
+    return {
+        "title": getattr(item, "title", None),
+        "artist": getattr(item, "artist", None),
+        "album": getattr(item, "album", None),
+        "year": getattr(item, "year", None) or None,
+        "genre": getattr(item, "genre", None) or None,
+        "has_art": has_art,
+        "has_lyrics": bool(getattr(item, "lyrics", None)),
+    }
+
+
+def _item_path(item) -> str | None:
+    """The landed file's path as text. beets item paths are bytes; decode to the same
+    TEXT form the review row uses so the event and the DB agree."""
+    path = getattr(item, "path", None)
+    return os.fsdecode(path) if path else None
+
+
+def _candidate_rows(candidates) -> list[dict]:
+    """spec §6 `track.review_required.candidates[]`, from the beets candidates in hand.
+
+    Built at park time from the candidates the seam already has — NOT re-hydrated from
+    stored MBIDs (that's T-014's `GET /api/reviews` path). Two honest degrades:
+
+    - **`art_url` is always null here.** Door B fetches cover art for the *one* track
+      that lands, not per candidate; reaching art for every parked candidate would
+      mean a Cover-Art-Archive round-trip apiece, for a song the owner may never open.
+      Disproportionate coupling — so the field is present-but-null, and T-014/T-017
+      fill it when the owner actually views the queue.
+    - **`score` is `1 − beets' tag distance`** (0 distance = perfect = score 1.0), the
+      only per-candidate confidence beets exposes here. It is NOT the acoustic
+      fingerprint score (that's a single number for the whole match, not per
+      candidate). Absent on a bare double → null.
+    """
+    rows: list[dict] = []
+    for candidate in candidates:
+        info = getattr(candidate, "info", None)
+        if info is None:
+            continue
+        distance = getattr(candidate, "distance", None)
+        rows.append(
+            candidate_row(
+                getattr(info, "track_id", None),
+                title=getattr(info, "title", None),
+                artist=getattr(info, "artist", None),
+                album=getattr(info, "album", None),
+                year=getattr(info, "year", None) or None,
+                art_url=None,  # see the docstring — deliberately null at park time
+                score=(1.0 - float(distance)) if distance is not None else None,
+            )
+        )
+    return rows
 
 
 # --- driving beets ----------------------------------------------------------
