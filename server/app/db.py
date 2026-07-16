@@ -157,6 +157,21 @@ class Store:
             if cur.rowcount == 0:
                 raise KeyError(f"no job with id {job_id!r}")
 
+    def fail_unfinished_jobs(self) -> int:
+        """Mark every job left `queued`/`running` by a crash or shutdown as `error`.
+
+        The job queue is in-memory (T-012): it does not survive a restart, so any
+        row still `queued` or `running` at boot is orphaned — it will never be
+        picked up again. Left alone it would report `running` forever (a stuck
+        progress UI). Called once on worker startup so the durable status is honest
+        after any restart. Returns how many rows were reconciled.
+        """
+        with self._connect() as conn:
+            cur = conn.execute(
+                "UPDATE jobs SET status = 'error' WHERE status IN ('queued', 'running')"
+            )
+            return cur.rowcount
+
     # --- reviews ----------------------------------------------------------
 
     def create_review(
@@ -198,6 +213,23 @@ class Store:
         with self._connect() as conn:
             row = conn.execute(
                 "SELECT * FROM reviews WHERE id = ?", (review_id,)
+            ).fetchone()
+        return _review_from_row(row) if row else None
+
+    def get_pending_review_for_job(self, job_id: str) -> Review | None:
+        """The pending review parked for `job_id`, if any (most recent wins).
+
+        The durable counterpart to the in-memory job registry (T-012): after a
+        restart the registry is empty, but a parked review survives in SQLite, so
+        the reconnect snapshot recovers its id from here. Also how the pipeline
+        detects a park that happened just before a later import error, so it keeps
+        the staging file the review points at instead of deleting it.
+        """
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM reviews WHERE job_id = ? AND status = 'pending' "
+                "ORDER BY rowid DESC LIMIT 1",
+                (job_id,),
             ).fetchone()
         return _review_from_row(row) if row else None
 

@@ -13,7 +13,7 @@ from fastapi import FastAPI
 
 from app.config import get_settings
 from app.db import get_store
-from app.routes import health
+from app.routes import health, jobs
 
 logger = logging.getLogger("cleanmuzik")
 
@@ -47,8 +47,22 @@ async def lifespan(app: FastAPI):
     from app.beets_engine import log_smoke_check
 
     await asyncio.to_thread(log_smoke_check, s)
-    yield
+
+    # Start the single job worker (ADR-001: one track at a time on a worker thread,
+    # never the event loop). Imported here, not at module top, so the beets/yt-dlp
+    # pipeline stays off `import app.main`'s path (T-001 lazy-engine). The route
+    # layer reaches it via app.state.worker.
+    from app.jobs import JobWorker
+
+    worker = JobWorker(get_store(), s)
+    worker.start()
+    app.state.worker = worker
+    try:
+        yield
+    finally:
+        worker.stop()
 
 
 app = FastAPI(title="CleanMuzik", version="0.1.0", lifespan=lifespan)
 app.include_router(health.router, prefix="/api")
+app.include_router(jobs.router, prefix="/api")
