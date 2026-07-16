@@ -40,7 +40,7 @@ side effect for pipeline tickets, transcribe corrections to `docs/learnings.md`.
   process, and `server/`'s Express code is gone. (Spec §6 `/api/health`.)
 
 ### T-002 — SQLite persistence layer
-- **Status:** todo
+- **Status:** done (2026-07-12; `b612115`. SQLite `jobs` + `reviews` per spec §6; stateless DAO; candidate MBIDs stored as JSON not objects (ADR-006); schema init in lifespan; DB on disk survives restart. `/code-review` high: 4 applied — FK-enforce pragma, WAL, rowcount guards on both updates; 2 rejected as deliberate.)
 - **Depends on:** T-001
 - **Agent:** build
 - **What:** Create the SQLite store and the two tables from spec §6: `jobs(id, url, status,
@@ -51,7 +51,7 @@ side effect for pipeline tickets, transcribe corrections to `docs/learnings.md`.
   (Spec §7 "restarting the backend preserves parked reviews".)
 
 ### T-003 — beets programmatic config + plugin loading (ADR-007)
-- **Status:** todo
+- **Status:** done (2026-07-12; `88e17a0`. Builds the beets config + explicit `load_plugins()` (ADR-007 — all six load, proven); optional keys wired; boot smoke check logs a receipt or warns DEGRADED; beets pinned 2.12. `fpcalc` v1.5.1 installed to `~/.local/bin`. `/code-review` high: 4 applied — beets imported in lifespan not module-top, false-green-fpcalc guard, WSL isfile vs X_OK, subprocess via to_thread.)
 - **Depends on:** T-001
 - **Agent:** build
 - **What:** Ship the beets config the backend drives: `directory` +
@@ -65,7 +65,7 @@ side effect for pipeline tickets, transcribe corrections to `docs/learnings.md`.
   chroma wired). (Spec §2 plugin list; ADR-007.)
 
 ### T-004 — yt-dlp download stage + playlist rejection
-- **Status:** todo
+- **Status:** done (2026-07-12; `57e6517`. yt-dlp bestaudio + `--embed-metadata` into staging (no MP3 transcode — that's T-005); pure playlist classifier feeding T-012's 422. 17 unit tests + `pytest.ini`. Live download verified. `/code-review` high: 2 applied, 1 rejected.)
 - **Depends on:** T-001
 - **Agent:** build
 - **What:** Given one YouTube **song** URL, download bestaudio with **`--embed-metadata`** into a
@@ -95,7 +95,7 @@ side effect for pipeline tickets, transcribe corrections to `docs/learnings.md`.
   candidate; unit tests cover the cruft patterns. (Spec §2 title normalization.)
 
 ### T-007 — beets import seam: ImportSession subclass + fingerprint-trust gate (ADR-006)
-- **Status:** done — uncommitted (2026-07-14; two `/code-review` high workflow passes applied. Open question RESOLVED — beets' chroma **discards** the AcoustID score, so the seam reads it via its own `acoustid.lookup`. **Door B**: added singleton cover art (`artwork.py`, CAA→iTunes) since `fetchart` skips singletons. Verified end-to-end: a-ha "Take On Me" auto-landed MP3 320 + tags + synced lyrics + CAA cover; weak song parked. 158 tests green.)
+- **Status:** done (2026-07-14; committed `3065731`. two `/code-review` high workflow passes applied. Open question RESOLVED — beets' chroma **discards** the AcoustID score, so the seam reads it via its own `acoustid.lookup`. **Door B**: added singleton cover art (`artwork.py`, CAA→iTunes) since `fetchart` skips singletons. Verified end-to-end: a-ha "Take On Me" auto-landed MP3 320 + tags + synced lyrics + CAA cover; weak song parked. 158 tests green.)
 - **Depends on:** T-002, T-003, T-005, T-006
 - **Agent:** build
 - **What:** The product's spine. Subclass `beets.importer.ImportSession`, import the file **as a
@@ -139,7 +139,7 @@ side effect for pipeline tickets, transcribe corrections to `docs/learnings.md`.
   is kept; a constructed higher-bitrate case routes to review. (Spec §7 duplicate item; ADR-009.)
 
 ### T-010 — Jellyfin scan trigger
-- **Status:** todo
+- **Status:** done (2026-07-14; `trigger_scan()` POSTs Jellyfin `/Library/Refresh` with `X-Emby-Token` after a track lands. Three-way contract per spec §6: True = scan requested; False = degraded (missing/whitespace-only config → warn, track still landed — absent is not a failure); raise `JellyfinScanError` = configured but the call failed, so T-012 emits `track.error` stage=`scan`. Verified against LIVE Jellyfin: valid → 204 → True; bad key → 401 → raise. `/code-review` high: 4 applied, 1 rejected. Wired into the job run by T-012.)
 - **Depends on:** T-007
 - **Agent:** build
 - **What:** After a track lands, call the Jellyfin scan API (`JELLYFIN_URL` + `JELLYFIN_API_KEY`
@@ -162,7 +162,7 @@ side effect for pipeline tickets, transcribe corrections to `docs/learnings.md`.
 ## Phase B — API + orchestration
 
 ### T-012 — Job orchestration: worker thread + sequential queue + job routes
-- **Status:** todo
+- **Status:** done + VERIFIED LIVE (2026-07-15; `1c14f3a`. The Phase B keystone — `run_pipeline` walks download→transcode→normalize→`import_song`→Jellyfin-scan sequentially on a single `JobWorker` thread draining a `queue` (ADR-001: `POST /api/jobs` only *enqueues*). Two state homes: durable `jobs.status` in SQLite + an in-memory `JobRegistry` (capped 256) for live stage detail; the GET snapshot overlays them. Boot reconciliation (`fail_unfinished_jobs`) marks crash-orphaned jobs `error`. `/code-review` high: 10 verified findings applied — load-bearing catch was a **data-loss bug** (a committed park's staging file being `rmtree`d by the land-error handler). `/verify` PASS: a-ha landed `CleanMuzik/a‐ha/Take On Me.mp3`, 320000 CBR, embedded cover. 204 tests green.)
 - **Depends on:** T-004, T-005, T-007, T-010
 - **Agent:** build
 - **What:** Wire the stages into one job run on a **worker thread** (never the asyncio event
@@ -175,7 +175,7 @@ side effect for pipeline tickets, transcribe corrections to `docs/learnings.md`.
   stage. (Spec §6 `/api/jobs`; §7 playlist-rejected + forced-failure-cleanup.)
 
 ### T-013 — SSE stream + event emission through stages
-- **Status:** todo
+- **Status:** done + VERIFIED LIVE (2026-07-16; `6a7675e`. `server/app/events.py` — `EventBus` thread→event-loop bridge; per-job `_JobChannel` = replay buffer + `closed` flag + subscriber queues; `publish()` fans out via `loop.call_soon_threadsafe` outside the lock; `stream()` snapshots buffer AND registers its queue under one lock so an event lands in exactly one of replay/live. Hand-rolled SSE (no sse-starlette) so `ping` is a real named event; `/events` stays import-light. `/code-review` high: 6 verified — load-bearing catch was a **hang-forever bug** (evicted-channel reconnect → pings forever; fixed via a durable `terminal` hint → learnings.md). `/verify` PASS: full ordered sequence 3× reproducibly; `track.done.path` proven to be the organized library location. 221 tests green.)
 - **Depends on:** T-012
 - **Agent:** build
 - **What:** `GET /api/jobs/{job_id}/events` streams the spec §6 event catalogue —
@@ -203,7 +203,7 @@ side effect for pipeline tickets, transcribe corrections to `docs/learnings.md`.
 ## Phase C — UI
 
 ### T-015 — Frontend shell: paste URL + Go → create job
-- **Status:** todo
+- **Status:** done (2026-07-16; `439fdf3`. Stock Vite template replaced. `App.tsx` owns form state + a newest-first `jobs[]` list; `src/api.ts` `createJob()` POSTs same-origin `/api/jobs` (dev proxy `/api→:8000`); `components/TrackCard.tsx` is the **T-016 seam** — already exports the full `Stage` union matching the §6 event names and owns `useState<Stage>`, so T-016 adds only `EventSource`+`setStage` there. 422 surfaces the server's `detail` inline (`role="alert"`); empty-input + double-submit guarded. `/code-review`: 2 real UX bugs fixed — `type="url"` blocking a schemeless paste (→ learnings.md), and a rejected fetch showing raw "Failed to fetch". lint + build green. Not `/verify`'d live: UI shell, not a pipeline ticket; the browser round-trip rides with T-016.)
 - **Depends on:** T-012
 - **Agent:** front-end
 - **What:** Replace the stock Vite template. A single input for one YouTube song URL + **Go** →
@@ -238,7 +238,7 @@ side effect for pipeline tickets, transcribe corrections to `docs/learnings.md`.
 ## Setup + verification
 
 ### T-018 — Owner setup: Last.fm API key
-- **Status:** todo
+- **Status:** done (2026-07-13; owner's `LASTFM_APIKEY` (32-char) is in the git-ignored repo-root `.env` and verified loaded in-process, so `lastgenre` fetches genres. Last.fm shared secret deliberately NOT stored — it only signs *write* requests; we only read. Follow-up, not a blocker: genre canonicalizes to a generic "Music" — a `lastgenre` whitelist tune.)
 - **Depends on:** none
 - **Agent:** owner
 - **What:** Owner obtains a Last.fm API key and puts it in `.env` as `LASTFM_APIKEY` so

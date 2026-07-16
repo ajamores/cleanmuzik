@@ -82,7 +82,11 @@ setup + run commands live in **`server/README.md`** — don't duplicate them her
 **repo-root** `.env` (spec §6, template in `.env.example`).
 
 There is no automated test runner wired yet; `requirements-dev.txt` adds the FastAPI `TestClient`
-used to verify routes without a socket.
+used to verify routes without a socket. **This sandbox blocks live sockets, so `TestClient` is this
+repo's `/verify` handle** — it still drives the real pipeline (real yt-dlp/ffmpeg/fpcalc/AcoustID
+over real HTTP + SSE), so it satisfies the observable-artifact bar below; a live `localhost`
+browser round-trip is simply not drivable here. Isolate `DB_PATH` + the beets library to a temp dir
+when verifying, or the run pollutes the real library.
 
 There is no root-level workspace tooling — packages are managed independently.
 
@@ -94,11 +98,31 @@ A ticket is done when there's a receipt, not a claim:
 2. **Observable artifact** — for pipeline tickets, `/verify`: drive the actual flow and confirm
    the real side effect (e.g. a correctly-tagged MP3 320 with embedded art landed in the Jellyfin
    folder). "The code looks right" is not done; "I watched it happen" is.
-3. **Transcribe corrections** to `docs/learnings.md` as they come up.
+3. **Transcribe corrections** to `docs/learnings.md` as they come up — **at the moment they come up,
+   not onto the session board.** A lesson written to `.claude/hot.md` instead of its owning store is
+   a filing bug: the board is overwritten, the store is forever. (This lapsed from T-012 to T-015 and
+   cost a whole session to unwind — see the 2026-07-16 board entry in `learnings.md`.) Route by
+   owner: a decision that constrains future code → `docs/r1/adr.md`; a mistake paid for →
+   `docs/learnings.md`; ticket scope/status → `docs/r1/tickets.md`; scope or intent →
+   `cleanmuzik-prd.md`. **Only branch state / work-in-flight / what's next belongs on the board.**
 
 `/code-review` and `/verify` are built-in Claude Code skills, not project code — `/code-review`
 *reads* the diff, `/verify` *runs* it. They cost tokens per run and `/verify` needs the app
-runnable, so they apply during build, not to the current stub phase.
+runnable.
+
+## Parallel build (fan-out) — the mechanics that work
+
+Proven on T-002/03/04 and again on T-013 ∥ T-015. Reuse this shape; don't improvise a new one:
+
+- **Only fan out tickets whose file sets are disjoint** (e.g. `server/` ∥ `client/`) and whose deps
+  are already landed. Overlap means merge pain that costs more than the parallelism saves.
+- **One worktree per agent.** Give each a self-contained brief that names the load-bearing risks up
+  front — the agent can't see the others' work.
+- **Integrate one at a time onto `main`**, in dependency order (the ticket others depend on lands
+  first). Merge `--no-commit`, run the suite, `/code-review` the diff **in the working tree before
+  committing**, reconcile shared files (`requirements.txt`, `README.md`, `main.py`) by hand.
+- **The owner adjudicates every finding** — accept/reject is not the agent's call. Record rejections
+  with the reason; they're evidence, not noise.
 
 ## Hosting
 

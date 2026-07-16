@@ -13,9 +13,16 @@ comparison, and the trade-offs made explicit.
 - **One concept = one primer.** Each has a versioned HTML source here *and* a published Artifact —
   a full-bleed, open-in-your-browser page. The Artifact link is the nice way to read it; the file is
   the versioned source.
-- **Numbered by reading order.** Start at 01 and walk up; each builds on the last.
+- **Numbered by reading order.** Start at **00** (what this whole thing is), then the tracks below;
+  each builds on the last.
 - **Every primer ties to a real piece of CleanMuzik** — not networking in the abstract, but the
   networking *this project* actually uses, and why.
+
+## Start here
+
+| # | Primer | Ties to | Read it | Status |
+|---|--------|---------|---------|--------|
+| 00 | **What is CleanMuzik?** | The whole tool in plain words — the old Googled-converter routine, the pains, an SVG network diagram with a Phase 0/1 toggle | [open](https://claude.ai/code/artifact/9288627e-39b4-45f7-874d-bec3cedfc31b) · [source](00-what-is-cleanmuzik.html) | ✅ built |
 
 ## Networking track
 

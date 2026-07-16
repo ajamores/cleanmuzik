@@ -134,3 +134,33 @@ Format: `- <date> — what went wrong → the correction / rule now in place`
   earlier two-axis "tag completeness" comparison: it's read pre-apply and is a wash for same-recording
   copies anyway, so acquire-time dedup compares **bitrate only**; tag/acoustic tie-breaks are R2.) (→
   `server/app/import_seam.py`)
+- 2026-07-16 — SSE: reconnecting to a **completed** job whose channel had been evicted by the
+  256-job registry cap made the stream fabricate a **fresh, never-closed channel** → it emitted
+  `ping` forever and the card never terminated (a hang, not an error — the worst kind). The
+  in-memory registry and the durable `jobs.status` row have **different lifetimes**, and the
+  in-memory one is not the source of truth for "is this finished". Rule: when a live channel is
+  absent, consult **durable status** before opening a stream — the route passes it down as a
+  `terminal` hint, and an absent channel + a terminal status closes the stream immediately (the
+  client falls back to the `GET /api/jobs/{id}` snapshot). Any cache with an eviction policy needs
+  an "evicted vs never-existed" answer, or absence reads as "still running". (→ `server/app/events.py`)
+- 2026-07-16 — MusicBrainz canonicalizes some artist names with a **Unicode HYPHEN (U+2010)**, not
+  ASCII `-`: the a-ha library folder is literally `a‐ha`. An ASCII `grep`/`ls`/path literal for
+  `a-ha` finds **nothing** and the directory looks missing. Don't hand-type artist paths in tests or
+  probes — derive them from the beets item, or match on the recording id.
+- 2026-07-16 — `<input type="url">` **natively blocks a schemeless paste** ("www.youtube.com/…"):
+  the browser's own validation rejects it before the submit handler ever fires, so the button looks
+  **dead** with no error — the worst failure shape (silent). The backend is the real gate (it
+  classifies and 422s), so the field is `type="text"`. Rule: don't let native input validation
+  duplicate a server-side gate — it can only disagree with it, and it fails silently when it does.
+  (→ `client/src/App.tsx`)
+- 2026-07-16 — **The board is not a filing cabinet.** `.claude/hot.md` reached 883 lines because the
+  `/hot` skill said "prepend an entry, never rewrite older ones" (append, no eviction) while the
+  Definition of Done's "transcribe corrections to learnings.md" lived in a *different* file the save
+  path never read. Result: from T-012 on, lessons were stapled to the session board instead of filed
+  — `learnings.md` stops at T-011 — and the board accumulated **false** statements about current
+  state (two rival `## Current State` sections; T-015 described as both committed and still in a
+  worktree) that were loaded into every session. Rule: a write path must carry its own filing rule
+  inline; a norm stated in a file the writer doesn't read is not a rule. The board holds only what is
+  **unfiled + true-only-today**; everything else goes to its owning store. (Same bug exists upstream
+  in claude-obsidian: a 500-word cap in `WIKI.md`, a save skill that just says "reflect the new
+  addition", and a hot.md at 3.3× its own cap.)
