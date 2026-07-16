@@ -2,7 +2,7 @@
 type: meta
 title: "Hot — cleanmuzik"
 updated: 2026-07-15
-last-commit: ea5fd6b
+last-commit: 71c21d1
 tags:
   - meta
   - hot-cache
@@ -20,20 +20,53 @@ CleanMuzik — personal YouTube → Jellyfin music tool. Full description, stack
 live in `CLAUDE.md` and `cleanmuzik-prd.md` (this board holds *volatile state*, not evergreen
 description — see there, don't restate here).
 
-**Phase: R1 IN BUILD — Phase A engine spine COMPLETE. T-001…T-011 all done, committed + pushed.**
-Spec signed off, `docs/r1/tickets.md` holds 19 build-ordered tickets. **T-009 (acquire-time
-duplicate handling) committed** (`2c3c3d9`) — the last spine sibling. Next is **Phase B**: **T-012**
-(worker-thread job queue + `/api/jobs` routes; wires every stage — download → transcode → normalize →
-identify/tag/art → Jellyfin scan — into one sequential run). T-012 is the next *big* ticket and the
-first time the whole pipeline runs end-to-end as a job; keep it **solo** (it's the integration point).
-The one genuine fan-out pocket is later: after T-012, **T-013 (server SSE) ∥ T-015 (client paste+Go)**
-are disjoint (server vs `client/`). See `docs/r1/tickets.md`.
+**Phase: R1 IN BUILD — Phase A engine spine COMPLETE. Phase B STARTED: T-012 (the keystone)
+DONE + verified live.** Spec signed off, `docs/r1/tickets.md` holds 19 build-ordered tickets. T-012
+wired every stage — download → transcode → normalize → identify/tag/art → Jellyfin scan — into one
+sequential worker-thread run; a-ha "Take On Me" pasted and landed a real 320 CBR MP3 end-to-end
+(`1c14f3a`). **Next is the one genuine fan-out pocket: T-013 (server SSE) ∥ T-015 (client paste+Go)**,
+disjoint (server vs `client/`), then T-016 (convergence) → T-014 → T-017. See `docs/r1/tickets.md`.
 
 ## Current State (2026-07-15)
 
-- **Branch `main` == `origin/main`** — session-10's push landed (`53bea61`), then **T-009**
-  (`2c3c3d9`) + this session's board (`9048f2a`) + the **T-009 fix** (`ea5fd6b`). Board re-lands as
-  `docs(hot)`.
+- **Branch `main`** — session-12 lands **T-012** (`1c14f3a`) + **A4 primer** (`71c21d1`) + this board
+  as `docs(hot)`, pushed to `origin/main`. (Prior: `ea5fd6b` T-009 fix closed Phase A.)
+- **T-012 DONE + VERIFIED LIVE — job orchestration (worker thread + sequential queue + routes).**
+  The Phase B keystone; the first time the whole pipeline runs end-to-end as one job.
+  - **Shape:** `server/app/jobs.py` (new) — `run_pipeline` walks download→transcode→normalize→
+    `import_song`→Jellyfin-scan sequentially on a **single `JobWorker` thread draining a `queue`**
+    (ADR-001 — `POST /api/jobs` only *enqueues*, so concurrent pastes still run one-at-a-time).
+    `server/app/routes/jobs.py` (new) — `POST /api/jobs` (422 on playlist via T-004's classifier) +
+    `GET /api/jobs/{id}` snapshot; kept import-light so `import app.main` stays beets-free (T-001
+    lazy-engine — verified: heavy modules not pulled).
+  - **Two state homes:** durable `jobs.status` in SQLite (`queued→running→done|review|error`, survives
+    restart) + an **in-memory `JobRegistry`** for the live per-stage detail (capped at 256). The GET
+    snapshot overlays them. SSE *streaming* itself is T-013; this ticket marks the stage and leaves the
+    registry as T-013's hook.
+  - **Staging-cleanup contract honoured:** removed on every terminal path EXCEPT a park ("parked" keeps
+    its staging file — it IS the copy the owner resolves; resolve-time cleanup is T-014).
+  - **`/code-review` high (workflow, 4 finders / 15 candidates → 10 verified) — all adjudicated + applied:**
+    the load-bearing catch was a **data-loss bug**: choose_item parks a review (writes the row) then a
+    later beets stage raises → my land-error handler would `rmtree` the staging file the review points at
+    → **fixed** (detect the committed park via `get_pending_review_for_job`, retain staging, report
+    review). Also: **empty beets outcome → error** not a false "done"; **boot reconciliation**
+    (`fail_unfinished_jobs`) marks jobs left `running`/`queued` by a crash as `error` (the in-mem queue
+    doesn't survive restart, else stuck "running" forever); **GET recovers a parked `review_id` from
+    SQLite** after a cold-registry restart (stage/error are process-lifetime only — the §6 schema has no
+    column, documented); registry capped; redundant `set_stage`/dead fallback/unused `url` field dropped.
+  - **`/verify` — PASS, ran the REAL pipeline via TestClient** (sandbox blocks live sockets — the
+    documented repo handle; still a true end-to-end: real yt-dlp/ffmpeg/fpcalc/AcoustID). a-ha "Take On
+    Me" pasted → status marched `download→transcode→identify→done` over the real HTTP snapshot → landed
+    **`CleanMuzik/a‐ha/Take On Me.mp3`, audio stream 320000 CBR**, embedded mjpeg cover, title/artist/
+    year(2010). Probes: playlist→422, missing-url→422, unknown-job→404, scan-degrade→done. **File kept**
+    (owner's call — "part of my collection"). **204 tests green (+21).**
+  - **Hygiene bug found *by running verify* (fixed):** `run_pipeline` hardcoded the system temp root →
+    the parked-path tests (which correctly retain staging) **leaked real `/tmp/cleanmuzik-*` dirs**.
+    Added injectable `staging_root`; tests stage under `tmp_path`; confirmed 0 leak after the suite.
+    Production unchanged (parked retention is intended).
+  - **A4 primer published** (`71c21d1`) — "The whole line runs": full-bleed house-style, animated
+    conveyor belt + tech/plain-words pairing. `docs/primers/A4-the-conveyor-belt.html`;
+    `https://claude.ai/code/artifact/3990d7ec-6a54-40a3-89d1-216f9ade4d8e`.
 - **T-009 DONE — acquire-time duplicate handling, NON-DESTRUCTIVE (ADR-009). Detect via a DIRECT
   library query, not beets' import stage.** Two review passes; the design changed twice (both caught
   real bugs I introduced), final shape below.
@@ -258,6 +291,37 @@ are disjoint (server vs `client/`). See `docs/r1/tickets.md`.
   skeleton (Express dropped in T-001); the pipeline stages (download/transcode/beets) don't exist yet.
 
 ## Session log
+
+### 2026-07-15 (session 12) — T-012: the whole pipeline runs end to end
+
+- **Built T-012** (`1c14f3a`) — the Phase B keystone, kept **solo** (integration point). `run_pipeline`
+  stitches the six built-and-tested stages into one sequential run on a single worker thread draining a
+  queue (ADR-001); two state homes (durable SQLite lifecycle + in-mem `JobRegistry` for live stage);
+  staging cleaned on every terminal path except a park. `POST /api/jobs` (422 on playlist) +
+  `GET /api/jobs/{id}` snapshot, import-light so `app.main` stays beets-free.
+- **`/code-review` high (workflow) earned its keep — caught a data-loss bug I'd introduced:** a review
+  parked (row written) then a later beets stage raising would have `rmtree`'d the staging file the review
+  points at. Fixed (retain-on-detected-park). Plus empty-outcome→error, boot reconciliation of orphaned
+  `running` rows, GET review_id recovery after restart, registry cap, three cleanups. Adjudicated all 10
+  verified findings; noted one inherent limit (no §6 column for a past run's stage/error post-restart).
+- **`/verify` PASS — watched it happen.** Drove the REAL pipeline through the HTTP surface via TestClient
+  (sandbox blocks sockets); a-ha "Take On Me" landed a real **320 CBR MP3** with embedded art under
+  `CleanMuzik/a‐ha/`, status marching download→transcode→identify→done live. 422/404/scan-degrade probes
+  all clean. This is the long-deferred **live proof the spine runs end-to-end** (T-009's re-paste proof
+  rides here too — dedup path exercised via a fresh beets catalog so it *would* land).
+- **Hygiene bug surfaced by running verify:** parked-path tests leaked `/tmp/cleanmuzik-*` (staging root
+  was hardcoded). Added injectable `staging_root` → 0 leak. **204 tests green (+21).**
+- **A4 primer built + published** (`71c21d1`) — owner asked for "technical stuff + translation to
+  simple," loving the *built-each-thing-separately-then-run-the-conveyor-belt* framing. Full-bleed
+  house-style animated belt, tech/plain-words pairing. `https://claude.ai/code/artifact/3990d7ec-6a54-40a3-89d1-216f9ade4d8e`.
+- **NEXT:**
+  1. **The one genuine fan-out pocket: T-013 (server SSE) ∥ T-015 (client paste+Go)** — disjoint
+     (server routes vs `client/`). T-013 streams the spec §6 event catalogue through the stages
+     (the registry is already the hook); T-015 replaces the stock Vite template with paste+Go+track-card.
+     Then **T-016** (SSE consumer card — convergence) → **T-014** (review list/resolve) → **T-017**
+     (review panel).
+  2. Carry-overs (housekeeping): "proactively flag learnable moments" → global `~/.claude/CLAUDE.md`;
+     build the **artifact-visual-style skill**, then drop the redundant project-memory copy.
 
 ### 2026-07-15 (session 11) — T-009 duplicate handling; Phase A spine complete
 
