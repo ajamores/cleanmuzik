@@ -105,7 +105,8 @@ some of it is tempting to fold in now.
 7. **Appears in Jellyfin:** the app calls the Jellyfin scan API; within seconds the track shows up
    in Jellyfin. The card reads **Done** with the final path and tags.
 8. **On any failure:** the card shows a per-track error naming the failing stage; the staging file
-   is cleaned up. (With one song, nothing else is in flight to continue.)
+   is cleaned up. (With one song, nothing else is in flight to continue.) **A park is not a
+   failure** — a song sent to the review queue **keeps** its staging file; see §5.
 
 ## 5. Behaviour details
 
@@ -123,6 +124,12 @@ some of it is tempting to fold in now.
   **pick alternate**, **reject** (discard). Resolving re-runs the import applying the chosen
   MusicBrainz candidate (re-matched from the stored candidate **ID**, not a cached object). The
   queue is SQLite-backed and survives a restart.
+- **Staging retention — a parked song KEEPS its staging file.** Staging is removed on every
+  terminal path *except* a park: the parked file **is** the copy the owner resolves, and
+  `reviews.staging_path` points at it. Deleting it on the way into the queue makes the resolve
+  unimplementable (accept → nothing to land). Cleanup for a park happens at **resolve time**
+  (T-014), on both branches — accept (beets consumes it) and reject (discard). A park is **not**
+  a failure and must not be swept by the failure rule below.
 - **Duplicate handling, acquire-time.** When the incoming song matches one already in the library by
   MusicBrainz recording id (a **direct library query in `choose_item`** — catches the same song under
   a different filename; beets' own import duplicate stage can't see MBID dupes, see ADR-009). **R1 is
@@ -137,7 +144,8 @@ some of it is tempting to fold in now.
   Full cross-library dedup by acoustic fingerprint is also R2.
 - **Failure of one stage.** Any stage error (download, transcode, identify, tag, land, scan) emits
   a per-track `track.error` event naming the stage and a human-readable message, and the staging
-  file is removed. AcoustID is flaky/rate-limited — the identify stage **retries with backoff**
+  file is removed — **except where the song was already parked** (staging is retained, see the
+  retention rule above; a park committed before a later stage raised must not lose its file). AcoustID is flaky/rate-limited — the identify stage **retries with backoff**
   before it's called a failure (learnings; `chroma` swallows lookup errors so a failed lookup
   otherwise looks like "no match").
 - **Output.** MP3 320 CBR, and only that (ADR-002). Embedded: cover art, genre (if the Last.fm key

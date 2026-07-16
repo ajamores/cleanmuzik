@@ -41,13 +41,23 @@ Jellyfin library folder (local disk) → Jellyfin serves + plays
 - [ ] **Persistence (SQLite).** Job/track status + parked reviews outlive a reboot. Store the
       staging path + MusicBrainz candidate IDs + rec — **not** the rich candidate objects; re-match on resume.
 - [ ] Staging dir + cleanup-on-failure; idempotency (re-paste same URL → skip if already present).
-- **Duplicate policy, acquire-time — DECIDED.** beets detects dupes on import via
-  `resolve_duplicate(task)` (matches on MusicBrainz IDs → catches the same song under a different
-  filename). Clear cases auto-resolve keeping the better copy (higher bitrate / better tags);
-  **ambiguous cases go to the review queue** — the same confidence-gated UI, reused for "these two
-  look identical, keep which?". Open sub-question for the spec: the exact auto-keep tie-break
-  (bitrate vs tag quality). Full *existing-library* dedup sweep (`beet duplicates` + `chroma`
-  acoustic fingerprinting) is **R2 migrate/clean**, not R1 — see `docs/backlog/`.
+- **Duplicate policy, acquire-time — SETTLED BY ADR-009 + T-009 (built). `adr.md` is authoritative;
+  this is the summary.** Two things the original plan got wrong, both corrected:
+  - **Detection is our own direct library query, NOT beets' `resolve_duplicate(task)`.** beets builds
+    its probe from the match's `TrackInfo`, where the recording id sits under `track_id` — *before*
+    the `track_id→mb_trackid` mapping — so a `duplicate_keys=mb_trackid` query matches **nothing** and
+    detection silently never fires. We query `lib.items(MatchQuery("mb_trackid", rec_id))` ourselves
+    inside `choose_item`; beets' own stage is kept as an inert no-op.
+  - **R1 is NON-DESTRUCTIVE and never auto-deletes.** The earlier "clear cases auto-resolve keeping
+    the better copy, drop the other" wording is **withdrawn** — it held a data-loss window (beets'
+    `manipulate_files` deletes the old file *before* it copies the new one; a failed copy loses
+    **both**). Instead: keep the existing copy when it's at **>= bitrate**; **park** a strictly
+    higher-bitrate upgrade to the review queue for the owner to confirm. Compare is **bitrate-only**
+    at acquire time (tags aren't applied yet). Auto-replace (copy-first/delete-after) and the
+    tag-richness tie-break are deferred to **R2**.
+
+  Full *existing-library* dedup sweep (`beet duplicates` + `chroma` acoustic fingerprinting) is
+  **R2 migrate/clean**, not R1 — see `docs/backlog/`.
 - [ ] **Secrets** — Last.fm API key (`lastgenre`), AcoustID key (`chroma`). Where they live: TBD (owner).
 - [ ] Existing library location / format / size (for R2 migrate, but confirm now).
 - [ ] Jellyfin install target + watched-folder path on disk.

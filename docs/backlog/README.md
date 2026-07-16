@@ -9,9 +9,16 @@ graduates, it gets scoped into a release spec and leaves this folder.
   **deduplication sweep**: `beet duplicates` finds copies, and the `chroma` plugin (AcoustID
   fingerprinting) catches the *same song even when filenames and tags differ* across a phone rip
   and a computer rip — because it matches on how the audio sounds, not what the file is named.
-  Keep-which decisions that aren't clear-cut route to the **review queue** (same policy as the R1
-  acquire-time check: auto-keep the better copy, send ambiguous ones to review). Heavier and
-  slower than acquire-time dedup — gets its own review flow when R2 is specced.
+  Keep-which decisions route to the **review queue**, matching R1's acquire-time policy — which
+  **ADR-009 settled as non-destructive: never auto-delete.** (An earlier draft here said "auto-keep
+  the better copy, send ambiguous ones to review" — *withdrawn*; beets deletes the old file before
+  it copies the new one, so a failed copy loses both.) R2 may revisit auto-replace only via
+  copy-first/delete-after, plus the tag-richness tie-break R1 deferred. Heavier and slower than
+  acquire-time dedup — gets its own review flow when R2 is specced.
+  **Sizing (measured 2026-07-12):** 3.2 GB — 855 MP3 + 37 `.webm` + broken-download debris
+  (`.part`/`.ytdl`/`.mhtml`) across 15 month-batch folders under `C:\Users\aj_am\Documents\`.
+  Overlapping copies also live on the owner's **phone** (a dedup input, not a separate source).
+  Destination after extraction: `C:\Users\aj_am\Music` — out of OneDrive, to stop cloud sync.
 - Acoustic metadata tier — BPM / key / energy via Essentia
 - Always-on host + Tailscale reachability (PRD §9 phase 1)
 - **HTTP QUERY method (RFC 10008) — noted, not adopting.** A 2026 method: a read that carries a
