@@ -38,23 +38,15 @@ are in `CLAUDE.md`; scope in `cleanmuzik-prd.md`. Not restated here.
 
 ## Recent sessions (rolling — last 2–3)
 
-### 2026-07-16 (session 14) — board sweep; docs corrected; `/hot` skill rewritten
+### 2026-07-16 (session 14) — docs-only sweep; board 883→~65; `/hot` skill rewritten
 
-- Board had grown to 883 lines and was **contradicting itself** (two rival `## Current State`
-  sections; T-015 listed as both committed and still in a worktree). Root cause: `/hot` said
-  "prepend, never rewrite older entries" — append with no eviction path. **Skill rewritten**: cache
-  not journal, rewrite-don't-append, a routing table, and ~500 words as a *tripwire* (over budget ⇒
-  unfiled content, on load and save). Same bug found upstream in claude-obsidian — evidence, not
-  anecdote. → `learnings.md`
-- **Live doc bugs found and fixed** (`d7b620f`, `f8aeb06`): `spec.md` never carved parks out of
-  staging-cleanup (**T-014 would have deleted the file it resolves** — read §5 before building it);
-  `architecture.md` described the **pre-ADR-006 design the spike disproved** (`choose_match`,
-  `resolve_duplicate`, "strong → auto-accept") plus the withdrawn **data-loss** duplicate policy —
-  in the doc agents read *before* the ADR; `roadmap.md` had R1 at a status outside its own
-  vocabulary, voiding its "blocked unless `in-build`" rule for 15 tickets. Also filed 4 orphans to
-  `learnings.md`, fan-out mechanics + the routing table to `CLAUDE.md`, primer 00 to its index, and
-  corrected **9 ticket statuses** — the ledger is accurate for the first time, which is what made
-  the board disposable.
+- **Live doc bugs fixed** (`d7b620f`, `f8aeb06`) — `spec.md`, `architecture.md`, `roadmap.md` were
+  each describing a past state, including designs ADR-006/009 had withdrawn. Rationale in the commit
+  bodies. **The one that still matters is in NEXT above: T-014 + `spec.md` §5.**
+- **Board was a journal that lied**; the `/hot` skill said "prepend, never rewrite older entries" —
+  append with no eviction. Skill rewritten (cache not journal; ~500 words as a tripwire firing on
+  load *and* save). Orphans filed to `learnings.md` / `CLAUDE.md`; **9 ticket statuses corrected**,
+  so `tickets.md` is the ledger now, not this board. Principle grafted to the garden. → `learnings.md`
 
 ### 2026-07-16 (session 13) — T-013 ∥ T-015 fan-out
 
