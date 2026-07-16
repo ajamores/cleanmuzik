@@ -1,121 +1,90 @@
 import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
-import heroImg from './assets/hero.png'
+import { createJob } from './api'
+import { TrackCard } from './components/TrackCard'
 import './App.css'
 
+interface Job {
+  jobId: string
+  url: string
+}
+
 function App() {
-  const [count, setCount] = useState(0)
+  const [url, setUrl] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [jobs, setJobs] = useState<Job[]>([])
+
+  const trimmed = url.trim()
+  const canSubmit = trimmed.length > 0 && !submitting
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    if (!canSubmit) return
+
+    setSubmitting(true)
+    setError(null)
+    try {
+      const { job_id } = await createJob(trimmed)
+      // Newest card first.
+      setJobs((prev) => [{ jobId: job_id, url: trimmed }, ...prev])
+      setUrl('')
+    } catch (err) {
+      // createJob throws ApiError (a subclass of Error) for every failure path,
+      // so one Error check covers them all; the else is pure defensiveness.
+      setError(err instanceof Error ? err.message : 'Something went wrong.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
 
   return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
-        </div>
-        <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.tsx</code> and save to test <code>HMR</code>
-          </p>
-        </div>
-        <button
-          type="button"
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Count is {count}
+    <main className="app">
+      <header className="app__header">
+        <h1>CleanMuzik</h1>
+        <p>Paste one YouTube song URL and it lands, tagged, in your library.</p>
+      </header>
+
+      <form className="url-form" onSubmit={handleSubmit}>
+        <input
+          className="url-form__input"
+          // Deliberately NOT type="url": native HTML5 URL validation silently
+          // blocks form submission for a schemeless paste ("www.youtube.com/…"),
+          // so Go looks dead. The backend is the real gate (it hands the URL to
+          // yt-dlp and reports a stage error on a bad one). inputMode keeps the
+          // URL keyboard on mobile.
+          type="text"
+          inputMode="url"
+          placeholder="https://www.youtube.com/watch?v=…"
+          value={url}
+          onChange={(e) => {
+            setUrl(e.target.value)
+            if (error) setError(null)
+          }}
+          aria-label="YouTube song URL"
+          aria-invalid={error ? true : undefined}
+          disabled={submitting}
+        />
+        <button className="url-form__go" type="submit" disabled={!canSubmit}>
+          {submitting ? 'Working…' : 'Go'}
         </button>
+      </form>
+
+      {error && (
+        <p className="app__error" role="alert">
+          {error}
+        </p>
+      )}
+
+      <section className="app__jobs" aria-label="Tracks">
+        {jobs.length === 0 ? (
+          <p className="app__empty">No tracks yet.</p>
+        ) : (
+          jobs.map((job) => (
+            <TrackCard key={job.jobId} jobId={job.jobId} url={job.url} />
+          ))
+        )}
       </section>
-
-      <div className="ticks"></div>
-
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
-        </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
-      </section>
-
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
+    </main>
   )
 }
 
