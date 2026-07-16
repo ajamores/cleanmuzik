@@ -46,12 +46,15 @@ are in `CLAUDE.md`; scope in `cleanmuzik-prd.md`. Not restated here.
   not journal, rewrite-don't-append, a routing table, and ~500 words as a *tripwire* (over budget ⇒
   unfiled content, on load and save). Same bug found upstream in claude-obsidian — evidence, not
   anecdote. → `learnings.md`
-- **Two live doc bugs found and fixed** (`d7b620f`): `spec.md` never carved parks out of
+- **Live doc bugs found and fixed** (`d7b620f`, `f8aeb06`): `spec.md` never carved parks out of
   staging-cleanup (**T-014 would have deleted the file it resolves** — read §5 before building it);
-  `architecture.md` + `backlog/` still described the **data-loss** duplicate design ADR-009 withdrew,
-  in the doc agents read *before* the ADR. Also filed 4 orphans to `learnings.md`, fan-out mechanics
-  + the routing table to `CLAUDE.md`, primer 00 to its index, and corrected **9 ticket statuses** —
-  the ledger is accurate for the first time, which is what made the board disposable.
+  `architecture.md` described the **pre-ADR-006 design the spike disproved** (`choose_match`,
+  `resolve_duplicate`, "strong → auto-accept") plus the withdrawn **data-loss** duplicate policy —
+  in the doc agents read *before* the ADR; `roadmap.md` had R1 at a status outside its own
+  vocabulary, voiding its "blocked unless `in-build`" rule for 15 tickets. Also filed 4 orphans to
+  `learnings.md`, fan-out mechanics + the routing table to `CLAUDE.md`, primer 00 to its index, and
+  corrected **9 ticket statuses** — the ledger is accurate for the first time, which is what made
+  the board disposable.
 
 ### 2026-07-16 (session 13) — T-013 ∥ T-015 fan-out
 
