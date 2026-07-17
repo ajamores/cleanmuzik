@@ -146,3 +146,31 @@ Format: `ADR-NNN — decision. Rationale. [date]`
   bitrate-only, and full cross-library acoustic dedup remains R2. (Owner decision, T-014 briefing —
   the spec defined `choice` as `candidate_id|reject`, which could not express any of the above.)
   [2026-07-16]
+
+- **ADR-010 — A weak-match review candidate is `title + artist + score`. No album, no year, no
+  cover art. Don't "fix" the nulls.** The spec promised five fields per candidate from day one
+  (`4a2f60f`); **three of them were never reachable** and every path silently rendered them null.
+  Rationale — the data genuinely isn't there: beets builds a singleton candidate via
+  `item_candidates` → `tracks_for_ids` → `track_for_id` → `track_info(recording)`, which translates
+  a MusicBrainz **recording** payload (title, artist, track_id, length, ISRC). Album, year and cover
+  art are properties of a **release**, and one recording appears on many — so nothing in the
+  candidate carries them, and no column can store what was never fetched. Reaching them means an
+  extra MusicBrainz browse-releases call **per candidate**, plus a heuristic to pick *which* release.
+  That was rejected as disproportionate: T-008 measured **88% auto-accept (22/25, 0 wrong)**, and the
+  ~12% that park are overwhelmingly *no-match* songs whose candidates come from a title text search
+  and are plainly different songs — title + artist separates them. The case art would serve (two
+  candidates identical but for their release) is rare, and art wouldn't reliably settle it anyway: a
+  compilation cover for the right recording looks wrong, an album cover for the wrong recording looks
+  right. **`score` (= 1 − beets' tag distance) is the discriminator** and costs nothing — it is
+  already populated at park time. Consequences: `candidate_row()` carries only the fields it can
+  fill (a contract key that is structurally always null is a lie, not a placeholder); T-017's picker
+  is title/artist/score against the normalized query; **the duplicate panel is NOT narrowed** — its
+  "you already have this" side reads an existing *library item*, a tagged file on disk that has
+  album, year and embedded art for free, no lookup involved. Cover art still lands **on the file**
+  via `fetchart`/`embedart` and is visible in Jellyfin, which is where music is actually looked at;
+  it is absent only from the picker. Accepted cost: two identical-reading candidates must be chosen
+  between on `score` alone. Revisit only if the queue's real traffic turns out to be
+  same-song-different-release (it isn't today). Supersedes `_candidate_rows`' original note that
+  "T-014/T-017 fill it when the owner actually views the queue" — they don't, by decision.
+  (Owner decision; found by reading T-016's diff against its ticket text, not by any code review —
+  see the Definition of Done's acceptance check in `CLAUDE.md`.) [2026-07-17]

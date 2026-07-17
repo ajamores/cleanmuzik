@@ -95,10 +95,19 @@ There is no root-level workspace tooling — packages are managed independently.
 A ticket is done when there's a receipt, not a claim:
 
 1. **Review pass** — `/code-review` on the diff (correctness bugs + cleanup).
-2. **Observable artifact** — for pipeline tickets, `/verify`: drive the actual flow and confirm
+2. **Acceptance check** — re-read the ticket's own **"Done when"** and the spec section it cites,
+   and check the diff against them. This is a *different question* from the review pass, with
+   different evidence: `/code-review` asks "is this code correct?", this asks "is this the thing we
+   asked for?" Code can be flawless and still not be the ticket — and a diff review structurally
+   cannot see that, because the ticket and the spec aren't in the diff. **If the ticket asks for
+   something the spec's payload can't deliver, stop and amend, don't build the nearest thing.**
+   (T-016 asked for cover art on `track.tagging` from `4a2f60f` until 2026-07-17; that event has
+   never carried art. Four tickets shipped through high-effort reviews — two of which caught
+   data-loss and hang-forever bugs — and none caught it, because none of them was asking. → ADR-010)
+3. **Observable artifact** — for pipeline tickets, `/verify`: drive the actual flow and confirm
    the real side effect (e.g. a correctly-tagged MP3 320 with embedded art landed in the Jellyfin
    folder). "The code looks right" is not done; "I watched it happen" is.
-3. **Transcribe corrections** to `docs/learnings.md` as they come up — **at the moment they come up,
+4. **Transcribe corrections** to `docs/learnings.md` as they come up — **at the moment they come up,
    not onto the session board.** A lesson written to `.claude/hot.md` instead of its owning store is
    a filing bug: the board is overwritten, the store is forever. (This lapsed from T-012 to T-015 and
    cost a whole session to unwind — see the 2026-07-16 board entry in `learnings.md`.) Route by

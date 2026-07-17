@@ -164,3 +164,67 @@ Format: `- <date> — what went wrong → the correction / rule now in place`
   **unfiled + true-only-today**; everything else goes to its owning store. (Same bug exists upstream
   in claude-obsidian: a 500-word cap in `WIKI.md`, a save skill that just says "reflect the new
   addition", and a hot.md at 3.3× its own cap.)
+- 2026-07-16 — **A browser `EventSource` auto-reconnects when the server closes the stream, so our
+  own clean shutdown reads to it as a crash.** The backend closes a job's channel on *every* terminal
+  path (`_finish` → `bus.close`) — done, error, **and review**, plus a duplicate skip that emits no
+  event at all. EventSource sees EOF, assumes a dropped connection, and reconnects ~3s later; the
+  route then replays the buffer for the already-terminal job and closes again → an infinite
+  reconnect loop, with the card re-animating through the replay each cycle. Rule: **the client must
+  hang up first.** `TrackCard` closes the stream itself on `track.done` / `track.error` /
+  `track.review_required` — all three end the *stream*, even though a review is not the end of the
+  owner's workflow (T-017 re-subscribes after resolving). Corollary for anything that reopens a
+  channel: **reset the replay buffer per episode**, or the new subscriber replays the old
+  `track.review_required` and closes itself instantly — the same hang, one layer down.
+  (→ `client/src/components/TrackCard.tsx`, `server/app/events.py::reopen`)
+- 2026-07-16 — **`'toString' in obj` is `true`.** `in` walks the prototype chain, so it is not a
+  membership test for a lookup map. A `track.error` payload with `stage: "toString"` passed a
+  `v in ERROR_STAGE_LABEL` guard, got cast to a valid stage, and rendered
+  `Object.prototype.toString` — a *function* — as a React child, on the exact path whose job is to
+  name the failing stage. Use `Object.hasOwn(map, key)`. (→ `client/src/components/TrackCard.tsx`)
+- 2026-07-16 — **`direction: rtl` to truncate a path from the left silently re-orders it.** It moves
+  the ellipsis, but bidi-neutral characters at the paragraph boundary take the paragraph's
+  direction: the leading `/` of `/mnt/c/…/Take On Me.mp3` jumps to the far right, and the owner is
+  shown a path they cannot copy. Add `unicode-bidi: plaintext` so each line keeps the direction of
+  its own first strong character while the box still truncates on the left. Any CSS that reverses
+  direction for a *layout* effect will also reverse the *text*. (→ `client/src/components/TrackCard.css`)
+- 2026-07-16 — **A defensive `or {}` on the server becomes a clobber on the client.** `jobs.py`
+  emits `{"tags": landed.tags or {}}` and `Outcome.tags` is `dict | None`, so `track.done` can carry
+  `tags: {}`. A client narrower that returned a truthy object of nulls then painted "Unknown title"
+  over the correct match already shown by `track.tagging` — a perfect match ending as a failure on
+  screen. Two rules: a narrower must return **null when it knows nothing** (an all-null object is not
+  a value), and a display field should have **one writer** — the bug existed only because the done
+  payload was written through into state the tagging event also owned. Deriving it at render removed
+  the whole class. (→ `client/src/components/TrackCard.tsx`)
+- 2026-07-16 — **Bound a reconnect in BOTH directions; the obvious half is the less dangerous one.**
+  A snapshot-on-stream-death fallback (`GET /api/jobs`, spec §6's sanctioned reconnect path) fails
+  two ways. Too patient: if the stream flaps while the snapshot keeps answering "running", every ~3s
+  EventSource retry fires another fetch forever — no timer involved, but the traffic is
+  indistinguishable from the polling the ADR forbids. Too eager: erroring on the *first* failed
+  snapshot kills the card, and the most ordinary reason the stream and the snapshot fail together is
+  the backend restarting — so every open card would die on every `uvicorn --reload`. One counter of
+  consecutive failures, reset by any received event (a `ping` counts — that's what it's for), bounds
+  both. (→ `client/src/components/TrackCard.tsx`)
+- 2026-07-17 — **A code review cannot catch "this isn't what the ticket asked for", and four of them
+  didn't.** T-016's ticket demanded cover art on `track.tagging` from the day the tickets were
+  generated (`4a2f60f`); that event's payload has never carried art, and album/year/art_url on a
+  review candidate were emitted null by every path since T-007. It survived T-007, T-012, T-013 and
+  T-015 — including two high-effort reviews that *did* catch a data-loss bug and a hang-forever bug.
+  Not a lapse: `/code-review` reads a **diff** and asks "is this code correct?" The card's code was
+  correct — it faithfully rendered what the wire carried, and cannot render a field the wire lacks.
+  The defect lived *between the ticket text and spec §6*, and **neither document is in the diff**.
+  Compounding it: each agent sat in a single-ticket worktree, and the gap only appears when you line
+  up `_candidate_rows` (server) against the card (client) — a view no fanned-out agent has, and the
+  integrator's job to take. Rule: **a correctness receipt is not an acceptance receipt.** Read the
+  ticket's own "Done when" against the diff, as its own step — now item 2 of the Definition of Done.
+  Found only because the owner asked "what was the goal of T-016?" (→ ADR-010, `CLAUDE.md`)
+- 2026-07-17 — **A contract field that is structurally always null reads as "not filled in yet", and
+  the comment explaining it becomes an instruction to build the wrong thing.** `_candidate_rows`
+  emitted `art_url=None` with a docstring saying "T-014/T-017 fill it when the owner actually views
+  the queue" — a reasonable-sounding deferral that was *impossible to honour*, since album/year/art
+  are **release** properties and a singleton candidate is a **recording** (`track_for_id` →
+  `track_info(recording)`; one recording lives on many releases). T-014's agent duly wrote
+  `album=None, year=None, art_url=None` with its own honest note, and the null propagated with two
+  layers of documentation explaining it. Rules: **don't ship a key you cannot fill** — omit it, and
+  let the absence be the honest signal; and **a docstring that promises a future ticket will do X is
+  a live instruction** — if X is later withdrawn, the docstring is now actively wrong and must be
+  corrected in the same commit as the decision. (→ ADR-010, `server/app/events.py::candidate_row`)

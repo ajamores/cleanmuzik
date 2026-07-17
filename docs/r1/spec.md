@@ -42,7 +42,7 @@ organize → serve spine before any batch, playlist, or migrate machinery is lay
 
 - **Fingerprint-trust auto-accept (ADR-006):** auto-tag when the top AcoustID match is dominant
   (high score, clear gap to the runner-up); otherwise → review queue. This is the match gate.
-- **Review queue:** parked songs show their candidate matches; the owner accepts one, picks an
+- **Review queue:** parked songs show their candidate matches (title/artist/score — ADR-010); the owner accepts one, picks an
   alternate, or rejects. Resolving lands the track. The queue survives a backend restart.
 - **Acquire-time duplicate check** (`resolve_duplicate`): a song already in the library is caught
   by MusicBrainz ID; clear cases auto-keep the better copy, ambiguous cases → review queue.
@@ -96,7 +96,8 @@ some of it is tempting to fold in now.
    - **Weak / ambiguous fingerprint** → the card flips to **Needs review**; the song is parked in
      the review queue and the batch (of one) is not blocked.
 5. **Review (only for parked songs):** the review panel shows the candidate matches — per
-   candidate: title, artist, album, year, cover thumbnail — plus the normalized query. The owner
+   candidate: title, artist, and `score` (ADR-010: album/year/art aren't reachable from a
+   recording lookup) — plus the normalized query. The owner
    **accepts** the top match, **picks an alternate**, or **rejects** (discard the song). Resolving
    resumes the import applying the chosen candidate.
 6. **Landing:** beets applies tags, `lastgenre` adds genre, `fetchart` + `embedart` embed cover
@@ -121,8 +122,11 @@ some of it is tempting to fold in now.
   blind.
 - **Review queue.** The queue holds **two different questions**, distinguished by the row's `rec`,
   and they resolve differently (bodies in §6):
-  - **"What is this song?"** (weak/ambiguous match) — the UI shows each candidate's title, artist,
-    album, year, and cover thumbnail, plus the normalized query that was searched. Owner actions:
+  - **"What is this song?"** (weak/ambiguous match) — the UI shows each candidate's **title,
+    artist, and `score`**, plus the normalized query that was searched. **No album, year, or cover
+    thumbnail: they are properties of a *release*, and a singleton candidate carries only a
+    *recording* — see ADR-010, which explains why this is a data limit and not a missing feature.**
+    `score` (= 1 − beets' tag distance, 1.0 = perfect) is the discriminator. Owner actions:
     **accept top**, **pick alternate**, **reject** (discard). Resolving re-runs the import applying
     the chosen MusicBrainz candidate (re-matched from the stored candidate **ID**, not a cached
     object).
@@ -221,8 +225,8 @@ One stream per job. Names are stable; the UI keys the track card off them.
 - `track.downloading` → `{ job_id, pct? }`
 - `track.transcoding` → `{ job_id }`
 - `track.identifying` → `{ job_id }`
-- `track.review_required` → `{ job_id, review_id, query, candidates: [ { candidate_id, title, artist, album, year, art_url, score } ] }`
-- `track.tagging` → `{ job_id, chosen: { title, artist, album, year } }`
+- `track.review_required` → `{ job_id, review_id, query, candidates: [ { candidate_id, title, artist, score } ] }` — ADR-010: no album/year/art_url; a recording lookup can't reach them.
+- `track.tagging` → `{ job_id, chosen: { title, artist, album, year } }` — the *accepted* match, unlike a candidate, has been through beets' full apply, so its album/year are real.
 - `track.done` → `{ job_id, path, tags: { title, artist, album, year, genre, has_art, has_lyrics } }`
 - `track.error` → `{ job_id, stage: "download|transcode|identify|tag|land|scan", message }`
 - `ping` → `{}` — periodic keepalive so proxies don't drop the stream.

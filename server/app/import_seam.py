@@ -777,17 +777,23 @@ def _candidate_rows(candidates) -> list[dict]:
     """spec §6 `track.review_required.candidates[]`, from the beets candidates in hand.
 
     Built at park time from the candidates the seam already has — NOT re-hydrated from
-    stored MBIDs (that's T-014's `GET /api/reviews` path). Two honest degrades:
+    stored MBIDs (that's T-014's `GET /api/reviews` path). Both paths yield the same
+    three fields, because both bottom out in the same recording lookup.
 
-    - **`art_url` is always null here.** Door B fetches cover art for the *one* track
-      that lands, not per candidate; reaching art for every parked candidate would
-      mean a Cover-Art-Archive round-trip apiece, for a song the owner may never open.
-      Disproportionate coupling — so the field is present-but-null, and T-014/T-017
-      fill it when the owner actually views the queue.
+    - **No album / year / art_url (ADR-010).** These are *release* properties; a
+      singleton candidate is a *recording* (`item_candidates` → `tracks_for_ids` →
+      `track_for_id` → `track_info(recording)`), and one recording is on many releases.
+      They were emitted as null here from T-007 to 2026-07-17 with a note saying
+      "T-014/T-017 fill it when the owner views the queue" — **they don't; that was
+      withdrawn.** Filling them needs a browse-releases call per candidate plus a
+      which-release heuristic, which ADR-010 rejects (T-008: 88% auto-accept, and the
+      queue's real traffic is no-match songs that title+artist already separates).
+      Don't re-add the fields; read the ADR first if you're about to.
     - **`score` is `1 − beets' tag distance`** (0 distance = perfect = score 1.0), the
-      only per-candidate confidence beets exposes here. It is NOT the acoustic
-      fingerprint score (that's a single number for the whole match, not per
-      candidate). Absent on a bare double → null.
+      only per-candidate confidence beets exposes here — and therefore *the*
+      discriminator when two candidates read alike. It is NOT the acoustic fingerprint
+      score (that's a single number for the whole match, not per candidate). Absent on
+      a bare double → null.
     """
     rows: list[dict] = []
     for candidate in candidates:
@@ -800,9 +806,6 @@ def _candidate_rows(candidates) -> list[dict]:
                 getattr(info, "track_id", None),
                 title=getattr(info, "title", None),
                 artist=getattr(info, "artist", None),
-                album=getattr(info, "album", None),
-                year=getattr(info, "year", None) or None,
-                art_url=None,  # see the docstring — deliberately null at park time
                 score=(1.0 - float(distance)) if distance is not None else None,
             )
         )

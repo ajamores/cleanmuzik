@@ -228,8 +228,12 @@ side effect for pipeline tickets, transcribe corrections to `docs/learnings.md`.
 - **Agent:** front-end
 - **What:** The track card subscribes to `GET /api/jobs/{job_id}/events` and animates through
   **download → transcode → identify → (auto-tag | review) → done**, keyed off the SSE event names
-  (§6). Shows matched title/artist/album + art on `track.tagging`, final path + tags on
+  (§6). Shows matched title/artist/album on `track.tagging`, final path + tags on
   `track.done`, and a **per-stage error** on `track.error`.
+  *(Amended 2026-07-17: this said "+ art on `track.tagging`" from `4a2f60f` on, but spec §6's
+  `track.tagging` payload is `{title, artist, album, year}` — it has never carried art, so the
+  requirement was undeliverable as written. `track.done.tags.has_art` is a **boolean**: the card
+  shows an "Art" chip meaning art was embedded, not the cover itself. See ADR-010.)*
 - **Done when:** a real job animates live end to end over SSE with no polling; error state names
   the failing stage. (Spec §7 SSE live progress + forced-failure error; §4 step 3.)
 
@@ -238,12 +242,20 @@ side effect for pipeline tickets, transcribe corrections to `docs/learnings.md`.
 - **Depends on:** T-014, T-016
 - **Agent:** front-end
 - **What:** When a card flips to **Needs review** (`track.review_required`), show the candidate
-  matches — per candidate: **title, artist, album, year, cover thumbnail** — plus the normalized
-  query. Owner actions: **accept top**, **pick alternate**, **reject** → `POST
-  /api/reviews/{id}/resolve`. On resolve, the card resumes to Landing/Done. Reuse the same panel
-  for the ambiguous-duplicate case (T-009).
+  matches — per candidate: **title, artist, `score`** — plus the normalized query. **No album/year/
+  cover thumbnail (ADR-010: unreachable from a recording lookup — do not add a MusicBrainz round-trip
+  to get them).** Owner actions: **accept top**, **pick alternate**, **reject** → `POST
+  /api/reviews/{id}/resolve`. On resolve, the card resumes to Landing/Done — note it must open a
+  **fresh `EventSource`**, since T-016 closes the stream on `track.review_required` and T-014
+  re-opens the channel as a new episode.
+
+  Reuse the same panel for the ambiguous-duplicate case (T-009), which asks a **different question**
+  and takes a **different body** (spec §6): `keep_existing` · `replace` · `keep_both` + an
+  owner-typed `suffix` (pre-fill something harmless like `(alternate)`). The duplicate side is
+  **not** narrowed by ADR-010 — it reads an existing library item, so album/year/art are free.
 - **Done when:** a parked song's candidates render; accept lands it and the card completes, reject
-  discards it. (Spec §7 weak→review pick/reject; §5 review-queue fields.)
+  discards it; each duplicate branch is reachable and does what it says. (Spec §7 weak→review
+  pick/reject + duplicate branches; §5 review-queue fields; ADR-009 addendum.)
 
 ## Setup + verification
 

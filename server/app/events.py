@@ -73,27 +73,31 @@ def candidate_row(
     *,
     title: str | None = None,
     artist: str | None = None,
-    album: str | None = None,
-    year: int | None = None,
-    art_url: str | None = None,
     score: float | None = None,
 ) -> dict:
     """The single spec §6 `track.review_required.candidates[]` row shape.
 
     Every place that emits a candidate row goes through here so the contract's key set
-    lives in exactly one spot: the rich park-time builder (`import_seam._candidate_rows`),
-    the id-only raise-recovery fallback (`jobs._id_only_candidates`, all display fields
-    null), and — soon — T-014's re-hydration for `GET /api/reviews`. Add or rename a
-    field here and every path stays in lockstep. Lives in this import-light module (no
-    beets) so both the heavy seam and the lazy route can import it.
+    lives in exactly one spot: the park-time builder (`import_seam._candidate_rows`),
+    the id-only raise-recovery fallback (`jobs._id_only_candidates`, display fields
+    null), and T-014's re-hydration for `GET /api/reviews`. Add or rename a field here
+    and every path stays in lockstep. Lives in this import-light module (no beets) so
+    both the heavy seam and the lazy route can import it.
+
+    **No `album` / `year` / `art_url` — by decision, not omission (ADR-010).** A
+    singleton candidate is a MusicBrainz *recording*; those three are properties of a
+    *release*, and one recording appears on many. beets never fetches a release for a
+    candidate (`track_for_id` → `track_info(recording)`), so these fields were emitted
+    as null on every path from T-007 until 2026-07-17 — a contract key that is
+    structurally always null is a lie, not a placeholder, and it read as "we just
+    haven't filled it in yet". Reaching them costs a browse-releases call per candidate
+    plus a which-release heuristic; ADR-010 rejects that. `score` (= 1 − beets' tag
+    distance) is the discriminator and is free.
     """
     return {
         "candidate_id": candidate_id,
         "title": title,
         "artist": artist,
-        "album": album,
-        "year": year,
-        "art_url": art_url,
         "score": score,
     }
 
