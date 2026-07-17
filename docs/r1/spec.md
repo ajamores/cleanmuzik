@@ -119,11 +119,24 @@ some of it is tempting to fold in now.
   thresholds globally. The exact numeric score/gap thresholds are a build-time knob to be tuned and
   then recorded (candidate: score ≥ 0.90, gap ≥ 0.10) — measure on real songs, don't hard-code
   blind.
-- **Review queue.** For a parked song the UI shows each candidate's title, artist, album, year,
-  and cover thumbnail, plus the normalized query that was searched. Owner actions: **accept top**,
-  **pick alternate**, **reject** (discard). Resolving re-runs the import applying the chosen
-  MusicBrainz candidate (re-matched from the stored candidate **ID**, not a cached object). The
-  queue is SQLite-backed and survives a restart.
+- **Review queue.** The queue holds **two different questions**, distinguished by the row's `rec`,
+  and they resolve differently (bodies in §6):
+  - **"What is this song?"** (weak/ambiguous match) — the UI shows each candidate's title, artist,
+    album, year, and cover thumbnail, plus the normalized query that was searched. Owner actions:
+    **accept top**, **pick alternate**, **reject** (discard). Resolving re-runs the import applying
+    the chosen MusicBrainz candidate (re-matched from the stored candidate **ID**, not a cached
+    object).
+  - **"You already have this — keep which?"** (`rec: "duplicate"`, parked by T-009 when the download
+    is a strictly-higher-bitrate copy of a library track). Owner actions: **keep existing**,
+    **replace** (lands the upgrade, then deletes the old file — the only deletion R1 performs, and
+    only on this click), or **keep both** with an **owner-supplied suffix appended to the title
+    tag**. The suffix goes on the tag rather than the filename because Jellyfin displays tags —
+    distinguishing two files only on disk leaves two identical-looking rows in the library. beets
+    derives the path from the tags, so the filename follows. Keep-both exists because recording-id
+    detection isn't infallible (a remaster often shares a recording id): it's the owner's escape
+    hatch when the app's "same recording" call is wrong. See ADR-009's addendum.
+
+  The queue is SQLite-backed and survives a restart.
 - **Staging retention — a parked song KEEPS its staging file.** Staging is removed on every
   terminal path *except* a park: the parked file **is** the copy the owner resolves, and
   `reviews.staging_path` points at it. Deleting it on the way into the queue makes the resolve
@@ -162,8 +175,43 @@ some of it is tempting to fold in now.
 | `GET` | `/api/jobs/{job_id}/events` | — | **SSE stream** (see below) for that job. |
 | `GET` | `/api/jobs/{job_id}` | — | Job status snapshot (for reconnect / SSE fallback). |
 | `GET` | `/api/reviews` | — | Parked reviews: `[{ review_id, job_id, query, candidates[] }]`. |
-| `POST` | `/api/reviews/{review_id}/resolve` | `{ "choice": "<candidate_id>" \| "reject" }` | `{ "ok": true }`; resumes the import. |
+| `POST` | `/api/reviews/{review_id}/resolve` | see the two body shapes below | `{ "ok": true }`; resumes the import. |
 | `GET` | `/api/health` | — | `{ "status": "ok" }`. |
+
+#### `resolve` body — two shapes, keyed by the review's `rec`
+
+The review queue holds two different questions, so resolve takes two different answers. A client
+reads `rec` (returned by `GET /api/reviews`) to know which it's answering; the route validates the
+body against the row's `rec` and 400s a mismatch rather than guessing.
+
+**Weak/ambiguous match** (`rec` = a beets recommendation name — `none`, `low`, `medium`, …):
+
+```jsonc
+{ "choice": "<candidate_id>" }   // apply that MusicBrainz candidate and land it
+{ "choice": "reject" }           // discard the song; staging is removed
+```
+
+**Duplicate** (`rec: "duplicate"` — "you already have this; the download is higher bitrate"). Per
+ADR-009's addendum, the destructive branch is reachable only by an explicit owner click:
+
+```jsonc
+{ "choice": "keep_existing" }                       // discard the download, keep the library copy
+{ "choice": "replace" }                             // land the upgrade, THEN delete the old file
+{ "choice": "keep_both", "suffix": "(2015 Remaster)" }  // land alongside, distinguished by suffix
+```
+
+- **`replace` lands before it deletes.** Never the reverse, and never beets'
+  `DuplicateAction.REMOVE` — that deletes first and loses both copies if the copy then fails
+  (ADR-009). Verify the new file is in place, then remove the old.
+- **`suffix` is required for `keep_both`** and is appended to the **title tag** before the import
+  applies — *not* to the filename. Jellyfin displays tags, not filenames: two files distinguished
+  only on disk still render as two identical rows in the library, which is the confusion the choice
+  exists to prevent. beets then derives the path from the tags (`singleton: $artist/$title`, or
+  `$track $title` under `default`), so the filename follows for free and beets' own path sanitizer
+  handles characters that are illegal on disk. Bound the input: cap the length, strip control
+  characters and path separators, and reject empty/whitespace-only — it is owner-typed text that
+  reaches a filesystem path. (Single-user localhost, ADR-004: this is about not producing a file the
+  owner can't find, not a security boundary.)
 
 ### SSE events (event name → payload)
 
@@ -225,7 +273,9 @@ truly album-less song lands under `singleton`. beets creates missing directories
 - [ ] The track appears in **Jellyfin within seconds** of landing via the app-triggered scan — no
       manual scan.
 - [ ] Re-pasting the **same** URL is caught as a **duplicate** (no silent second copy); an ambiguous
-      duplicate routes to the review queue.
+      duplicate routes to the review queue, where **keep existing** discards the download,
+      **replace** lands the upgrade and then removes the old file, and **keep both** lands it
+      alongside under the owner's suffix. Nothing is deleted without a click (ADR-009 addendum).
 - [ ] A forced failure in any stage surfaces a **per-track error naming the stage** and cleans up
       the staging file.
 - [ ] Restarting the backend **preserves parked reviews** (SQLite); they can still be resolved.

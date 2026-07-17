@@ -120,3 +120,29 @@ Format: `ADR-NNN — decision. Rationale. [date]`
   carries an MBID); untagged legacy files are R2 migrate input. Owner signed off the non-destructive
   call. (born in the build, T-009; two owner reviews found the REMOVE data-loss window and then the
   silently-dead import-stage detection) [2026-07-15]
+
+  **Addendum — "never auto-delete" bounds the APP, not the owner (T-014 resolve).** The rule above
+  was written against the *acquire* path, where the app would be deleting a file on its own initiative
+  with no one watching. It does not speak to the *resolve* path, where the owner is looking at both
+  copies and picks. An explicit owner click is the consent the rule was protecting; requiring the
+  library to accumulate a file the owner has just said they don't want would be the rule outliving its
+  reason. So `POST /api/reviews/{id}/resolve` on a `rec="duplicate"` review offers three choices, and
+  the destructive one is reachable **only** by an owner click, never by a threshold or a heuristic:
+  - `keep_existing` — discard the download. (Non-destructive; the same outcome the acquire path already
+    auto-takes at >= bitrate.)
+  - `replace` — delete the existing library file, land the incoming upgrade. **The one deletion R1
+    performs.** The ADR's data-loss window still applies and is why this is NOT beets'
+    `DuplicateAction.REMOVE`: land the new copy **first**, verify it, and only then remove the old one.
+    Copy-first/delete-after was deferred to R2 as an *automatic* path; under an owner click, on one
+    named file, it is in R1's reach.
+  - `keep_both` — land the incoming copy alongside the existing one, distinguished by an
+    **owner-supplied suffix appended to the title tag** (not the filename — see spec §5). Exists because
+    detection is by MusicBrainz recording id, which is not infallible: a remaster or re-release commonly
+    shares a recording id with the original, and AcoustID maps near-identical audio onto the same
+    recording. When the app's "same recording" call is wrong, the owner is the only one who can see it,
+    and this is the escape hatch. Non-destructive.
+
+  What does NOT change: nothing is deleted without a click, the acquire-time comparison stays
+  bitrate-only, and full cross-library acoustic dedup remains R2. (Owner decision, T-014 briefing —
+  the spec defined `choice` as `candidate_id|reject`, which could not express any of the above.)
+  [2026-07-16]

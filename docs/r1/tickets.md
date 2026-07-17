@@ -191,14 +191,24 @@ side effect for pipeline tickets, transcribe corrections to `docs/learnings.md`.
 - **Status:** todo
 - **Depends on:** T-007, T-013
 - **Agent:** build
-- **What:** `GET /api/reviews` → parked reviews `[{ review_id, job_id, query, candidates[] }]`
-  (candidates re-hydrated from stored MusicBrainz **IDs**, spec §5). `POST
-  /api/reviews/{review_id}/resolve {choice: "<candidate_id>"|"reject"}` → resume the import
-  applying the chosen candidate (land it) or discard on reject; emit the tail SSE events. Parked
-  reviews **survive a backend restart** (reads T-002's table).
+- **What:** `GET /api/reviews` → parked reviews `[{ review_id, job_id, query, rec, candidates[] }]`
+  (candidates re-hydrated from stored MusicBrainz **IDs**, spec §5; `rec` tells the client which
+  question the row is asking). `POST /api/reviews/{review_id}/resolve` → resume the import and emit
+  the tail SSE events. **Two body shapes, per spec §6** — validate against the row's `rec`, 400 a
+  mismatch:
+  - weak match → `{choice: "<candidate_id>"}` lands it, `{choice: "reject"}` discards.
+  - duplicate → `{choice: "keep_existing"|"replace"|"keep_both", suffix?}` (ADR-009 addendum).
+    `replace` lands the upgrade **then** deletes the old file (never the reverse — the ADR-009
+    data-loss window); `keep_both` appends the owner's `suffix` to the **title tag**, not the
+    filename, and lets beets derive the path.
+
+  Staging cleanup is **T-014's job, at resolve time, on every branch** (spec §5 retention rule — a
+  parked song keeps its staging file; it *is* the copy being resolved). Parked reviews **survive a
+  backend restart** (reads T-002's table).
 - **Done when:** a parked song lists with its candidates; accepting a candidate lands it, rejecting
-  discards it; both work **after a backend restart**. (Spec §7 weak→review pick/reject; restart
-  preserves reviews; §6 review routes.)
+  discards it; each duplicate branch does what it says (and `replace` never leaves zero copies);
+  all of it works **after a backend restart**. (Spec §7 weak→review pick/reject + duplicate
+  branches; restart preserves reviews; §6 review routes.)
 
 ## Phase C — UI
 
