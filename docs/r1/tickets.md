@@ -232,9 +232,13 @@ side effect for pipeline tickets, transcribe corrections to `docs/learnings.md`.
   shows the rejection, not a silent expand. (Spec §4 step 1–2.)
 
 ### T-016 — Track card: SSE consumer + per-stage animation
-- **Status:** built (2026-07-17; branch `worktree-agent-aaffef646dc8b8e5c` @ `3885939`. Reviewed, 4
-  fixes applied, lint+build green. **Not driven live** — sandbox blocks sockets. → **done** needs:
-  integrate onto `main`, and the live browser round-trip, which rides with T-019.)
+- **Status:** built (branch `worktree-agent-aaffef646dc8b8e5c` @ `3885939`); integration in progress
+  2026-07-18, **scope reduced**. Two pre-commit review passes found 8 then 10 defects in the stream
+  *reattach* logic — the second set including three regressions introduced by the fixes for the
+  first. All of it was failure-path behaviour written blind (this sandbox has no sockets), so the
+  reattach layer was **cut to T-020** rather than patched a fourth time. What lands here is the SSE
+  consumer + rail animation + one snapshot per outage; what does not is any give-up/backoff policy.
+  → **done** still needs the live browser round-trip (T-019).
 - **Depends on:** T-013, T-015
 - **Agent:** front-end
 - **What:** The track card subscribes to `GET /api/jobs/{job_id}/events` and animates through
@@ -304,3 +308,32 @@ side effect for pipeline tickets, transcribe corrections to `docs/learnings.md`.
 - **Done when:** every §7 checkbox is proven by `/verify` observing the real side effect (a
   correctly-tagged MP3 320 visible in Jellyfin), not by "the code looks right". (Spec §7, whole
   checklist.)
+
+### T-020 — Track card: stream reattach + the snapshot payload gap
+- **Status:** todo — **carved out of T-016 on 2026-07-18 because it could not be verified.**
+- **Depends on:** T-016, T-019 (needs a live browser; that's the whole point)
+- **Agent:** front-end
+- **What:** Give the track card a real recovery story for a stream that stays broken. T-016 ships
+  only the platform's own behaviour: EventSource reconnects on a dropped connection, the server
+  replays its buffer losslessly, and one snapshot per outage catches the event-less finish
+  (duplicate skip, `jobs.py:368`). Deliberately absent: any *give-up* policy, bounded backoff, or
+  reattach control. Three attempts at that policy were written blind and two review passes killed
+  all three (~12s grace fired instantly on a `uvicorn --reload` blip in one version, never at all
+  in another). It is failure-path behaviour and needs a browser that can be taken offline.
+- **Also fix here — the payload gap this exposed (spec amendment first, then code):**
+  `GET /api/jobs/{id}` returns `job_id, url, status, created_at, stage, review_id, error` — **no
+  `path`, no `tags`**. So when a song lands while the stream is down *and* the replay buffer is
+  gone (`_CHANNEL_CAP = 256`, and every channel dies on restart), the landing receipt is
+  **unrecoverable**: the card can say "Done" but never *where the song went*, which is
+  indistinguishable from a duplicate skip where nothing landed. No client-side fix exists — the
+  fallback endpoint cannot answer the question the fallback exists for. **Amend spec §6 to add
+  `path` + `tags` to the snapshot before building the client half** (ADR-010's rule: don't build
+  the nearest thing).
+- **Also carried over from T-016's reviews** (deferred, not lost): the `[jobId]` effect resets no
+  state on a job change (masked only by `key={job.jobId}` in `App.tsx`); `ERROR_STEP` duplicates
+  `RAIL`; `STAGE_STEP.review_required` maps to step 3 ("Tag"), marking Identify complete on the
+  very track identify failed to match; `unicode-bidi: plaintext` may defeat the path
+  start-truncation.
+- **Done when:** a stream killed in DevTools (offline toggle) recovers or reports honestly, a
+  `uvicorn --reload` mid-job does **not** detach the card, a landed song shows its path and tags
+  after a drop that raced completion, and each is *observed in a browser*, not reasoned about.

@@ -25,13 +25,44 @@ export class ApiError extends Error {
  * rather than inventing its own.
  */
 export async function createJob(url: string): Promise<CreateJobResponse> {
+  return request<CreateJobResponse>('/api/jobs', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ url }),
+  })
+}
+
+/** `GET /api/jobs/{id}` — the job status snapshot (spec §6). */
+export interface JobSnapshot {
+  job_id: string
+  url: string
+  status: string
+  created_at?: string
+  /** Live only: absent once the job leaves the worker's registry / after a restart. */
+  stage?: string
+  review_id?: string
+  error?: string
+}
+
+/**
+ * GET /api/jobs/{job_id} — spec §6's "reconnect / SSE fallback" snapshot.
+ *
+ * Used *once*, when the SSE stream dies without a terminal event — never on a
+ * timer. Progress is SSE, not polling (ADR); this only answers the question SSE
+ * structurally can't: an EventSource cannot read a status code, so a 404, a dead
+ * backend, and a job that finished with no event (the duplicate skip) all look
+ * identical from the stream. The snapshot tells them apart.
+ */
+export async function getJob(jobId: string): Promise<JobSnapshot> {
+  return request<JobSnapshot>(`/api/jobs/${encodeURIComponent(jobId)}`)
+}
+
+/** Fetch + the error contract every route shares: an ApiError with the server's
+ *  own `detail` when there is one, a reachability hint when there isn't. */
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let res: Response
   try {
-    res = await fetch('/api/jobs', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url }),
-    })
+    res = await fetch(path, init)
   } catch {
     // fetch REJECTS (not resolves non-ok) when no response is reached at all —
     // backend down, no dev proxy, DNS. readErrorDetail needs a Response, so the
@@ -44,9 +75,9 @@ export async function createJob(url: string): Promise<CreateJobResponse> {
   }
 
   try {
-    return (await res.json()) as CreateJobResponse
+    return (await res.json()) as T
   } catch {
-    // The route always returns {job_id}, so a 2xx with an empty/non-JSON body
+    // These routes always return JSON, so a 2xx with an empty/non-JSON body
     // shouldn't happen — but guard it to a clean message rather than let a raw
     // "Unexpected end of JSON input" reach the user.
     throw new ApiError('Unexpected response from the backend.', res.status)

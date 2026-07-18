@@ -301,3 +301,36 @@ Format: `- <date> — what went wrong → the correction / rule now in place`
   let the absence be the honest signal; and **a docstring that promises a future ticket will do X is
   a live instruction** — if X is later withdrawn, the docstring is now actively wrong and must be
   corrected in the same commit as the decision. (→ ADR-010, `server/app/events.py::candidate_row`)
+- 2026-07-18 — **A worktree review certifies code against its own assumptions about the other half;
+  the integration review is where those assumptions get tested.** T-016's in-worktree review passed
+  the track card after 4 fixes. The pre-commit review on the *merge* found 8 defects, 6 confirmed —
+  and every one turned on something outside the diff: `EventBus.stream` replaying its whole buffer to
+  each new subscriber (so the client's failure counter resets on every reconnect and its give-up bound
+  is unreachable — the card degrades into ~3s polling, violating ADR-005), and EventSource's spec
+  behaviour that a **non-200 fails the connection permanently** with no retry (so a 404 from the
+  events route hangs the card silently on "Queued" forever). The card's comments stated both premises
+  explicitly and both were wrong. Neither is visible from `client/`: one lives in `server/app/events.py`,
+  the other in the HTML spec. Rules: **when a fanned-out ticket consumes another component's contract,
+  the integration review must re-derive that contract from the other side's source, not from the
+  consumer's comments about it** — a confident comment asserting how the peer behaves is a claim to
+  check, not context to trust. And **a stated invariant ("this is bounded", "this can't loop") is the
+  highest-yield thing to attack**, because it's load-bearing and nothing tests it. Related in shape to
+  the 2026-07-17 acceptance lapse above: both are defects that live *between* components, where no
+  diff-scoped reviewer is looking. (T-016 integration; cost: a second full review pass at the merge)
+- 2026-07-18 — **Don't write failure-handling policy you cannot make fail.** The fixes for the six
+  defects above introduced three new confirmed ones, and the second review pass found *more* defects
+  than the first (10 vs 8). Every wrong answer was in the same layer: deciding when a stream is "too
+  broken to keep retrying". One version detached on the first `uvicorn --reload` blip; another could
+  never detach at all; a third detached a healthy 12-minute download because the rail hadn't moved.
+  Each was reasoned carefully, type-checked, and wrong — because the inputs (real drops, restarts,
+  races) cannot be produced in this sandbox, so there was no feedback signal at any point. **A green
+  build is not evidence about failure paths; it is evidence only about the happy path.** Rules:
+  **when a change's whole purpose is to handle conditions you cannot reproduce, that is a sequencing
+  bug, not a coding problem** — carve it out and build it where it can be driven (→ T-020), rather
+  than shipping a policy whose correctness rests entirely on argument. And **when successive fix
+  rounds find more than they resolve, stop patching**: the count going up is the signal that the
+  work is mis-sequenced, and one more round of reasoning will not supply the evidence that's missing.
+  Corollary that saved a fourth round: the platform's own behaviour (EventSource auto-retry + the
+  server's replay buffer) was already a correct recovery story — the bugs were all in the bespoke
+  policy layered on top of it. Prefer the mechanism you can't get wrong to the one you can't test.
+  (T-016 → T-020 carve-out; cost: three fix rounds + two full review passes)

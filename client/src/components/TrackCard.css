@@ -43,3 +43,223 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* The pill borrows the card's stage colour, so the whole card reads at a glance. */
+.track-card[data-stage='review_required'] .track-card__status {
+  color: var(--warn);
+  background: var(--warn-bg);
+}
+
+.track-card[data-stage='done'] .track-card__status {
+  color: var(--ok);
+  background: var(--ok-bg);
+}
+
+.track-card[data-stage='error'] .track-card__status {
+  color: var(--danger);
+  background: var(--danger-bg);
+}
+
+/* --- stage rail ---------------------------------------------------------- */
+
+.track-card__rail {
+  display: flex;
+  list-style: none;
+  margin: 16px 0 0;
+  padding: 0;
+}
+
+.track-card__step {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  position: relative;
+  min-width: 0;
+}
+
+/* The connector between dots — drawn from each step back to the previous one, so
+   it inherits that step's own state colour and the rail fills in as it advances. */
+.track-card__step + .track-card__step::before {
+  content: '';
+  position: absolute;
+  top: 5px;
+  right: 50%;
+  left: -50%;
+  height: 2px;
+  background: var(--border);
+  transition: background 300ms ease;
+}
+
+.track-card__step[data-state='complete']::before,
+.track-card__step[data-state='active']::before {
+  background: var(--accent);
+}
+
+.track-card__step[data-state='failed']::before,
+.track-card__step[data-state='review']::before {
+  background: var(--border);
+}
+
+.track-card__dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--border);
+  position: relative;
+  z-index: 1;
+  transition:
+    background 300ms ease,
+    transform 300ms ease;
+}
+
+.track-card__step[data-state='complete'] .track-card__dot {
+  background: var(--accent);
+}
+
+.track-card__step[data-state='active'] .track-card__dot {
+  background: var(--accent);
+  animation: track-card-pulse 1.4s ease-in-out infinite;
+}
+
+.track-card__step[data-state='review'] .track-card__dot {
+  background: var(--warn);
+  transform: scale(1.2);
+}
+
+.track-card__step[data-state='failed'] .track-card__dot {
+  background: var(--danger);
+  transform: scale(1.2);
+}
+
+.track-card__step-label {
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--text);
+  opacity: 0.55;
+  transition: opacity 300ms ease;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+.track-card__step:not([data-state='pending']) .track-card__step-label {
+  opacity: 1;
+}
+
+@keyframes track-card-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 var(--accent-bg);
+  }
+  50% {
+    transform: scale(1.25);
+    box-shadow: 0 0 0 5px var(--accent-bg);
+  }
+}
+
+/* A card animating for minutes is a lot of motion; honour the opt-out. The rail
+   still communicates state through colour alone. */
+@media (prefers-reduced-motion: reduce) {
+  .track-card__step[data-state='active'] .track-card__dot {
+    animation: none;
+  }
+
+  .track-card__dot,
+  .track-card__step-label,
+  /* Must match the compound selector that DECLARES the connector transition
+     (`.track-card__step + .track-card__step::before`, specificity 0-2-1) — the
+     bare `.track-card__step::before` here is 0-1-1 and silently lost, so the
+     connectors kept animating for anyone who had asked them not to. */
+  .track-card__step + .track-card__step::before {
+    transition: none;
+  }
+}
+
+/* --- match / result ------------------------------------------------------ */
+
+.track-card__match {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.track-card__match-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-h);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.track-card__match-meta {
+  font-size: 13px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.track-card__note {
+  margin-top: 10px;
+  font-size: 13px;
+  color: var(--warn);
+}
+
+/* The stream detached but the job is fine — muted, deliberately NOT --danger.
+   Reading as an error is what makes the owner re-paste and duplicate the job. */
+.track-card__detached {
+  margin-top: 10px;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.track-card__path {
+  margin-top: 8px;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  /* Truncate from the START, so a long path keeps its filename visible. `direction:
+     rtl` moves the ellipsis, but on its own it also re-orders bidi-neutral
+     characters: the leading "/" of "/mnt/c/…/Take On Me.mp3" is neutral at the
+     paragraph boundary, takes the RTL direction, and renders at the far right —
+     the owner is shown a path they can't copy. `plaintext` keeps each line's own
+     direction (LTR, from its first strong character) while the rtl box still
+     truncates on the left. */
+  direction: rtl;
+  unicode-bidi: plaintext;
+  text-align: left;
+}
+
+.track-card__tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+  padding: 0;
+  list-style: none;
+}
+
+.track-card__tags li {
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+
+.track-card__error {
+  margin-top: 12px;
+  font-size: 13px;
+  color: var(--danger);
+}
