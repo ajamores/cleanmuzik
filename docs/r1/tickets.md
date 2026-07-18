@@ -309,6 +309,28 @@ side effect for pipeline tickets, transcribe corrections to `docs/learnings.md`.
   correctly-tagged MP3 320 visible in Jellyfin), not by "the code looks right". (Spec §7, whole
   checklist.)
 
+#### First owner-driven browser session — the run list (queued 2026-07-18)
+**Why now, before T-017:** nothing in this repo has *ever* been run in a browser. Every ticket to
+date was verified through `TestClient`, which drives the real pipeline but never touches a proxy, a
+DOM, or a live EventSource. The port mismatch found on 2026-07-18 (README 8137 vs Vite proxy 8000,
+dead since T-001) is what that blind spot looks like. T-017 will reuse T-016's EventSource pattern,
+so a defect in it gets inherited if this waits.
+
+Run (terminal 1) `cd server && ./.venv/bin/uvicorn app.main:app --reload --port 8137`,
+(terminal 2) `cd client && npm run dev`, then open the Vite URL.
+
+| # | Do this | Watch for | Why it matters |
+|---|---|---|---|
+| 1 | Paste a song that should match cleanly | Rail animates Download → Transcode → Identify → Tag → Land; title/artist appear; final path + genre/Art/Lyrics chips; file in Jellyfin | The everyday flow, never once seen in a browser |
+| 2 | Paste the **same URL again** | Should end "Done" sensibly, not hang | The duplicate skip emits **no §6 event at all** (`jobs.py:368`) — the only case relying on the snapshot fallback |
+| 3 | Kill `uvicorn` mid-download, restart it | Card should recover, **not** freeze or show a false error | Three rewrites got exactly this wrong, in both directions |
+| 4 | DevTools → Network → Offline for ~10s, then back | Same as #3 | EventSource auto-retry + server replay — the mechanism T-016 now leans on entirely |
+| 5 | Paste an obscure/live/remix track | Parks: "Weak match — parked for your review" then stops | **Expected dead end** — the review panel is T-017. Song is safe in the queue |
+| 6 | Paste a **playlist** URL | Refused with a clear message, not expanded | Spec §7 |
+
+Record what actually happened per row — a symptom beats a hypothesis. Anything odd in #3/#4 feeds
+T-020 directly.
+
 ### T-020 — Track card: stream reattach + the snapshot payload gap
 - **Status:** todo — **carved out of T-016 on 2026-07-18 because it could not be verified.**
 - **Depends on:** T-016, T-019 (needs a live browser; that's the whole point)
