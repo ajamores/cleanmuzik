@@ -114,6 +114,12 @@ A ticket is done when there's a receipt, not a claim:
    owner: a decision that constrains future code → `docs/r1/adr.md`; a mistake paid for →
    `docs/learnings.md`; ticket scope/status → `docs/r1/tickets.md`; scope or intent →
    `cleanmuzik-prd.md`. **Only branch state / work-in-flight / what's next belongs on the board.**
+5. **Integration** — merge onto `main` and confirm the suite is green *there*. A ticket that passes
+   1–4 in a worktree is **built**, not **done**: it isn't in the product until it's on `main`. Steps
+   1–4 answer "is the work good?"; this answers "is it shipped?" — a different question, and the one
+   that was unwritten until a ticket sat verified-but-unlanded and got called "done" (owner
+   correction, 2026-07-17). **"Done" always implies integrated.** Use **built** for the isolated,
+   checks-pass, not-yet-merged state. The merge mechanics are in *Parallel build* below.
 
 `/code-review` and `/verify` are built-in Claude Code skills, not project code — `/code-review`
 *reads* the diff, `/verify` *runs* it. They cost tokens per run and `/verify` needs the app

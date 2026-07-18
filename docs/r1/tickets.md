@@ -9,7 +9,10 @@ Ticket format (one block each, kept in this file — no GitHub Issues):
 
 ```
 ### T-001 — <short title>
-- **Status:** todo | in-build | in-review | done
+- **Status:** todo | in-build | in-review | **built** | done
+  - **built** = code finished and its checks pass *in isolation* (worktree/branch), NOT yet on `main`.
+  - **done** = built **and integrated onto `main`**, suite green there. "Done" always implies landed —
+    a ticket verified in a worktree but not merged is **built**, never done (owner convention, 2026-07-17).
 - **Depends on:** T-000 (or "none")
 - **Agent:** which sub-agent / skill this suits (build, front-end, etc.)
 - **What:** the concrete job, scoped small enough to finish in one sitting
@@ -188,7 +191,10 @@ side effect for pipeline tickets, transcribe corrections to `docs/learnings.md`.
   progress; §6 event catalogue.)
 
 ### T-014 — Review API: list + resolve + resume import
-- **Status:** todo
+- **Status:** built (2026-07-17; branch `worktree-agent-a154d865855ff4510` @ `8410f4b`. 263 tests, real
+  `/verify` vs a temp library; its `/verify` caught + fixed two data-loss bugs. → **done** needs:
+  integrate onto `main`, apply the open efficiency finding (guard `before`/`before_ids` behind
+  `CHOICE_REPLACE`), suite green on `main`.)
 - **Depends on:** T-007, T-013
 - **Agent:** build
 - **What:** `GET /api/reviews` → parked reviews `[{ review_id, job_id, query, rec, candidates[] }]`
@@ -223,7 +229,9 @@ side effect for pipeline tickets, transcribe corrections to `docs/learnings.md`.
   shows the rejection, not a silent expand. (Spec §4 step 1–2.)
 
 ### T-016 — Track card: SSE consumer + per-stage animation
-- **Status:** todo
+- **Status:** built (2026-07-17; branch `worktree-agent-aaffef646dc8b8e5c` @ `3885939`. Reviewed, 4
+  fixes applied, lint+build green. **Not driven live** — sandbox blocks sockets. → **done** needs:
+  integrate onto `main`, and the live browser round-trip, which rides with T-019.)
 - **Depends on:** T-013, T-015
 - **Agent:** front-end
 - **What:** The track card subscribes to `GET /api/jobs/{job_id}/events` and animates through
