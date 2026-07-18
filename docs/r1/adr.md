@@ -147,6 +147,21 @@ Format: `ADR-NNN — decision. Rationale. [date]`
   the spec defined `choice` as `candidate_id|reject`, which could not express any of the above.)
   [2026-07-16]
 
+  **`replace` refuses when >1 library file shares the recording id — this is the intended R1
+  semantics, not a stopgap. Do not "improve" it into an auto-pick.** `keep_both` can leave two
+  files of one recording id in the library on purpose (an original + a deliberately-kept alternate).
+  A later `replace` on a third download then can't tell which of the two "the existing file"
+  (spec §6, singular) means. T-014 refuses **before anything lands** — names the paths, and points
+  the owner at `keep_both` / `keep_existing` / remove-one-yourself. The owner ruled this correct:
+  the two-copy case is rare (needs a prior `keep_both` *and* a later re-download), it sits on the
+  one path in R1 that deletes with no undo, and "when unsure, don't guess — ask" is the rule the
+  whole feature rests on. The only non-refusing alternative (auto-delete the lowest-bitrate copy) is
+  more logic on the deletion path and can still delete the copy the owner meant to keep — rejected.
+  **Condition attached:** the owner accepts hitting this wall *provided the review UI (T-017) lets
+  them look over parked items and decide fast* — see T-017 / spec §5. (Owner decision; the bug that
+  forced it — `_replace_existing` deleting *both* copies — was caught by T-014's own `/verify`.)
+  [2026-07-17]
+
 - **ADR-010 — A weak-match review candidate is `title + artist + score`. No album, no year, no
   cover art. Don't "fix" the nulls.** The spec promised five fields per candidate from day one
   (`4a2f60f`); **three of them were never reachable** and every path silently rendered them null.

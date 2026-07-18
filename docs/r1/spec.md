@@ -140,7 +140,11 @@ some of it is tempting to fold in now.
     detection isn't infallible (a remaster often shares a recording id): it's the owner's escape
     hatch when the app's "same recording" call is wrong. See ADR-009's addendum.
 
-  The queue is SQLite-backed and survives a restart.
+  The queue is SQLite-backed and survives a restart. **The review UI is optimized for fast
+  look-over-and-decide** (owner requirement): some cases are resolved by hand — e.g. `replace`
+  refuses the rare two-copy case (ADR-009) rather than guess — and that trade is only acceptable if
+  moving through parked items and deciding is quick (few clicks, keyboard-resolvable, no reload
+  between items). T-017 owns this.
 - **Staging retention — a parked song KEEPS its staging file.** Staging is removed on every
   terminal path *except* a park: the parked file **is** the copy the owner resolves, and
   `reviews.staging_path` points at it. Deleting it on the way into the queue makes the resolve

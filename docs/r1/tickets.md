@@ -253,6 +253,11 @@ side effect for pipeline tickets, transcribe corrections to `docs/learnings.md`.
   and takes a **different body** (spec §6): `keep_existing` · `replace` · `keep_both` + an
   owner-typed `suffix` (pre-fill something harmless like `(alternate)`). The duplicate side is
   **not** narrowed by ADR-010 — it reads an existing library item, so album/year/art are free.
+
+  **Optimize for fast look-over-and-decide (owner requirement, ADR-009).** The owner accepts doing
+  some cases by hand (e.g. `replace` refuses on the rare two-copy case) *on the condition* that
+  moving through parked items and deciding is quick — minimal clicks, keyboard-resolvable, no reload
+  between items. This is the panel's primary UX bar, not a nicety.
 - **Done when:** a parked song's candidates render; accept lands it and the card completes, reject
   discards it; each duplicate branch is reachable and does what it says. (Spec §7 weak→review
   pick/reject + duplicate branches; §5 review-queue fields; ADR-009 addendum.)

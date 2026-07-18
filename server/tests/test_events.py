@@ -121,15 +121,16 @@ def test_terminal_hint_still_replays_a_present_channel():
 # --- the candidates[] row shape has one home ---------------------------------
 
 
-def test_candidate_row_is_the_canonical_seven_key_shape():
-    # Both builders (rich park-time + id-only fallback) route through candidate_row,
-    # so the spec §6 key set lives here alone. Lock it.
+def test_candidate_row_is_the_canonical_four_key_shape():
+    # Both builders (park-time + id-only fallback) route through candidate_row, so the
+    # spec §6 key set lives here alone. Lock it — and lock the ABSENCE of album/year/
+    # art_url: they were dropped by ADR-010 (a candidate is a recording, not a release),
+    # and a test that re-adds them re-introduces the exact contract lie the ADR removed.
     assert set(candidate_row("mbid").keys()) == {
-        "candidate_id", "title", "artist", "album", "year", "art_url", "score",
+        "candidate_id", "title", "artist", "score",
     }
     assert candidate_row("mbid") == {
-        "candidate_id": "mbid", "title": None, "artist": None, "album": None,
-        "year": None, "art_url": None, "score": None,
+        "candidate_id": "mbid", "title": None, "artist": None, "score": None,
     }
 
 
