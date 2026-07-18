@@ -21,41 +21,34 @@ are in `CLAUDE.md`; scope in `cleanmuzik-prd.md`. Not restated here.
 
 ## Current State (2026-07-18)
 
-- **Phase: R1 build. T-014 (review API) is DONE — merged `6da574b`, pushed, `main` level with
-  origin, suite green (266).** `main` tree clean bar the untracked `.claude/worktrees/`.
-- **T-016 (client track-card SSE) — BUILT, not integrated.** Next to land. On worktree branch
-  `worktree-agent-aaffef646dc8b8e5c` @ `3885939`. Reviewed (4 fixes), lint+build green, never driven
-  live (rides with T-019's browser round-trip).
-- Ledger `docs/r1/tickets.md`: open = **T-016, T-017, T-019**.
+- **T-016 landed on `main` (`a644c07`), pushed, suite green (269).** Scope was reduced at
+  integration: the stream *reattach* layer was cut to **T-020** after two review passes found 8 then
+  10 defects in it. Tree clean bar untracked `.claude/worktrees/`.
+- **The app now has a UI and has never been run in a browser.** Owner is testing next session.
+- Ledger `docs/r1/tickets.md`: open = **T-017, T-019, T-020**.
 
-## NEXT
+## NEXT — owner drives the app, together, next session
 
-1. **Owner wants the OPTIONAL scoped code-review of T-014's fix diff** (`run_resolve` restructure) —
-   belt-and-suspenders, "to be sure." Not blocking (already `/verify`'d 26/26 + 3 regression tests),
-   but he asked to note it. Scope: just the fix hunks in `server/app/{jobs,reviews,routes/reviews,
-   import_seam}.py`, not the whole T-014 diff.
-2. **Integrate T-016 onto `main`** (client-only, disjoint from server — clean fan-out merge).
-3. **Then T-017** (review panel UI) unblocks — its EventSource MUST reuse T-016's reconcile-on-close
-   fallback (guard-rail note already in the T-017 ticket, from finding #4). **T-019** owns the live
-   browser round-trip.
-4. **Persist the /verify harness** — cold-started this session (isolate `DB_PATH` + patch
-   `beets_engine.LIBRARY_DIRECTORY`; stub `resolve_import`/`scan_fn` via `run_resolve.__kwdefaults__`
-   since MB is unreachable in-sandbox; drive real app under `TestClient`). Worth a
-   `server/.claude/skills/verify/SKILL.md` so the next ticket skips the setup. Driver lives in the
-   session scratchpad.
+1. **Run the 6-row list under T-019** in `docs/r1/tickets.md` ("First owner-driven browser session").
+   Two terminals: `server` → `./.venv/bin/uvicorn app.main:app --reload --port 8137`;
+   `client` → `npm run dev`. Rows 3–4 (restart, offline) are the failure paths this sandbox can't
+   produce — they feed T-020 directly. Row 5 dead-ends by design (review panel is T-017).
+2. **Fix against real symptoms**, not hypotheses. That's the whole point of the session.
+3. Then **T-017** (review panel UI) — its EventSource reuses T-016's pattern, so row-by-row results
+   from #1 decide whether that pattern is safe to build on.
 
 ## Recent sessions (rolling — last 2–3)
 
-### 2026-07-18 — T-014 integrated + DONE; 6-finding review; real-app /verify
-- Merged T-014 worktree onto `main` (2 test conflicts hand-resolved; `events.py` auto-merge kept both
-  `candidate_row` + `EventBus.reopen`). High-effort review → 6 findings, all resolved before landing
-  (#1 replace-before-scan rollback + #2 torn-row hang fixed w/ regression tests; #3 claim release;
-  #4 no-code adjudication; #5/#6 cleanups). Lesson (resolve-twin commit/close discipline) →
-  `learnings.md`. `/verify` PASS 26/26 on the real app.
+### 2026-07-18 (later) — T-016 integration: scope cut, not patched
+- Two pre-commit reviews on the merge: 8 defects, then 10 — the second set including 3 regressions
+  from fixing the first. All in failure-path logic that can't be exercised here. Cut the give-up
+  policy to T-020 rather than patch a 4th time; kept EventSource auto-retry + one snapshot per
+  outage (required — a duplicate skip emits no §6 event). Lessons → `learnings.md`.
+- Found + fixed a **dead Vite proxy port** (8000 vs README's 8137, broken since T-001, `fbf2da3`) —
+  latent because client and server had never run together until there was a UI.
 
-### 2026-07-17 — T-014 built + verified in isolation; ADR-010; replace-refuse ruling
-- T-014 built; its isolation `/verify` caught two data-loss bugs. ADR-010 (candidate = 4 keys) +
-  acceptance-check DoD added. Detail: `learnings.md`, `adr.md`.
+### 2026-07-18 (earlier) — T-014 re-review + integration
+- T-014 fully done: optional re-review found 4 bugs (2 confirmed), fixed in `cd3d3a2`, pushed.
 
 ## Where the rest of the context lives
 
