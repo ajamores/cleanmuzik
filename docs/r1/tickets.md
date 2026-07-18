@@ -238,7 +238,9 @@ side effect for pipeline tickets, transcribe corrections to `docs/learnings.md`.
   first. All of it was failure-path behaviour written blind (this sandbox has no sockets), so the
   reattach layer was **cut to T-020** rather than patched a fourth time. What lands here is the SSE
   consumer + rail animation + one snapshot per outage; what does not is any give-up/backoff policy.
-  → **done** still needs the live browser round-trip (T-019).
+  → **done** needs exactly one thing: **row 1 of the owner-driven run list under T-019**, which is
+  this ticket's "Done when" verbatim. The list is parked there because T-019 owns the browser
+  session, but row 1 closes *this* ticket, not that one.
 - **Depends on:** T-013, T-015
 - **Agent:** front-end
 - **What:** The track card subscribes to `GET /api/jobs/{job_id}/events` and animates through
@@ -319,17 +321,20 @@ so a defect in it gets inherited if this waits.
 Run (terminal 1) `cd server && ./.venv/bin/uvicorn app.main:app --reload --port 8137`,
 (terminal 2) `cd client && npm run dev`, then open the Vite URL.
 
-| # | Do this | Watch for | Why it matters |
-|---|---|---|---|
-| 1 | Paste a song that should match cleanly | Rail animates Download → Transcode → Identify → Tag → Land; title/artist appear; final path + genre/Art/Lyrics chips; file in Jellyfin | The everyday flow, never once seen in a browser |
-| 2 | Paste the **same URL again** | Should end "Done" sensibly, not hang | The duplicate skip emits **no §6 event at all** (`jobs.py:368`) — the only case relying on the snapshot fallback |
-| 3 | Kill `uvicorn` mid-download, restart it | Card should recover, **not** freeze or show a false error | Three rewrites got exactly this wrong, in both directions |
-| 4 | DevTools → Network → Offline for ~10s, then back | Same as #3 | EventSource auto-retry + server replay — the mechanism T-016 now leans on entirely |
-| 5 | Paste an obscure/live/remix track | Parks: "Weak match — parked for your review" then stops | **Expected dead end** — the review panel is T-017. Song is safe in the queue |
-| 6 | Paste a **playlist** URL | Refused with a clear message, not expanded | Spec §7 |
+**The rows close different tickets — this list is filed here for convenience, it is not all T-019.**
 
-Record what actually happened per row — a symptom beats a hypothesis. Anything odd in #3/#4 feeds
-T-020 directly.
+| # | Do this | Watch for | Closes | Why it matters |
+|---|---|---|---|---|
+| 1 | Paste a song that should match cleanly | Rail animates Download → Transcode → Identify → Tag → Land; title/artist appear; final path + genre/Art/Lyrics chips; file in Jellyfin | **T-016** | This *is* T-016's "Done when", word for word. Passing it is what makes T-016 **done**; nothing else will |
+| 2 | Paste the **same URL again** | Should end "Done" sensibly, not hang | T-019 (§7 duplicate) | The duplicate skip emits **no §6 event at all** (`jobs.py:368`) — the only case relying on the snapshot fallback |
+| 3 | Kill `uvicorn` mid-download, restart it | Card should recover, **not** freeze or show a false error | **T-020** | Three rewrites got exactly this wrong, in both directions |
+| 4 | DevTools → Network → Offline ~10s, then back | Same as #3 | **T-020** | EventSource auto-retry + server replay — the mechanism T-016 now leans on entirely |
+| 5 | Paste an obscure/live/remix track | Parks: "Weak match — parked for your review" then stops | — | **Expected dead end** — the review panel is T-017. Song is safe in the queue |
+| 6 | Paste a **playlist** URL | Refused with a clear message, not expanded | T-019 (§7) | Spec §7 |
+
+Record what actually happened per row — a symptom beats a hypothesis. **Row 1 passing is the
+T-016 acceptance receipt**; rows 3–4 are evidence for T-020, not pass/fail gates on anything today.
+T-019 stays open regardless: it owns the *whole* §7 checklist, of which rows 2 and 6 are two items.
 
 ### T-020 — Track card: stream reattach + the snapshot payload gap
 - **Status:** todo — **carved out of T-016 on 2026-07-18 because it could not be verified.**

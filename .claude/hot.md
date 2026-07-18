@@ -29,10 +29,12 @@ are in `CLAUDE.md`; scope in `cleanmuzik-prd.md`. Not restated here.
 
 ## NEXT — owner drives the app, together, next session
 
-1. **Run the 6-row list under T-019** in `docs/r1/tickets.md` ("First owner-driven browser session").
-   Two terminals: `server` → `./.venv/bin/uvicorn app.main:app --reload --port 8137`;
-   `client` → `npm run dev`. Rows 3–4 (restart, offline) are the failure paths this sandbox can't
-   produce — they feed T-020 directly. Row 5 dead-ends by design (review panel is T-017).
+1. **Run the 6-row list** filed under T-019 in `docs/r1/tickets.md` ("First owner-driven browser
+   session"). Two terminals: `server` → `./.venv/bin/uvicorn app.main:app --reload --port 8137`;
+   `client` → `npm run dev`. **The rows close different tickets:** row 1 is **T-016's** "Done when"
+   verbatim — passing it is what makes T-016 done. Rows 2+6 are T-019 §7 items; rows 3–4 are
+   evidence for **T-020** (the failure paths this sandbox can't produce); row 5 dead-ends by design
+   until T-017.
 2. **Fix against real symptoms**, not hypotheses. That's the whole point of the session.
 3. Then **T-017** (review panel UI) — its EventSource reuses T-016's pattern, so row-by-row results
    from #1 decide whether that pattern is safe to build on.
