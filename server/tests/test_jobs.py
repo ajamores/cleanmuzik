@@ -277,9 +277,12 @@ def test_sse_landed_emits_full_ordered_sequence(tmp_path):
 
 
 def test_sse_parked_emits_review_required_with_candidates(tmp_path):
-    candidates = [
-        {"candidate_id": "rec-A", "title": "Song", "artist": "Band", "score": 0.8}
-    ]
+    # Build the candidate through the one canonical shaper so this test can't drift
+    # from the contract (ADR-010: candidate == candidate_id/title/artist/score, no
+    # album/year/art_url — those were removed, not left null).
+    from app.events import candidate_row
+
+    candidates = [candidate_row("rec-A", title="Song", artist="Band", score=0.8)]
     parked = Outcome("parked", 0.2, 0.0, review_id="rev-9", candidates=candidates)
     state, events = _events_after_run(tmp_path, import_fn=lambda *a, **k: [parked])
     assert state.status == "review"
@@ -295,7 +298,7 @@ def test_sse_parked_emits_review_required_with_candidates(tmp_path):
     assert rr["query"] == ""  # a 3-byte fake mp3 has no readable title → empty query
     assert rr["candidates"][0]["candidate_id"] == "rec-A"
     assert rr["candidates"][0]["score"] == 0.8
-    assert "art_url" not in rr["candidates"][0]  # ADR-010: dropped from the contract
+    assert set(rr["candidates"][0]) == {"candidate_id", "title", "artist", "score"}
 
 
 def test_sse_error_names_the_failing_stage(tmp_path):

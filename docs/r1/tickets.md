@@ -191,10 +191,13 @@ side effect for pipeline tickets, transcribe corrections to `docs/learnings.md`.
   progress; §6 event catalogue.)
 
 ### T-014 — Review API: list + resolve + resume import
-- **Status:** built (2026-07-17; branch `worktree-agent-a154d865855ff4510` @ `8410f4b`. 263 tests, real
-  `/verify` vs a temp library; its `/verify` caught + fixed two data-loss bugs. → **done** needs:
-  integrate onto `main`, apply the open efficiency finding (guard `before`/`before_ids` behind
-  `CHOICE_REPLACE`), suite green on `main`.)
+- **Status:** done (2026-07-18; integrated onto `main`. High-effort review found 6 findings: #1
+  replace-before-scan rollback + #2 torn-row stream-hang fixed with regression tests; #3 failed
+  hand-off releases the claim; #4 adjudicated no-code (settle-on-close; T-016 already honours it —
+  guard-rail note added below for T-017); #5/#6 cleanups. Suite green (266); `/verify` PASS 26/26
+  driving the real app (routes + worker thread + SSE + store + beets, temp-isolated; MB-dependent
+  land stubbed as the sandbox can't reach MusicBrainz). The efficiency finding — guard
+  `before`/`before_ids` behind `CHOICE_REPLACE` — was applied during the merge.)
 - **Depends on:** T-007, T-013
 - **Agent:** build
 - **What:** `GET /api/reviews` → parked reviews `[{ review_id, job_id, query, rec, candidates[] }]`
@@ -255,7 +258,13 @@ side effect for pipeline tickets, transcribe corrections to `docs/learnings.md`.
   to get them).** Owner actions: **accept top**, **pick alternate**, **reject** → `POST
   /api/reviews/{id}/resolve`. On resolve, the card resumes to Landing/Done — note it must open a
   **fresh `EventSource`**, since T-016 closes the stream on `track.review_required` and T-014
-  re-opens the channel as a new episode.
+  re-opens the channel as a new episode. **That fresh `EventSource` MUST reuse T-016's
+  reconcile-on-stream-death fallback (`TrackCard.tsx` `onerror` → one-shot `GET /api/jobs/{id}`),
+  not a naive `EventSource`.** `reject` and `keep_existing` close the channel with no terminal
+  `track.*` event (the job just goes to `done`), so a naive stream would reconnect-loop forever —
+  the settle signal is stream-close + a status snapshot, exactly as the acquire card already does.
+  (T-014 code-review finding, adjudicated 2026-07-17: no server change — the contract is
+  settle-on-close, and T-016 already honours it; T-017 must not reintroduce the loop.)
 
   Reuse the same panel for the ambiguous-duplicate case (T-009), which asks a **different question**
   and takes a **different body** (spec §6): `keep_existing` · `replace` · `keep_both` + an

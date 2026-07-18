@@ -33,6 +33,24 @@ internal `close(job_id)` sentinel that `run_pipeline` fires on every terminal pa
 not by sniffing for a terminal event name. The sentinel closes the stream without
 being surfaced to the client; a late subscriber to an already-closed job replays the
 buffer and stops.
+
+## Episodes: why a channel can re-open (T-014)
+
+A park is terminal *for the acquire run* but not for the job — the owner resolves the
+review later and the import resumes, which must stream its tail. `close()` already
+fired, though, and `publish()` early-returns on a closed channel, so those tail events
+would land in a black hole. `reopen(job_id)` is the sanctioned way back: it clears
+`closed` and **resets the buffer**, starting a fresh *episode* of the job's stream.
+
+Resetting the buffer (rather than appending to it) is the load-bearing half. T-016's
+card must close its EventSource on `track.review_required` — otherwise EventSource
+auto-reconnects on the server's EOF and loops forever — so T-017 opens a **new**
+EventSource after the resolve POST returns. That new subscriber replays the buffer;
+if the buffer still held the acquire episode it would replay `track.review_required`
+and close again *instantly*, leaving the card stuck at "Needs review" forever — the
+exact hang the reopen exists to prevent. So each episode's buffer holds only its own
+events, and the replay is what saves the tail from the gap between the POST returning
+and the subscriber connecting.
 """
 
 import asyncio
@@ -177,6 +195,28 @@ class EventBus:
             subscribers = list(channel.subscribers)
             loop = self._loop
         self._dispatch(loop, subscribers, _CLOSE)
+
+    def reopen(self, job_id: str) -> None:
+        """Start a fresh episode on a closed channel so a resumed job can stream again.
+
+        Called from the **resolve route, on the event loop, before it returns** — not
+        from the worker thread. The ordering is the whole point: T-017 opens its new
+        EventSource as soon as the POST returns, and if the channel were still closed
+        at that moment `stream()` would replay-and-return a dead stream. The worker may
+        not touch the resolve for minutes (it is sequential, ADR-001), so it cannot be
+        the one to reopen. Publishing from the loop thread is safe — `call_soon_threadsafe`
+        is legal from the loop itself, and there are no subscribers at reopen time anyway.
+
+        Clears `closed` and **empties the buffer** (see the module docstring): the new
+        subscriber must not replay the acquire episode's `track.review_required` and
+        close itself instantly. An absent channel (evicted by the cap, or gone after a
+        restart) is simply created open — correct, since the resume is about to emit
+        into it.
+        """
+        with self._lock:
+            channel = self._channel_locked(job_id)
+            channel.closed = False
+            channel.events.clear()
 
     def _dispatch(self, loop, subscribers, item) -> None:
         # `loop is None` only before any subscriber can exist — a subscriber binds the

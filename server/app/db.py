@@ -81,7 +81,17 @@ class Review:
     query: str
     candidate_ids: list[str]
     rec: str  # the beets `task.rec` recommendation, recorded as text
-    status: str  # e.g. "pending" | "resolved" | "rejected"
+    status: str  # "pending" | "resolving" | "resolved" | "rejected" (see STATUS_* below)
+
+
+# Review lifecycle (T-014). `pending` is what the queue lists and what a resolve
+# claims; `resolving` is the in-flight window between the claim and the worker
+# finishing; the last two are terminal. `resolving` exists so a double-clicked
+# resolve can't run twice and land two copies — see `claim_review`.
+REVIEW_PENDING = "pending"
+REVIEW_RESOLVING = "resolving"
+REVIEW_RESOLVED = "resolved"
+REVIEW_REJECTED = "rejected"
 
 
 def _now() -> str:
@@ -181,7 +191,7 @@ class Store:
         query: str,
         candidate_ids: list[str],
         rec: str,
-        status: str = "pending",
+        status: str = REVIEW_PENDING,
     ) -> Review:
         review = Review(
             id=uuid.uuid4().hex,
@@ -227,9 +237,9 @@ class Store:
         """
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT * FROM reviews WHERE job_id = ? AND status = 'pending' "
+                "SELECT * FROM reviews WHERE job_id = ? AND status = ? "
                 "ORDER BY rowid DESC LIMIT 1",
-                (job_id,),
+                (job_id, REVIEW_PENDING),
             ).fetchone()
         return _review_from_row(row) if row else None
 
@@ -253,6 +263,57 @@ class Store:
             # not silently succeed and leave a resolved song stuck in the queue.
             if cur.rowcount == 0:
                 raise KeyError(f"no review with id {review_id!r}")
+
+    def claim_review(self, review_id: str) -> Review | None:
+        """Atomically take a `pending` review to `resolving`. None if it wasn't pending.
+
+        A compare-and-set, not a read-then-write, because the check and the claim must
+        be one step (T-014). The resolve route reads the row to validate the body and
+        then hands the work to the worker thread; between those two a second POST — a
+        double-clicked button, the obvious real case — could pass the same check and
+        enqueue a second resolve, landing the song **twice**. Doing the transition in
+        SQL means exactly one caller sees rowcount 1 and the loser gets a clean 409.
+
+        Returns the row as it was *before* the claim (still carrying `pending`), which
+        is what the caller validates against — `status` is the only field that changed.
+        """
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM reviews WHERE id = ?", (review_id,)
+            ).fetchone()
+            if row is None:
+                return None
+            cur = conn.execute(
+                "UPDATE reviews SET status = ? WHERE id = ? AND status = ?",
+                (REVIEW_RESOLVING, review_id, REVIEW_PENDING),
+            )
+            if cur.rowcount == 0:
+                return None
+        return _review_from_row(row)
+
+    def release_review(self, review_id: str) -> None:
+        """Hand a claimed review back to `pending` so a failed resolve is retryable.
+
+        The counterpart to `claim_review`: a resolve that errors (the staging copy
+        won't import, MusicBrainz is down) must leave the song in the queue rather
+        than strand it in `resolving`, where nothing lists it and nothing can claim it.
+        """
+        self.update_review_status(review_id, REVIEW_PENDING)
+
+    def reset_resolving_reviews(self) -> int:
+        """Return every review stranded mid-resolve by a crash/shutdown to `pending`.
+
+        The mirror of `fail_unfinished_jobs`, and for the same reason: the work queue
+        is in-memory, so a row left `resolving` at boot has no worker coming for it and
+        would sit invisible to the queue forever. Called once on worker startup.
+        Returns how many rows were reconciled.
+        """
+        with self._connect() as conn:
+            cur = conn.execute(
+                "UPDATE reviews SET status = ? WHERE status = ?",
+                (REVIEW_PENDING, REVIEW_RESOLVING),
+            )
+            return cur.rowcount
 
 
 def _job_from_row(row: sqlite3.Row) -> Job:

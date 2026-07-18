@@ -50,12 +50,23 @@ import acoustid
 from mediafile import MediaFile
 
 from app.config import Settings, get_settings
-from app.db import Store
+from app.db import (
+    REVIEW_REJECTED,
+    REVIEW_RESOLVED,
+    Store,
+)
 from app.download import download_song
 from app.events import EventBus, candidate_row
-from app.import_seam import import_song
+from app.import_seam import (
+    ResolveError,
+    get_library,
+    import_song,
+    items_for_recording,
+    resolve_import,
+)
 from app.jellyfin import JellyfinScanError, trigger_scan
 from app.normalize import normalize_title
+from app.reviews import CHOICE_REJECT, CHOICE_REPLACE, ResolveRequest
 from app.transcode import transcode_to_mp3_320
 
 logger = logging.getLogger("cleanmuzik")
@@ -112,9 +123,16 @@ class JobRegistry:
         self._lock = threading.Lock()
         self._cap = cap
 
-    def start(self, job_id: str) -> None:
+    def start(self, job_id: str, stage: str = STAGE_DOWNLOAD) -> None:
+        """Track `job_id` as running at `stage`, replacing any previous state.
+
+        `stage` is a parameter because a resumed job (T-014 resolve) re-enters the
+        pipeline mid-way — its file is long since downloaded — so starting it at
+        "download" would report a stage that isn't happening. It also *replaces* a
+        terminal state on purpose: a resolved review's job is genuinely running again.
+        """
         with self._lock:
-            self._states[job_id] = JobState(job_id, STATUS_RUNNING, STAGE_DOWNLOAD)
+            self._states[job_id] = JobState(job_id, STATUS_RUNNING, stage)
             self._evict_locked()
 
     def set_stage(self, job_id: str, stage: str) -> None:
@@ -372,6 +390,284 @@ def run_pipeline(
             shutil.rmtree(staging_dir, ignore_errors=True)
 
 
+def run_resolve(
+    job_id: str,
+    review_id: str,
+    request: ResolveRequest,
+    *,
+    store: Store,
+    registry: JobRegistry,
+    settings: Settings | None = None,
+    bus: EventBus | None = None,
+    lib=None,
+    resolve_fn=resolve_import,
+    scan_fn=trigger_scan,
+) -> JobState:
+    """Resume a parked import on the owner's decision and emit the tail (T-014, spec §6).
+
+    The resolve twin of `run_pipeline`, and like it: runs on the worker thread (ADR-001
+    — this re-runs a beets import, which is blocking and heavy, so it must never touch
+    the event loop), never raises, and returns the terminal `JobState`. Its SSE channel
+    was **reopened synchronously by `JobWorker.submit_resolve` before the route
+    returned** — see that method for why the worker cannot be the one to reopen it.
+
+    `job_id` is passed in (not read off the review) precisely so this function can still
+    reach `_finish` — and therefore `bus.close` — when the review row is gone: every
+    exit routes through `_finish`, so the reopened channel is never left hanging and the
+    durable status is never stranded at `running`. That is why the whole body, including
+    the review lookup and `registry.start`, sits inside the `try`.
+
+    ## Staging cleanup — on every branch (spec §5)
+
+    A park is the one terminal path that KEEPS its staging file, because that file IS
+    the copy being resolved. This function is where that retention finally ends, so
+    every *successful* branch removes the staging dir: accept and `keep_both` and
+    `replace` (beets copied out of it), `reject` and `keep_existing` (discarded). A
+    **failed** resolve deliberately keeps it and returns the review to `pending` — the
+    song must stay resolvable, and deleting the file would strand the row forever.
+
+    ## `replace` lands before it deletes (ADR-009)
+
+    Never `DuplicateAction.REMOVE`, whose delete-then-copy loses both copies if the
+    copy fails. The order here is: import the new copy → confirm it is on disk →
+    only then remove the old one. See `_replace_existing`.
+    """
+    s = settings or get_settings()
+    bus = bus or EventBus()
+
+    try:
+        registry.start(job_id, stage=STAGE_LAND)
+
+        review = store.get_review(review_id)
+        if review is None:
+            # Claimed a moment ago by the route, so this is a torn/vanished row. Raise
+            # rather than early-return: the channel `submit_resolve` reopened must be
+            # closed by `_finish`, or the stream hangs at `running` forever. Inside the
+            # try, it is — that is the whole reason `job_id` is a parameter.
+            raise _StageFailure(
+                STAGE_LAND,
+                f"no review {review_id} — it was resolved or discarded already",
+            )
+
+        staging_path = Path(review.staging_path)
+
+        if not request.lands:
+            # reject / keep_existing: nothing to land. No §6 event fits "the owner
+            # discarded it" (same shape as a duplicate skip), so the stream just
+            # closes on the sentinel and the card falls back to GET /api/jobs.
+            _remove_staging(staging_path)
+            store.update_review_status(
+                review_id,
+                REVIEW_REJECTED if request.choice == CHOICE_REJECT else REVIEW_RESOLVED,
+            )
+            logger.info("review %s resolved as %s — nothing landed", review_id, request.choice)
+            return _finish(store, registry, job_id, bus=bus, status=STATUS_DONE)
+
+        if not staging_path.is_file():
+            # Staging lives under the system temp dir, so an OS sweep can take the
+            # file while the SQLite row survives. Fail with the cause named rather
+            # than let beets report a confusing "no such file".
+            raise _StageFailure(
+                STAGE_LAND,
+                f"the staging copy for this review is gone ({staging_path}) — "
+                f"nothing to land; discard the review and re-download the song",
+            )
+
+        lib = lib if lib is not None else get_library(s)
+        before_ids: set = set()
+        if request.choice == CHOICE_REPLACE:
+            # Snapshot the library BEFORE the import: this is what tells the new copy
+            # from the old ones afterwards. Only `replace` reads it — after landing,
+            # a query by recording id returns BOTH copies, and deleting "the duplicate"
+            # without this set could delete the file we just landed. The other choices
+            # never touch existing files, so they never pay for this query.
+            before = items_for_recording(lib, request.recording_id)
+            before_ids = {item.id for item in before}
+
+            if len(before) > 1:
+                # Spec §6 and ADR-009's addendum both say `replace` deletes "THE
+                # existing library file" — singular. They don't say which one to delete
+                # when two library files share a recording id, and that state is
+                # reachable: it is exactly what `keep_both` creates. Deleting all of
+                # them would destroy the copy the owner deliberately kept as distinct —
+                # an ADR-009-class loss arriving through a door the ADR didn't
+                # anticipate. So refuse, before the import lands anything: a click that
+                # cannot identify its target is not consent to delete every candidate
+                # for it. Checked here rather than in _replace_existing so nothing has
+                # landed and nothing needs unwinding.
+                paths = ", ".join(os.fsdecode(i.path) for i in before if i.path)
+                raise _StageFailure(
+                    STAGE_LAND,
+                    f"{len(before)} library files share this recording id ({paths}) — "
+                    f"'replace' cannot tell which one to delete, and deleting both would "
+                    f"destroy a copy you chose to keep. Use 'keep_both' or 'keep_existing', "
+                    f"or remove the unwanted copy yourself first.",
+                )
+
+        try:
+            outcomes = resolve_fn(
+                staging_path,
+                store=store,
+                job_id=job_id,
+                recording_id=request.recording_id,
+                query=review.query,
+                suffix=request.suffix,
+                lib=lib,
+                settings=s,
+            )
+        except ResolveError as exc:
+            raise _StageFailure(STAGE_LAND, str(exc)) from exc
+        except Exception as exc:  # noqa: BLE001 — a beets apply/organize failure
+            raise _StageFailure(STAGE_LAND, str(exc)) from exc
+
+        landed = next((o for o in outcomes if o.action == "landed"), None)
+        if landed is None:
+            raise _StageFailure(
+                STAGE_LAND, "the resolved song did not land — nothing to show"
+            )
+
+        final_path = landed.landed_path
+        if request.choice == CHOICE_REPLACE:
+            final_path = _replace_existing(
+                lib, request.recording_id, before_ids, landed
+            )
+
+        bus.publish(job_id, "track.tagging", {"job_id": job_id, "chosen": landed.chosen or {}})
+
+        # Point of no return: the upgrade is on disk and, for `replace`, the old copy is
+        # already gone. The resolve is committed — so commit the row and drop staging
+        # *before* the scan. A Jellyfin scan is a downstream best-effort (T-010): if it
+        # fails now, the song has still landed, and rolling the review back to `pending`
+        # (what `_release` does on a _StageFailure) would re-queue an import that already
+        # happened and leave the queue contradicting the library — the ADR-009-class
+        # inconsistency finding. So a scan failure is reported as an error but the review
+        # stays RESOLVED, mirroring how `run_pipeline` treats a post-landing scan failure.
+        _remove_staging(staging_path)
+        store.update_review_status(review_id, REVIEW_RESOLVED)
+
+        registry.set_stage(job_id, STAGE_SCAN)
+        try:
+            scan_fn(settings=s)
+        except JellyfinScanError as exc:
+            logger.warning(
+                "review %s landed at %s but the Jellyfin scan failed: %s",
+                review_id, final_path, exc,
+            )
+            return _finish(
+                store, registry, job_id, bus=bus,
+                status=STATUS_ERROR, stage=STAGE_SCAN, error=str(exc),
+            )
+
+        bus.publish(job_id, "track.done", {
+            "job_id": job_id, "path": final_path, "tags": landed.tags or {},
+        })
+        logger.info("review %s resolved as %s — landed at %s", review_id, request.choice, final_path)
+        return _finish(store, registry, job_id, bus=bus, status=STATUS_DONE)
+
+    except _StageFailure as failure:
+        # Every _StageFailure here is pre-commit (nothing landed yet — the scan-stage
+        # failure is handled inline above, after the commit), so releasing the review
+        # back to `pending` for a retry is always correct.
+        logger.warning("resolve %s failed at %s: %s", review_id, failure.stage, failure.message)
+        _release(store, review_id)
+        return _finish(
+            store, registry, job_id, bus=bus,
+            status=STATUS_ERROR, stage=failure.stage, error=failure.message,
+        )
+    except Exception as exc:  # noqa: BLE001 — never let the worker thread die
+        logger.exception("resolve %s failed unexpectedly", review_id)
+        _release(store, review_id)
+        return _finish(store, registry, job_id, bus=bus, status=STATUS_ERROR, error=str(exc))
+
+
+def _replace_existing(lib, recording_id: str, before_ids: set, landed) -> str | None:
+    """Delete the owner's old copies — AFTER the upgrade is verified on disk (ADR-009).
+
+    The one deletion R1 performs, and the ordering is the entire reason ADR-009 exists:
+    beets' own `DuplicateAction.REMOVE` deletes the old file *before* it copies the new
+    one, so a copy failure loses both. Here the copy has already happened and is
+    confirmed present before anything is removed; if the confirmation fails we raise
+    with both copies still on disk.
+
+    Returns the new copy's final path. beets refuses to clobber, so the upgrade first
+    lands beside the old file under a uniquified name (`Title.1.mp3`); once the old
+    file is gone the canonical path is free, so the item is re-organized onto it and
+    the library isn't left with a cosmetic `.1`. That last step is best-effort — a
+    failure there leaves a correctly-tagged file at a slightly ugly path, which is not
+    worth failing an otherwise-complete replace over.
+    """
+    after = items_for_recording(lib, recording_id)
+    new_items = [item for item in after if item.id not in before_ids]
+    old_items = [item for item in after if item.id in before_ids]
+
+    if not new_items:
+        raise _StageFailure(
+            STAGE_LAND,
+            "the upgraded copy is not in the library after the import — refusing to "
+            "delete the existing file (ADR-009: never leave zero copies)",
+        )
+    new_item = new_items[0]
+    new_path = Path(os.fsdecode(new_item.path))
+    if not new_path.is_file():
+        raise _StageFailure(
+            STAGE_LAND,
+            f"the upgraded copy is not on disk at {new_path} — refusing to delete "
+            f"the existing file (ADR-009: never leave zero copies)",
+        )
+
+    for item in old_items:
+        old_path = os.fsdecode(item.path)
+        # delete=True removes the file AND the row, and prunes a now-empty artist
+        # directory. This is the owner's explicit click, not the app's initiative.
+        item.remove(delete=True)
+        logger.info("replace: removed the superseded copy at %s", old_path)
+
+    try:
+        new_item.move()  # the canonical path is free now — reclaim it
+    except Exception as exc:  # noqa: BLE001 — cosmetic only, the file is landed
+        logger.warning(
+            "replace: could not re-organize %s onto its canonical path (%s) — "
+            "the upgrade is landed and correct, just not tidily named",
+            new_path, exc,
+        )
+    # Re-read AFTER the move: the whole point of it is that the path changed, so the
+    # landed_path the import reported is stale by now and would misname track.done.
+    return os.fsdecode(new_item.path) if new_item.path else None
+
+
+def _release(store: Store, review_id: str) -> None:
+    """Return a failed resolve's review to the queue so the owner can retry it."""
+    try:
+        store.release_review(review_id)
+    except KeyError:
+        logger.error("review %s vanished before it could be released", review_id)
+
+
+def _remove_staging(staging_path: Path) -> None:
+    """Remove a resolved review's staging dir — the end of spec §5's retention.
+
+    Removes the whole directory, not just the MP3: `run_pipeline` makes one
+    `tempfile.mkdtemp(prefix="cleanmuzik-")` per job holding both the original
+    download and the transcode, so unlinking the file alone would leak the dir and
+    the source forever — the disk fills one park at a time. The prefix is checked
+    before an rmtree: a hand-edited or malformed `staging_path` should cost us the
+    one file, never a recursive delete of whatever directory it happens to name.
+    """
+    parent = staging_path.parent
+    if parent.name.startswith("cleanmuzik-"):
+        shutil.rmtree(parent, ignore_errors=True)
+        return
+    logger.warning(
+        "staging path %s is not inside a cleanmuzik staging dir — removing just the "
+        "file rather than its parent",
+        staging_path,
+    )
+    try:
+        staging_path.unlink(missing_ok=True)
+    except OSError as exc:
+        logger.warning("could not remove staging file %s (%s)", staging_path, exc)
+
+
 def _finish(
     store: Store,
     registry: JobRegistry,
@@ -426,11 +722,35 @@ def _set_status(store: Store, job_id: str, status: str) -> None:
         logger.error("job %s vanished before status could be set to %s", job_id, status)
 
 
+@dataclass(frozen=True)
+class _PipelineWork:
+    """Work item: run one URL through the full acquire pipeline (`POST /api/jobs`)."""
+
+    job_id: str
+    url: str
+
+
+@dataclass(frozen=True)
+class _ResolveWork:
+    """Work item: resume a parked import on the owner's decision (T-014 resolve).
+
+    The queue carries two *kinds* of work rather than a second thread on purpose:
+    ADR-001 allows exactly one worker, and a resolve re-runs a beets import — the same
+    blocking, rate-limit-sensitive work a pipeline run does. Sharing the one queue is
+    what keeps "sequential, one track at a time" true across both entry points; a
+    resolve simply waits its turn behind a running download, as it must.
+    """
+
+    job_id: str
+    review_id: str
+    request: ResolveRequest
+
+
 class JobWorker:
     """The single background thread that runs queued jobs one at a time (ADR-001).
 
-    Owns the `JobRegistry`. `submit` enqueues (called from the route on the event
-    loop); the thread drains the queue and calls `run_pipeline` for each. Stopped
+    Owns the `JobRegistry`. `submit` / `submit_resolve` enqueue (called from the routes
+    on the event loop); the thread drains the queue and runs each work item. Stopped
     with a sentinel so a clean shutdown doesn't abandon an in-flight job's cleanup.
     """
 
@@ -455,6 +775,14 @@ class JobWorker:
             logger.warning(
                 "marked %d interrupted job(s) as error on startup", reconciled
             )
+        # Same reasoning for reviews claimed by a resolve that never finished: the
+        # work queue is in-memory, so a `resolving` row has no worker coming for it
+        # and would be invisible to the queue forever. Return them to `pending`.
+        released = self._store.reset_resolving_reviews()
+        if released:
+            logger.warning(
+                "returned %d interrupted review(s) to the queue on startup", released
+            )
         self._thread = threading.Thread(
             target=self._run, name="cleanmuzik-worker", daemon=True
         )
@@ -462,7 +790,49 @@ class JobWorker:
         logger.info("job worker started")
 
     def submit(self, job_id: str, url: str) -> None:
-        self._queue.put((job_id, url))
+        self._queue.put(_PipelineWork(job_id, url))
+
+    def submit_resolve(self, job_id: str, review_id: str, request: ResolveRequest) -> None:
+        """Re-open the job's stream, mark it running, and enqueue the resolve.
+
+        **Everything before the `put` happens synchronously inside the resolve request,
+        before it answers `{ok: true}`.** That ordering is the whole design, and both
+        halves of it are load-bearing:
+
+        - **`bus.reopen`** — the job's channel was closed by `_finish` when it parked
+          (`close()` fires on every terminal path), and `publish()` silently drops into
+          a closed channel. Without reopening first, the worker's `track.tagging` /
+          `track.done` would vanish with no error and the card would never move.
+        - **`status → running`** — `GET /api/jobs/{id}/events` passes
+          `terminal=(status in {done, review, error})`, and a parked job sits at
+          `review`. A client re-subscribing while the row still said `review` would be
+          handed `terminal=True` → replay-and-return → a dead stream.
+
+        Neither can be left to the worker thread: it is sequential (ADR-001) and may be
+        minutes into someone else's download, while T-017 opens its new EventSource the
+        instant this POST returns. Doing it here closes that race by construction — by
+        the time the client can possibly connect, the channel is open and the status is
+        `running`. The replay buffer then covers the remaining gap, delivering whatever
+        the worker emitted before the subscriber actually attached.
+
+        Note the guarantee is *ordering within the request*, not thread identity: the
+        resolve route is a sync `def`, so FastAPI runs it in its threadpool rather than
+        on the loop (deliberately — this method does blocking SQLite, which has no
+        business on the event loop; `POST /api/jobs` is sync for the same reason).
+        Nothing here needs the loop: `reopen` only takes the bus lock, and `publish`'s
+        `call_soon_threadsafe` is designed for exactly this off-loop call.
+
+        `job.queued` is re-emitted because it is true again: the job is queued, possibly
+        behind a long download. It also gives the reopened episode a first event, so the
+        card leaves "Needs review" immediately instead of sitting on pings.
+        """
+        job = self._store.get_job(job_id)
+        self.bus.reopen(job_id)
+        self.bus.publish(job_id, "job.queued", {
+            "job_id": job_id, "url": job.url if job else "",
+        })
+        _set_status(self._store, job_id, STATUS_RUNNING)
+        self._queue.put(_ResolveWork(job_id, review_id, request))
 
     def stop(self, timeout: float = 5.0) -> None:
         """Signal shutdown and wait briefly for the worker to idle.
@@ -486,14 +856,21 @@ class JobWorker:
             try:
                 if item is None:
                     return
-                job_id, url = item
-                # run_pipeline never raises, but guard anyway: the worker thread
-                # outliving one bad job matters more than any single job.
-                run_pipeline(
-                    job_id, url, store=self._store,
-                    registry=self.registry, settings=self._settings, bus=self.bus,
-                )
-            except Exception:  # noqa: BLE001 — the loop must survive any job
+                # Neither runner raises, but guard anyway: the worker thread
+                # outliving one bad item matters more than any single item.
+                if isinstance(item, _PipelineWork):
+                    run_pipeline(
+                        item.job_id, item.url, store=self._store,
+                        registry=self.registry, settings=self._settings, bus=self.bus,
+                    )
+                elif isinstance(item, _ResolveWork):
+                    run_resolve(
+                        item.job_id, item.review_id, item.request, store=self._store,
+                        registry=self.registry, settings=self._settings, bus=self.bus,
+                    )
+                else:
+                    logger.error("worker got an unknown work item: %r", item)
+            except Exception:  # noqa: BLE001 — the loop must survive any item
                 logger.exception("worker loop caught an unexpected error")
             finally:
                 self._queue.task_done()
