@@ -82,7 +82,13 @@ def resolve_review(review_id: str, payload: dict, request: Request) -> dict[str,
         # work), and the review would be stranded: invisible to `GET /api/reviews` and
         # un-retryable (a second POST 409s on the claim). Release it back to `pending`
         # so the owner can simply try again.
-        store.release_review(review_id)
+        try:
+            store.release_review(review_id)
+        except KeyError:
+            # The row vanished between the claim and here (same-request window). Nothing
+            # to release, and it must not mask the real hand-off error below — mirror
+            # jobs.py's `_release`, which swallows exactly this.
+            logger.warning("review %s gone before hand-off release could run", review_id)
         logger.error("resolve hand-off for review %s failed: %s", review_id, exc)
         raise HTTPException(
             status_code=500,

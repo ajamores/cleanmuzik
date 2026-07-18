@@ -13,6 +13,24 @@ Format: `- <date> — what went wrong → the correction / rule now in place`
 
 ---
 
+- 2026-07-18 — (T-014 optional re-review, caught belt-and-suspenders) **A "commit before the
+  best-effort step" reorder must protect the commit boundary in the *generic* exception handler,
+  not just the one failure it special-cased.** The T-014 fix that moved the row-commit + staging
+  drop *before* the Jellyfin scan handled the scan's own `JellyfinScanError` inline — but the outer
+  `except Exception` still called `_release` unconditionally. So any *other* post-commit throw (a
+  non-`JellyfinScanError` from the scan, `registry.set_stage`, or the `track.done` publish raising
+  during shutdown) rolled an already-landed `resolved` review back to `pending` with staging gone —
+  the very ADR-009-class inconsistency the reorder existed to kill, walking back in through the
+  catch-all. Fix: a `committed` flag set at the point of no return; both handlers only `_release`
+  when `not committed`. **Rule: when you introduce a commit point mid-function, the invariant is
+  "no handler releases a committed unit of work" — enforce it on the catch-all by a flag, so it
+  holds by construction, not by the reader proving no post-commit line can throw.** (Two sibling
+  bugs in the same review: a batch `get_library()` hoisted *outside* the per-row `_hydrate` guard
+  could 500 the whole review queue on one library-open failure → wrap it, fall back to per-row; and
+  a hand-off rollback that only the route did, leaving the *job* stranded at `running` → moved the
+  job-state rollback into `submit_resolve`, which alone knows what it mutated.) (→ `server/app/jobs.py`
+  `run_resolve` / `submit_resolve`; regression tests in `test_reviews.py` + `test_jobs.py`.)
+
 - 2026-07-18 — (T-014 integration, caught by the high-effort review) **A resolve/resume path that
   is a "twin" of the main pipeline must mirror that pipeline's commit-point and terminal-close
   discipline, or it silently reintroduces the exact data-loss / hang bugs the pipeline already

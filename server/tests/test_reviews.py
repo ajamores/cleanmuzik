@@ -431,6 +431,68 @@ def test_a_scan_failure_after_landing_does_not_requeue_the_committed_resolve(tmp
     assert dict(_events(bus, job.id))["track.error"]["stage"] == "scan"
 
 
+def test_a_post_commit_error_that_isnt_a_scan_error_still_keeps_the_resolve(tmp_path):
+    # The commit-then-scan reorder only special-cased JellyfinScanError. Any OTHER
+    # exception after the commit point — a non-JellyfinScanError from the scan, or the
+    # `track.done` publish raising during shutdown — falls to the generic handler, which
+    # used to `_release` the row back to `pending`: re-queueing a landing that already
+    # happened, staging already gone, is the exact ADR-009-class inconsistency. The
+    # `committed` guard makes a post-commit failure a job error while the review stays
+    # RESOLVED — the sibling of the scan-failure test above, for the un-special-cased path.
+    store = _store(tmp_path)
+    job, review, staging_dir = _parked(store, tmp_path)
+
+    def scan_boom(**k):
+        raise RuntimeError("not a JellyfinScanError")
+
+    state, _ = _run_resolve(
+        store, review, ResolveRequest("rec-A", recording_id="rec-A"),
+        scan_fn=scan_boom,
+    )
+    assert state.status == "error"
+    assert store.get_review(review.id).status == "resolved", (
+        "a post-commit failure must not re-queue a landing that already committed"
+    )
+    assert not staging_dir.exists(), "the song landed — its staging is spent, not retained"
+
+
+def test_a_library_open_failure_degrades_the_duplicate_row_not_the_whole_queue(
+    tmp_path, monkeypatch
+):
+    # hydrate_reviews opens the beets library once per batch for duplicate detail. That
+    # open sits OUTSIDE _hydrate's per-row guard; if it raised, the WHOLE queue 500'd —
+    # weak-match rows that never touch the library included. A failed open must blank
+    # only the duplicate rows (they fall back to a per-row open, under the guard) and
+    # still list the rest.
+    store = _store(tmp_path)
+    _parked(store, tmp_path, rec="duplicate", candidate_ids=("rec-EXIST",))
+    _parked(store, tmp_path, candidate_ids=("rec-A",))  # a weak-match row
+
+    import app.import_seam as seam_mod
+
+    monkeypatch.setattr(
+        seam_mod, "get_library",
+        lambda *a, **k: (_ for _ in ()).throw(RuntimeError("beets library is locked")),
+    )
+    monkeypatch.setattr(reviews_mod, "_hydration_cache", {})
+    import beets.metadata_plugins as mp
+
+    monkeypatch.setattr(
+        mp, "track_for_id",
+        lambda mbid, src: type("TI", (), {"title": "S", "artist": "B"})(),
+    )
+
+    rows = reviews_mod.hydrate_reviews(store)  # must not raise
+    assert len(rows) == 2, "the queue still lists despite a library-open failure"
+    by_rec = {r["rec"]: r for r in rows}
+    assert "duplicate" not in by_rec["duplicate"], (
+        "the duplicate row degrades to a bare row when the library won't open"
+    )
+    assert by_rec["medium"]["candidates"][0]["candidate_id"] == "rec-A", (
+        "a weak-match row never needed the library and must list normally"
+    )
+
+
 def test_a_vanished_review_row_still_closes_the_stream(tmp_path):
     # If the row is torn between the route's claim and the worker picking it up,
     # run_resolve must still reach _finish — and therefore bus.close — or the channel

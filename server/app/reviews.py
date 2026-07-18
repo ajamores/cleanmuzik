@@ -252,7 +252,16 @@ def hydrate_reviews(store: Store) -> list[dict]:
         if any(review.rec == DUPLICATE_REC for review in reviews):
             from app.import_seam import get_library
 
-            lib = get_library()
+            try:
+                lib = get_library()
+            except Exception as exc:  # noqa: BLE001 — batch-open is only an optimization
+                # If the library won't open, don't let it take down the whole queue.
+                # Leaving `lib=None` makes each duplicate row fall back to its own
+                # get_library() inside `_duplicate_detail`, which runs under `_hydrate`'s
+                # per-row guard — so a bad library blanks only the duplicate rows, and
+                # weak-match rows (which never touch the library) still list.
+                logger.warning("batch library open failed; falling back to per-row: %s", exc)
+                lib = None
         return [_hydrate(review, lib) for review in reviews]
 
 

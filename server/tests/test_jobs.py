@@ -26,6 +26,7 @@ from app.events import EventBus
 from app.import_seam import Outcome
 from app.jellyfin import JellyfinScanError
 from app.jobs import JobRegistry, JobWorker, run_pipeline
+from app.reviews import ResolveRequest
 from test_events import parse_sse  # sibling test module (server/tests on sys.path)
 
 
@@ -374,6 +375,30 @@ def test_worker_runs_jobs_sequentially_in_order(tmp_path, monkeypatch):
     worker._queue.join()  # both drained
     worker.stop()
     assert seen == ["job-1", "job-2"]
+
+
+def test_submit_resolve_rolls_back_its_own_state_if_the_enqueue_fails(tmp_path):
+    # submit_resolve flips the job to `running` before the `put`, so a resume client can
+    # connect to a live stream by construction. If the `put` then fails, that flip must
+    # be undone here — the route only knows to release the *review*, not what this method
+    # did to the *job*. Left as-is the job strands at `running` with a reopened-but-silent
+    # channel: GET /api/jobs shows it working forever and the EventSource waits on an
+    # event that never comes.
+    store = _store(tmp_path)
+    job = store.create_job("https://youtu.be/abc")
+    store.update_job_status(job.id, "review")  # parked, as a resume finds it
+    worker = JobWorker(store)  # not started — drive submit_resolve directly
+
+    def put_boom(item):
+        raise RuntimeError("queue is wedged")
+
+    worker._queue.put = put_boom
+    with pytest.raises(RuntimeError, match="queue is wedged"):
+        worker.submit_resolve(job.id, "rev-1", ResolveRequest("reject"))
+
+    assert store.get_job(job.id).status == "review", (
+        "a failed enqueue must restore the prior status, not strand the job at `running`"
+    )
 
 
 # --- routes -----------------------------------------------------------------

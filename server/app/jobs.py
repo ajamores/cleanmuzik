@@ -435,6 +435,15 @@ def run_resolve(
     s = settings or get_settings()
     bus = bus or EventBus()
 
+    # Flips true at the point of no return (staging dropped, row RESOLVED). Past it the
+    # resolve is committed, so neither error handler may `_release` the row back to
+    # `pending` — that would re-queue an import that already landed and strand it with
+    # its staging copy gone (the ADR-009-class inconsistency the commit-then-scan
+    # reorder exists to prevent). Post-commit code (set_stage, scan, the `track.done`
+    # publish) can still raise; a failure there is reported as a job error, but the
+    # review stays RESOLVED.
+    committed = False
+
     try:
         registry.start(job_id, stage=STAGE_LAND)
 
@@ -544,6 +553,7 @@ def run_resolve(
         # stays RESOLVED, mirroring how `run_pipeline` treats a post-landing scan failure.
         _remove_staging(staging_path)
         store.update_review_status(review_id, REVIEW_RESOLVED)
+        committed = True
 
         registry.set_stage(job_id, STAGE_SCAN)
         try:
@@ -565,18 +575,24 @@ def run_resolve(
         return _finish(store, registry, job_id, bus=bus, status=STATUS_DONE)
 
     except _StageFailure as failure:
-        # Every _StageFailure here is pre-commit (nothing landed yet — the scan-stage
-        # failure is handled inline above, after the commit), so releasing the review
-        # back to `pending` for a retry is always correct.
+        # `_StageFailure` is only ever raised pre-commit (the scan-stage failure is
+        # handled inline above, not re-raised), so `committed` is False here today. The
+        # guard is kept anyway so the invariant "never release a committed resolve"
+        # holds by construction, not by the reader tracing every raise site.
         logger.warning("resolve %s failed at %s: %s", review_id, failure.stage, failure.message)
-        _release(store, review_id)
+        if not committed:
+            _release(store, review_id)
         return _finish(
             store, registry, job_id, bus=bus,
             status=STATUS_ERROR, stage=failure.stage, error=failure.message,
         )
     except Exception as exc:  # noqa: BLE001 — never let the worker thread die
+        # A post-commit exception (set_stage, a non-JellyfinScanError scan failure, the
+        # `track.done` publish) lands here with the song already filed. Reporting a job
+        # error is right; releasing the row is not — hence the guard.
         logger.exception("resolve %s failed unexpectedly", review_id)
-        _release(store, review_id)
+        if not committed:
+            _release(store, review_id)
         return _finish(store, registry, job_id, bus=bus, status=STATUS_ERROR, error=str(exc))
 
 
@@ -827,12 +843,25 @@ class JobWorker:
         card leaves "Needs review" immediately instead of sitting on pings.
         """
         job = self._store.get_job(job_id)
+        prior_status = job.status if job else None
         self.bus.reopen(job_id)
-        self.bus.publish(job_id, "job.queued", {
-            "job_id": job_id, "url": job.url if job else "",
-        })
-        _set_status(self._store, job_id, STATUS_RUNNING)
-        self._queue.put(_ResolveWork(job_id, review_id, request))
+        try:
+            self.bus.publish(job_id, "job.queued", {
+                "job_id": job_id, "url": job.url if job else "",
+            })
+            _set_status(self._store, job_id, STATUS_RUNNING)
+            self._queue.put(_ResolveWork(job_id, review_id, request))
+        except Exception:
+            # Undo this method's partial hand-off before re-raising. The route releases
+            # the *review*; only this method knows what it touched on the *job*, so it
+            # owns that rollback. Without it a failed `put` would leave the job stranded
+            # at `running` with a reopened-but-silent channel: `GET /api/jobs` shows it
+            # working forever and the client's EventSource waits on an event that never
+            # comes. `close` re-parks the stream; the status returns to what it was.
+            self.bus.close(job_id)
+            if prior_status is not None:
+                _set_status(self._store, job_id, prior_status)
+            raise
 
     def stop(self, timeout: float = 5.0) -> None:
         """Signal shutdown and wait briefly for the worker to idle.
