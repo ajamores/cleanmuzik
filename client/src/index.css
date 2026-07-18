@@ -7,6 +7,13 @@
   --accent: #aa3bff;
   --accent-bg: rgba(170, 59, 255, 0.1);
   --danger: #c62828;
+  --danger-bg: rgba(198, 40, 40, 0.1);
+  /* A parked song is waiting on the owner, not broken — it needs its own colour,
+     distinct from both "working" (accent) and "failed" (danger). */
+  --warn: #b26a00;
+  --warn-bg: rgba(178, 106, 0, 0.12);
+  --ok: #1b7a43;
+  --ok-bg: rgba(27, 122, 67, 0.12);
   --shadow: rgba(0, 0, 0, 0.05) 0 1px 2px, rgba(0, 0, 0, 0.04) 0 4px 12px;
 
   --sans: system-ui, 'Segoe UI', Roboto, sans-serif;
@@ -32,6 +39,11 @@
     --accent: #c084fc;
     --accent-bg: rgba(192, 132, 252, 0.15);
     --danger: #f28b82;
+    --danger-bg: rgba(242, 139, 130, 0.15);
+    --warn: #f5b544;
+    --warn-bg: rgba(245, 181, 68, 0.15);
+    --ok: #5ac68a;
+    --ok-bg: rgba(90, 198, 138, 0.15);
     --shadow: rgba(0, 0, 0, 0.4) 0 1px 2px, rgba(0, 0, 0, 0.3) 0 4px 12px;
   }
 }
