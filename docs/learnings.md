@@ -153,6 +153,43 @@ Format: `- <date> — what went wrong → the correction / rule now in place`
   classifies and 422s), so the field is `type="text"`. Rule: don't let native input validation
   duplicate a server-side gate — it can only disagree with it, and it fails silently when it does.
   (→ `client/src/App.tsx`)
+- 2026-07-17 — (T-014 reconcile) **A contract-narrowing commit updated the source and the ADR but
+  left a test asserting the dead shape — the commit's own suite was red.** `6c7a69a` (ADR-010) cut
+  `candidate_row` from seven keys to four across `events.py` and `import_seam._candidate_rows`, but
+  `tests/test_events.py::test_candidate_row_is_the_canonical_seven_key_shape` still asserted the old
+  seven, so the tree that "closed the art hole" shipped a failing test. Two lessons: (1) when you
+  narrow a contract, grep the test tree for the old shape in the SAME change — the assertion that
+  locks a contract is exactly the one that must move with it; (2) reconciling a worktree onto a moved
+  base means adopting *all* of the base's touched call sites, not just the ones the brief names — the
+  brief said "events.py + reviews.py", but `import_seam._candidate_rows` and this test also spoke the
+  old shape and would have failed the merge. Fixed the test to the four-key shape as part of T-014.
+- 2026-07-17 — (T-014, caught by `/verify`, not by review) **`replace` deleted TWO files when the
+  library held two copies of one recording id — the exact state `keep_both` exists to create.**
+  `_replace_existing` deletes every library item matching the recording id, which is correct for the
+  everyday one-copy case and destructive for the one `keep_both` produces: two files, same recording
+  id (a remaster shares one), different titles, both deliberately kept. A later `replace` on that
+  recording then destroyed both — including the copy the owner had explicitly chosen to keep. Spec §6
+  and ADR-009's addendum both say `replace` deletes "**the** existing library file", singular; neither
+  settles *which* when there are two, so the code silently picked "all". Fix: **refuse** when >1
+  library file shares the recording id, checked *before* the import lands anything (so nothing needs
+  unwinding), with a message naming the paths. A click that can't identify its target is not consent
+  to delete every candidate for it — the conservative reading is the ADR's own idiom. **The general
+  lesson: a destructive operation keyed on a non-unique identifier is a data-loss bug waiting for the
+  day the key stops being unique — and a sibling feature (`keep_both`) was the thing that made it
+  non-unique.** Also a verification lesson: this was invisible to unit tests and to review, and only
+  appeared because `/verify` drove the branches *in sequence* against a real library — keep_both then
+  replace. Branch-at-a-time testing would never have produced the state. (→ `server/app/jobs.py`;
+  needs an owner ruling on what `replace` *should* do with two copies)
+- 2026-07-17 — (T-014, verification) **A nested `TestClient(app)` silently breaks the app under test:
+  its lifespan replaces `app.state.worker` with a new worker and then *stops* it on exit.** Used a
+  nested client to simulate "restart the backend" while holding the outer client open; every
+  subsequent `POST /resolve` enqueued onto the dead worker, nothing drained the queue, and the SSE
+  stream never closed — the verify hung with no error (a hang, not a failure: the worst shape).
+  `app` is module-global, so the two clients were never independent. Rule: **one `TestClient` context
+  == one backend lifetime.** To test a restart, exit the first context entirely and open a second —
+  which is also the more honest test, since it gives a genuinely fresh worker + EventBus and proves
+  spec §7's "parked reviews … can still be resolved" across the boundary rather than just "still
+  list". (→ T-014 verify script)
 - 2026-07-16 — **The board is not a filing cabinet.** `.claude/hot.md` reached 883 lines because the
   `/hot` skill said "prepend an entry, never rewrite older ones" (append, no eviction) while the
   Definition of Done's "transcribe corrections to learnings.md" lived in a *different* file the save

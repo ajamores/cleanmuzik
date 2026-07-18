@@ -13,7 +13,7 @@ from fastapi import FastAPI
 
 from app.config import get_settings
 from app.db import get_store
-from app.routes import health, jobs
+from app.routes import health, jobs, reviews
 
 logger = logging.getLogger("cleanmuzik")
 
@@ -70,3 +70,4 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="CleanMuzik", version="0.1.0", lifespan=lifespan)
 app.include_router(health.router, prefix="/api")
 app.include_router(jobs.router, prefix="/api")
+app.include_router(reviews.router, prefix="/api")

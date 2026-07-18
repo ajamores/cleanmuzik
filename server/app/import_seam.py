@@ -43,6 +43,7 @@ off by default) and stay injectable per session for tests and any future re-tuni
 This module never lowers beets' global `strong_rec_thresh` (ADR-006).
 """
 
+import copy
 import functools
 import logging
 import os
@@ -51,8 +52,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import acoustid
-from beets import config, dbcore, library, util
-from beets.autotag import Recommendation
+from beets import config, dbcore, library, metadata_plugins, util
+from beets.autotag import Distance, Recommendation, TrackMatch
 from beets.importer import Action, ImportSession
 
 from app.artwork import embed_cover, fetch_cover_art
@@ -336,8 +337,10 @@ class Outcome:
     that data. Rather than have the emitter reach back into beets (re-reading the
     landed file, or re-hydrating candidates — the latter is T-014's job), the seam,
     which already holds every value, hands them up on this receipt. That keeps the
-    seam the single source of truth and the emitter a thin, honest relay. `art_url`
-    on a candidate is the one field deliberately left null — see `_candidate_rows`.
+    seam the single source of truth and the emitter a thin, honest relay. A candidate
+    carries only `candidate_id`/`title`/`artist`/`score` — album, year and art were
+    removed from the contract (ADR-010: a recording is not a release), see
+    `_candidate_rows`.
     """
 
     action: str  # "landed" | "skipped" | "parked"
@@ -557,9 +560,7 @@ class FingerprintTrustSession(ImportSession):
         never see our duplicates. Complete for R1 by construction: every landed copy
         carries an mb_trackid; untagged legacy files are R2 migrate input.
         """
-        if self.lib is None or not recording_id:
-            return []
-        return list(self.lib.items(dbcore.query.MatchQuery("mb_trackid", recording_id)))
+        return items_for_recording(self.lib, recording_id)
 
     def _resolve_duplicate(
         self, task, existing: list[library.Item], dominance: Dominance
@@ -695,6 +696,19 @@ class FingerprintTrustSession(ImportSession):
         return self._record_review(existing_ids, "duplicate", dominance)
 
 
+def items_for_recording(lib, recording_id: str | None) -> list:
+    """Library items whose MusicBrainz recording id is `recording_id` (or []).
+
+    The one query that answers "is this recording already in the library" — shared by
+    the acquire-time gate (`_library_duplicates`, T-009) and T-014's `replace`, which
+    must name the exact existing files it is about to delete. Module-level so the
+    resolve orchestration can ask without standing up a session.
+    """
+    if lib is None or not recording_id:
+        return []
+    return list(lib.items(dbcore.query.MatchQuery("mb_trackid", recording_id)))
+
+
 def _matching_candidate(candidates, recording_ids: tuple[str, ...]):
     """First candidate whose recording MBID is in the dominant fingerprint's set.
 
@@ -777,17 +791,23 @@ def _candidate_rows(candidates) -> list[dict]:
     """spec §6 `track.review_required.candidates[]`, from the beets candidates in hand.
 
     Built at park time from the candidates the seam already has — NOT re-hydrated from
-    stored MBIDs (that's T-014's `GET /api/reviews` path). Two honest degrades:
+    stored MBIDs (that's T-014's `GET /api/reviews` path). Both paths yield the same
+    three fields, because both bottom out in the same recording lookup.
 
-    - **`art_url` is always null here.** Door B fetches cover art for the *one* track
-      that lands, not per candidate; reaching art for every parked candidate would
-      mean a Cover-Art-Archive round-trip apiece, for a song the owner may never open.
-      Disproportionate coupling — so the field is present-but-null, and T-014/T-017
-      fill it when the owner actually views the queue.
+    - **No album / year / art_url (ADR-010).** These are *release* properties; a
+      singleton candidate is a *recording* (`item_candidates` → `tracks_for_ids` →
+      `track_for_id` → `track_info(recording)`), and one recording is on many releases.
+      They were emitted as null here from T-007 to 2026-07-17 with a note saying
+      "T-014/T-017 fill it when the owner views the queue" — **they don't; that was
+      withdrawn.** Filling them needs a browse-releases call per candidate plus a
+      which-release heuristic, which ADR-010 rejects (T-008: 88% auto-accept, and the
+      queue's real traffic is no-match songs that title+artist already separates).
+      Don't re-add the fields; read the ADR first if you're about to.
     - **`score` is `1 − beets' tag distance`** (0 distance = perfect = score 1.0), the
-      only per-candidate confidence beets exposes here. It is NOT the acoustic
-      fingerprint score (that's a single number for the whole match, not per
-      candidate). Absent on a bare double → null.
+      only per-candidate confidence beets exposes here — and therefore *the*
+      discriminator when two candidates read alike. It is NOT the acoustic fingerprint
+      score (that's a single number for the whole match, not per candidate). Absent on
+      a bare double → null.
     """
     rows: list[dict] = []
     for candidate in candidates:
@@ -800,9 +820,6 @@ def _candidate_rows(candidates) -> list[dict]:
                 getattr(info, "track_id", None),
                 title=getattr(info, "title", None),
                 artist=getattr(info, "artist", None),
-                album=getattr(info, "album", None),
-                year=getattr(info, "year", None) or None,
-                art_url=None,  # see the docstring — deliberately null at park time
                 score=(1.0 - float(distance)) if distance is not None else None,
             )
         )
@@ -872,6 +889,159 @@ def get_library(settings: Settings | None = None) -> library.Library:
     db_path = _beets_library_path(s)
     db_path.parent.mkdir(parents=True, exist_ok=True)
     return library.Library(str(db_path), LIBRARY_DIRECTORY)
+
+
+# --- T-014: resuming a parked import on the owner's decision -----------------
+
+
+class ResolveError(Exception):
+    """The owner's chosen recording could not be turned into a match to apply.
+
+    Distinct from a beets failure: it means the MBID the owner picked resolves to
+    nothing (MusicBrainz merged or removed the recording since the park — documented
+    data drift, see learnings 2026-07-12), so there is no metadata to land. The caller
+    surfaces it as a resolve error and leaves the review in the queue.
+    """
+
+
+class ResolveSession(FingerprintTrustSession):
+    """Re-imports a parked staging file applying the recording the OWNER chose (T-014).
+
+    The acquire-time gate asks "what is this song?" and parks when it can't be sure.
+    By the time we get here that question is answered — by a click — so this session
+    does **not** re-run the gate. It overrides `choose_item` to force one specific
+    recording and never parks, never dedups:
+
+    - **No fingerprint lookup.** The identity is settled; re-running `dominance_fn`
+      would spend an AcoustID call to re-derive an answer we were handed. Outcomes
+      carry a zero `Dominance`, which is honest — no fingerprint was consulted.
+    - **No duplicate check, deliberately.** For `replace` and `keep_both` the incoming
+      song IS a known duplicate — that is *why* it parked — so re-running T-009's check
+      would park it again, forever (the resolve would be unimplementable). ADR-009's
+      addendum settles the principle: an explicit owner click is the consent the
+      never-auto-delete rule was protecting, so a chosen recording lands. The same
+      applies to a weak-match accept whose candidate happens to be in the library
+      already: the owner picked it, so it lands.
+
+    `suffix` (the `keep_both` branch) is appended to the **title tag** before beets
+    applies the match, never to the filename — Jellyfin renders tags, so two files
+    distinguished only on disk are two identical rows (spec §5). beets derives the
+    path from the tags, so the filename follows for free and beets' own sanitizer
+    handles characters that are illegal on disk.
+
+    Inherits `finalize_outcomes` (so a landed/skipped receipt is settled post-`run()`
+    exactly as on the acquire path) and `_embed_art`. Art degrades to the iTunes
+    artist+title fallback here: Cover Art Archive is keyed by the *release* MBIDs the
+    fingerprint lookup returns, and we deliberately don't run one — a cover is
+    decorative and doesn't justify an AcoustID round-trip on a settled identity.
+    """
+
+    def __init__(self, lib, *, recording_id: str, suffix: str | None = None, **kwargs):
+        # dominance_fn is never called (choose_item is fully overridden); pass a
+        # poison default so a future edit that reaches for it fails loudly rather
+        # than silently spending an AcoustID lookup on the resolve path.
+        kwargs.setdefault("dominance_fn", _no_dominance)
+        super().__init__(lib, **kwargs)
+        self.recording_id = recording_id
+        self.suffix = suffix
+
+    def choose_item(self, task):
+        """Apply the owner's recording. Raises rather than parks — a park here would
+        put the song straight back in the queue it was just resolved out of."""
+        match = self._forced_match(task)
+        if match is None:
+            raise ResolveError(
+                f"recording {self.recording_id} no longer resolves at MusicBrainz "
+                f"— cannot apply it to {self.staging_path}"
+            )
+        if self.suffix:
+            match = _with_title_suffix(match, self.suffix)
+        self._accepted.append((task, match, Dominance(0.0, 0.0, ())))
+        logger.info(
+            "resolving %s onto recording %s%s",
+            self.staging_path,
+            self.recording_id,
+            f" with suffix {self.suffix!r}" if self.suffix else "",
+        )
+        return match
+
+    def _forced_match(self, task) -> TrackMatch | None:
+        """A `TrackMatch` for `self.recording_id`, from beets' candidates or MusicBrainz.
+
+        Prefers a candidate beets already generated for this task — it carries the full
+        `TrackInfo` (album, year, …) that a bare recording lookup does not (MusicBrainz's
+        `RECORDING_INCLUDES` has no releases). Falls back to a direct `track_for_id` for
+        the case where the candidate list drifted since the park, or where the row's
+        recording is the *existing* library copy's (a duplicate park, whose recording was
+        never in this task's candidates at all).
+        """
+        for candidate in task.candidates or []:
+            if getattr(candidate.info, "track_id", None) == self.recording_id:
+                return candidate
+        info = metadata_plugins.track_for_id(self.recording_id, "musicbrainz")
+        if info is None:
+            return None
+        # Distance() is an empty (zero) distance: we aren't ranking anything, the
+        # owner already chose. beets only reads it for display/threshold logic that
+        # a forced match bypasses.
+        return TrackMatch(Distance(), info, task.item)
+
+
+def _no_dominance(*args, **kwargs):
+    raise AssertionError(
+        "ResolveSession must not run a fingerprint lookup — the identity is the "
+        "owner's explicit choice, not something to re-derive"
+    )
+
+
+def _with_title_suffix(match: TrackMatch, suffix: str) -> TrackMatch:
+    """`match` with `suffix` appended to its title tag (the `keep_both` branch).
+
+    Deep-copies the `TrackInfo` first: it can be an object beets cached or shares with
+    another candidate, and mutating it in place would leak the suffix into anything
+    else holding the same reference. beets applies `info.item_data` onto the item, so
+    a suffixed title here is what gets written to the file AND what the path template
+    (`$artist/$title`) derives from — one edit, both effects.
+    """
+    info = copy.deepcopy(match.info)
+    info.title = f"{(info.title or '').strip()} {suffix}".strip()
+    return TrackMatch(match.distance, info, match.item)
+
+
+def resolve_import(
+    staging_path: bytes | str,
+    *,
+    store: Store,
+    job_id: str,
+    recording_id: str,
+    query: str = "",
+    suffix: str | None = None,
+    lib: library.Library | None = None,
+    settings: Settings | None = None,
+) -> list[Outcome]:
+    """Land a parked staging file as `recording_id` (T-014). The resolve twin of `import_song`.
+
+    Same beets driving, same receipt shape — only the decision differs: `import_song`
+    asks the fingerprint gate, this applies the owner's answer. Raises `ResolveError`
+    if the chosen recording can't be resolved to metadata; any other exception is a
+    genuine beets apply/organize failure and belongs to the caller's `land` stage.
+    """
+    s = settings or get_settings()
+    configure_beets(s)
+    _configure_import_options()
+    lib = lib or get_library(s)
+
+    session = ResolveSession(
+        lib,
+        store=store,
+        job_id=job_id,
+        staging_path=staging_path,
+        query=query,
+        recording_id=recording_id,
+        suffix=suffix,
+    )
+    session.run()
+    return session.finalize_outcomes()
 
 
 def import_song(

@@ -33,6 +33,24 @@ internal `close(job_id)` sentinel that `run_pipeline` fires on every terminal pa
 not by sniffing for a terminal event name. The sentinel closes the stream without
 being surfaced to the client; a late subscriber to an already-closed job replays the
 buffer and stops.
+
+## Episodes: why a channel can re-open (T-014)
+
+A park is terminal *for the acquire run* but not for the job — the owner resolves the
+review later and the import resumes, which must stream its tail. `close()` already
+fired, though, and `publish()` early-returns on a closed channel, so those tail events
+would land in a black hole. `reopen(job_id)` is the sanctioned way back: it clears
+`closed` and **resets the buffer**, starting a fresh *episode* of the job's stream.
+
+Resetting the buffer (rather than appending to it) is the load-bearing half. T-016's
+card must close its EventSource on `track.review_required` — otherwise EventSource
+auto-reconnects on the server's EOF and loops forever — so T-017 opens a **new**
+EventSource after the resolve POST returns. That new subscriber replays the buffer;
+if the buffer still held the acquire episode it would replay `track.review_required`
+and close again *instantly*, leaving the card stuck at "Needs review" forever — the
+exact hang the reopen exists to prevent. So each episode's buffer holds only its own
+events, and the replay is what saves the tail from the gap between the POST returning
+and the subscriber connecting.
 """
 
 import asyncio
@@ -73,27 +91,31 @@ def candidate_row(
     *,
     title: str | None = None,
     artist: str | None = None,
-    album: str | None = None,
-    year: int | None = None,
-    art_url: str | None = None,
     score: float | None = None,
 ) -> dict:
     """The single spec §6 `track.review_required.candidates[]` row shape.
 
     Every place that emits a candidate row goes through here so the contract's key set
-    lives in exactly one spot: the rich park-time builder (`import_seam._candidate_rows`),
-    the id-only raise-recovery fallback (`jobs._id_only_candidates`, all display fields
-    null), and — soon — T-014's re-hydration for `GET /api/reviews`. Add or rename a
-    field here and every path stays in lockstep. Lives in this import-light module (no
-    beets) so both the heavy seam and the lazy route can import it.
+    lives in exactly one spot: the park-time builder (`import_seam._candidate_rows`),
+    the id-only raise-recovery fallback (`jobs._id_only_candidates`, display fields
+    null), and T-014's re-hydration for `GET /api/reviews`. Add or rename a field here
+    and every path stays in lockstep. Lives in this import-light module (no beets) so
+    both the heavy seam and the lazy route can import it.
+
+    **No `album` / `year` / `art_url` — by decision, not omission (ADR-010).** A
+    singleton candidate is a MusicBrainz *recording*; those three are properties of a
+    *release*, and one recording appears on many. beets never fetches a release for a
+    candidate (`track_for_id` → `track_info(recording)`), so these fields were emitted
+    as null on every path from T-007 until 2026-07-17 — a contract key that is
+    structurally always null is a lie, not a placeholder, and it read as "we just
+    haven't filled it in yet". Reaching them costs a browse-releases call per candidate
+    plus a which-release heuristic; ADR-010 rejects that. `score` (= 1 − beets' tag
+    distance) is the discriminator and is free.
     """
     return {
         "candidate_id": candidate_id,
         "title": title,
         "artist": artist,
-        "album": album,
-        "year": year,
-        "art_url": art_url,
         "score": score,
     }
 
@@ -173,6 +195,28 @@ class EventBus:
             subscribers = list(channel.subscribers)
             loop = self._loop
         self._dispatch(loop, subscribers, _CLOSE)
+
+    def reopen(self, job_id: str) -> None:
+        """Start a fresh episode on a closed channel so a resumed job can stream again.
+
+        Called from the **resolve route, on the event loop, before it returns** — not
+        from the worker thread. The ordering is the whole point: T-017 opens its new
+        EventSource as soon as the POST returns, and if the channel were still closed
+        at that moment `stream()` would replay-and-return a dead stream. The worker may
+        not touch the resolve for minutes (it is sequential, ADR-001), so it cannot be
+        the one to reopen. Publishing from the loop thread is safe — `call_soon_threadsafe`
+        is legal from the loop itself, and there are no subscribers at reopen time anyway.
+
+        Clears `closed` and **empties the buffer** (see the module docstring): the new
+        subscriber must not replay the acquire episode's `track.review_required` and
+        close itself instantly. An absent channel (evicted by the cap, or gone after a
+        restart) is simply created open — correct, since the resume is about to emit
+        into it.
+        """
+        with self._lock:
+            channel = self._channel_locked(job_id)
+            channel.closed = False
+            channel.events.clear()
 
     def _dispatch(self, loop, subscribers, item) -> None:
         # `loop is None` only before any subscriber can exist — a subscriber binds the
