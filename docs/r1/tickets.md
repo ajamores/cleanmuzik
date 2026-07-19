@@ -267,8 +267,11 @@ side effect for pipeline tickets, transcribe corrections to `docs/learnings.md`.
   the failing stage. (Spec §7 SSE live progress + forced-failure error; §4 step 3.)
 
 ### T-017 — Review panel UI
-- **Status:** todo — **unblocked 2026-07-19 by T-028** (`score` was `null` on every queue row until
-  then; see below before designing the picker).
+- **Status:** **BUILT (2026-07-19)** — checks pass, high-effort `/code-review` done and its 5 code
+  findings fixed (finding 2 → T-029); **owes the browser receipt** (step 3) before it is *done*.
+  Server suite 312 green, client 20 green. Shipped the panel + `rec`-on-SSE (spec §6) + the narrow
+  `GET /api/reviews/{id}` the reconcile path re-hydrates from. Was **unblocked 2026-07-19 by T-028**
+  (`score` was `null` on every queue row until then; see below).
 - **Depends on:** T-014, T-016, **T-028**
 - **Design input — `score` is the discriminator, but do not render it as a verdict.** Measured on
   the one real parked review (2026-07-19, over live HTTP):
@@ -609,3 +612,42 @@ Nothing could be tested at all until they were fixed:
   first half needs one real download that parks — **row 8 on the browser run list**, or a direct
   `POST /api/jobs` against the running server, which is now known to work (see `learnings.md`,
   2026-07-19: localhost sockets are *not* blocked).
+
+### T-029 — A failed resume orphans the review: job goes `error` while the row is `pending`
+- **Status:** todo — **carved out of T-017's code review (2026-07-19, finding 2).** Not a T-017
+  regression; the inconsistency predates it (T-014), but T-017 is what made it *visible* — the
+  per-card panel is the only resolve UI, so a review that leaves the card has nowhere to go.
+- **Depends on:** T-014, T-017 (T-017 built the reconcile-re-hydration + `GET /api/reviews/{id}`
+  this fix rides on)
+- **Agent:** back-end (a server status change; the client half may need nothing)
+- **The bug.** The owner picks a candidate; the resolve POST returns `{ok:true}` and the card opens a
+  fresh EventSource for the resume. The resume then fails *before the point of no return* — a
+  releasable `_StageFailure` (e.g. the chosen recording no longer resolves at MusicBrainz). The
+  server does the right thing for the **row**: `run_resolve` releases the review back to `pending`
+  (jobs.py ~586, retryable) and keeps its staging. But it settles the **job** to `STATUS_ERROR` and
+  emits `track.error` (jobs.py ~589). The card follows the job to `error`, the `ReviewPanel`
+  unmounts — and the still-pending review is orphaned, because there is no standalone queue view to
+  reach it from. The owner sees only "Failed" and must re-paste the URL, re-downloading a song that
+  is sitting resolvable in the queue.
+- **Why the two states disagree.** `run_resolve`'s error handling has two branches: a **committed**
+  failure (past `committed = True` — staging dropped, row `RESOLVED`) is a genuine job error and
+  must stay `error`; a **releasable** failure (pre-commit) returns the row to `pending` for a retry.
+  Only the *releasable* branch is wrong to report as a terminal job error — the job is not done, it
+  is parked again.
+- **The fix (the shape, not the letter — settle in the ticket).** On the releasable branch, set the
+  job status back to **`review`** (not `error`) so it matches the row, and re-signal the parked
+  state instead of `track.error`. The cleanest re-signal reuses what T-017 already consumes:
+  re-emit `track.review_required` (same `review_id`, same candidates) so the live card re-renders
+  the panel with no new machinery, **and** a `GET /api/jobs/{id}` snapshot then reports `review`, so
+  a card that lost the stream re-hydrates via `GET /api/reviews/{id}` exactly like the restart path.
+  - **Open design point for the ticket:** the owner should be *told the pick failed* ("That match
+    couldn't be applied — pick another"), not silently re-parked. Decide whether that rides on the
+    re-emitted `track.review_required` (an added optional `message`) or a small dedicated event.
+    Do not lose the reason.
+  - **Do not touch the committed branch.** A post-commit raise (scan/`track.done` publish after the
+    file already landed) is a real job error and stays one — the review is `RESOLVED`, not pending.
+- **Done when:** a resume made to fail on the releasable path leaves the job status `review` (not
+  `error`), the card re-shows the resolve panel (live and after a forced stream drop), the review is
+  still `pending` and resolvable, and the owner can see *why* the previous pick failed. Verifiable
+  over real HTTP by forcing a resolve to a recording id that won't resolve (no browser strictly
+  needed for the status/row assertions; the re-render is the browser half).
