@@ -26,6 +26,12 @@ Secrets load from the git-ignored `.env` at the **repo root** (not here) — see
 degrades a single capability (no Jellyfin scan, no genre) but never stops the
 service. `app/config.py` owns the loading.
 
+**Editing `.env` needs a manual uvicorn restart — `--reload` will not pick it up.**
+Two reasons compound: `--reload` watches `server/` only, and the `.env` lives a
+directory above it; and `get_settings` is `lru_cache`d, so even a reload that did
+fire would serve the values read at first call. Restart the process after any
+`.env` change, or you will debug a stale value.
+
 ## Layout
 
 ```
