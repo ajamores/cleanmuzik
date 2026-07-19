@@ -21,11 +21,20 @@ from urllib.parse import parse_qs, urlparse
 
 from yt_dlp import YoutubeDL
 
-# The classifier below keys off URL *shape* (path + query), not host: YouTube's
-# playlist grammar (`/playlist`, `list=`) is identical across youtube.com,
-# music.youtube.com, and the youtu.be short domain, so the host adds no signal.
-# R1's input is a YouTube song URL by contract (spec §3), which makes shape alone
-# a sufficient — and honest — test.
+# The classifier below keys off URL *shape* (path + query). Host matters in
+# exactly one place: `youtu.be/<id>` carries the video id in the **path**, where
+# every other YouTube host carries it in `?v=`. Both forms name one song, so both
+# have to be recognised — see `_names_one_song`.
+#
+# What it does NOT do is refuse a song merely for carrying a `list=`. YouTube
+# appends `&list=RD…` on its own when you play from Liked Videos or a search
+# result, so the owner's everyday URL is `watch?v=SONG&list=RD…` — a URL that
+# names exactly one song. Refusing those blocked the primary flow outright
+# (first browser session, 2026-07-18) while protecting nothing: `download_song`
+# passes `noplaylist=True`, so yt-dlp fetches the single named song regardless.
+# Verified live against a radio URL — one line out, the named track. Spec §3 asks
+# us not to *expand* a playlist into many songs; that guarantee lives in
+# `noplaylist`, not here.
 
 
 class PlaylistURLError(ValueError):
@@ -36,6 +45,55 @@ class PlaylistURLError(ValueError):
     """
 
 
+# Path segments that introduce a single video id: `/shorts/<id>`, `/embed/<id>`,
+# `/live/<id>`, legacy `/v/<id>`. On youtu.be the id is the first segment itself.
+_VIDEO_PATH_PREFIXES = frozenset({"shorts", "embed", "live", "v"})
+
+# Words that occupy an id's position without being one. `videoseries` is
+# YouTube's own short/embed spelling of a playlist (`youtu.be/videoseries?list=`),
+# so it must NOT be mistaken for a video id.
+_NOT_A_VIDEO_ID = frozenset({"videoseries", "playlist"})
+
+
+def _parse(url: str):
+    """urlparse, tolerating a scheme-less paste.
+
+    Without a scheme urlparse puts the host in `path` and leaves `hostname`
+    None, so `youtu.be/<id>?list=…` (a plain-text or mobile copy) would read as
+    "no song named" and get refused. Normalise before deciding anything.
+    """
+    stripped = url.strip()
+    parts = urlparse(stripped)
+    if not parts.scheme:
+        parts = urlparse("https://" + stripped.lstrip("/"))
+    return parts
+
+
+def _names_one_song(parts, query: dict) -> bool:
+    """True when the URL identifies exactly one video, whatever else it carries.
+
+    Every spelling YouTube uses for a single video:
+    - `?v=<id>` — the youtube.com hosts (www, m, music).
+    - `youtu.be/<id>` — the short domain puts the id in the path.
+    - `/shorts/<id>`, `/embed/<id>`, `/live/<id>`, `/v/<id>` — path forms.
+    """
+    if query.get("v"):
+        return True
+
+    segments = [s for s in parts.path.split("/") if s]
+    if not segments:
+        return False
+
+    host = (parts.hostname or "").lower().removeprefix("www.")
+    if host == "youtu.be":
+        return segments[0].lower() not in _NOT_A_VIDEO_ID
+
+    if len(segments) >= 2 and segments[0].lower() in _VIDEO_PATH_PREFIXES:
+        return segments[1].lower() not in _NOT_A_VIDEO_ID
+
+    return False
+
+
 def is_playlist_url(url: str) -> bool:
     """Return True when `url` denotes a YouTube playlist rather than one song.
 
@@ -43,25 +101,29 @@ def is_playlist_url(url: str) -> bool:
     unit-testable and cheap enough to run on every `POST /api/jobs`. Rules:
 
     - a `/playlist` path (e.g. `youtube.com/playlist?list=Y`) → playlist.
-    - **any** `list=` query parameter → playlist. This is deliberately broad:
-      `watch?v=X&list=Y` and `youtu.be/X?list=Y` are "a song *in* a playlist",
-      and R1 refuses them rather than guess which one track was meant.
-    - a bare `watch?v=X` / `youtu.be/X` (no `list=`) → song.
+    - no `list=` at all → song.
+    - a `list=` **and** a named song (`?v=X`, or `youtu.be/X`) → song. The
+      `list=` is YouTube's own autoplay/radio seed, not a request to batch;
+      `noplaylist=True` in `download_song` holds the one-song line.
+    - a `list=` and **no** song named → playlist; there is nothing to single out.
 
     We do **not** expand a playlist into its songs — that is R2 (spec §3).
     """
-    parts = urlparse(url)
+    parts = _parse(url)
     path = parts.path.rstrip("/").lower()
 
     # A `/playlist` endpoint is unambiguous regardless of query.
     if path.endswith("/playlist"):
         return True
 
-    # Otherwise the tell is a `list=` parameter with a non-empty value. Using
-    # parse_qs (which drops empty values by default) means a stray `list=` with
-    # no id doesn't trip the gate.
+    # No `list=` → nothing to disambiguate. parse_qs drops empty values by
+    # default, so a stray `list=` with no id doesn't trip the gate.
     query = parse_qs(parts.query)
-    return bool(query.get("list"))
+    if not query.get("list"):
+        return False
+
+    # A `list=` is present: it's a playlist only if no single song is named.
+    return not _names_one_song(parts, query)
 
 
 def reject_playlist_url(url: str) -> None:
@@ -92,8 +154,14 @@ def download_song(url: str, staging_dir: Path | None = None) -> Path:
     Refuses a playlist URL up front (`PlaylistURLError`). Downloads bestaudio and
     embeds the source metadata via the `FFmpegMetadata` postprocessor — the API
     equivalent of the CLI `--embed-metadata` — so beets has a non-empty query and
-    a tag fallback (learnings). `noplaylist=True` is a second belt-and-braces
-    guard so a URL that slipped past the classifier still yields a single file.
+    a tag fallback (learnings).
+
+    **`noplaylist=True` is LOAD-BEARING — do not remove it as redundant.** It was
+    once a second guard behind a classifier that refused every `list=` URL. Since
+    2026-07-18 the classifier deliberately *accepts* a song that carries a
+    `list=` (YouTube appends one on its own; refusing blocked the owner's primary
+    flow), so this option is now the **sole** guarantee that a URL naming a song
+    inside a playlist yields one file rather than the whole list.
 
     No transcode to MP3 happens here (that is T-005 / ADR-002): the returned file
     keeps its native container (typically `.webm`/`.m4a`), tags embedded.
