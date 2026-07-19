@@ -227,3 +227,50 @@ Format: `ADR-NNN — decision. Rationale. [date]`
   test or review; nothing in the suite asserts on year.) [2026-07-18]
 
   </details>
+
+- **ADR-012 — `ftintitle` is a seventh plugin, and the exception to ADR-007's "no more, no less"
+  is deliberate.** `PLUGINS` in `beets_engine.py` was fixed at the spec §2 identify/tag/art/lyrics
+  set. This adds one outside that set, so it needs a decision on the record rather than a quiet
+  edit. **The problem:** `PATHS["singleton"] = "$artist/$title"` names the folder from `item.artist`,
+  and MusicBrainz's **recording artist credit phrase** puts the featured artist there — so
+  `Nines feat. Tiggs da Author/NIC.mp3` becomes a distinct artist in Jellyfin, and a future Nines
+  track never groups with it. Every collaboration spawns another phantom artist, silently and
+  cumulatively. This is precisely the library fragmentation the tool exists to prevent, which is why
+  a plugin outside the §2 set earns its place. **Not `artist_credit`** — beets defaults it off
+  (`config_default.yaml:103`) and we never set it; flipping it is not the fix and was not tried.
+  **Configuration:** `auto: yes` (import-stage, no manual command), `drop: no` (the credit is moved,
+  never discarded), `format: "(feat. {})"` (parenthesised — reads better in Jellyfin's track list and
+  survives being parsed back out), and **`preserve_album_artist: no` set explicitly** — see the
+  fragility note below.
+
+  **Verified against the singleton path before acceptance, per ADR-011's lesson.** Three checks, run
+  on the real values from the real landed file, not inferred from the plugin's docs:
+  1. **The stage fires on singletons.** `session.py:237` appends every `plugins.import_stages()`
+     unconditionally and `plugin_stage` (`stages.py:245`) has no singleton branch;
+     `SingletonImportTask.imported_items()` (`tasks.py:699`) returns `[self.item]` outright, unlike
+     the base class which returns `[]` for a `TrackMatch`. This is the structural difference from
+     `original_date`, which was inert because it lived on a class this path never builds.
+  2. **It runs before `manipulate_files`** (`session.py:240`), so the artist is corrected *before*
+     the path template computes — the folder is written as `Nines/`, not renamed afterwards.
+  3. **Observed output**, driving the plugin with the file's actual tags:
+     `artist='Nines feat. Tiggs da Author' title='NIC'` → `artist='Nines' title='NIC (feat. Tiggs da Author)'`.
+
+  **Why `preserve_album_artist: no` is explicit and not left at its default.** `ft_in_title()` opens
+  with `if self.preserve_album_artist and albumartist and artist == albumartist: return False`, and
+  the option defaults **True**. On our path it currently doesn't trip — but only because
+  `TrackInfo.item_data` carries **no `albumartist`** (`hooks.py:400`), so `TPE2` is whatever
+  yt-dlp's `--embed-metadata` left, and on the observed file it is **absent**; empty is falsy, so the
+  guard short-circuits before it ever compares. That is a load-bearing accident: if a future yt-dlp
+  writes `TPE2` with the full "feat." string, the plugin silently becomes a no-op with a green suite
+  and no signal — ADR-011's failure mode wearing a different hat. Setting the option off removes the
+  dependency on an absent tag. (Same leftover-tag mechanism as T-021's junk `TCON`; the same dump
+  that confirmed `TPE2` absent also showed `TCON = 'Entertainment'`.)
+
+  Consequences: **not retroactive** — `Nines feat. Tiggs da Author/` stays on disk until a re-tag
+  pass (the migrate flow, unbuilt); the owner accepted this explicitly rather than scoping a
+  backfill here. Accepted cost: a track whose *real* title contains a featured credit is left alone
+  (`contains_feat` guards against doubling), and an artist genuinely named with a "feat."-like token
+  would be mis-split — neither observed. Revisit if the split ever mangles a real artist name.
+  (Owner decision, 2026-07-19, prompted by `Nines feat. Tiggs da Author/NIC.mp3` in the first
+  browser session. Supersedes ADR-007's "no more, no less" for this one plugin only — the §2 set
+  remains closed otherwise.) [2026-07-19]

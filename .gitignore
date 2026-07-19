@@ -155,3 +155,6 @@ cleanmuzik-secret-mode-prd.md
 
 # Claude Code per-user local settings (not shared)
 .claude/settings.local.json
+
+# Agent worktrees — scratch clones, never part of the repo
+.claude/worktrees/

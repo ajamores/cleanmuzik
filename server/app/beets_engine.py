@@ -44,9 +44,20 @@ PATHS = {
     "comp": "Compilations/$album%aunique{}/$track $title",
 }
 
-# Order matters: `musicbrainz` must precede `chroma` (ADR-007). These six are the
-# spec §2 identify/tag/art/lyrics set — no more, no less.
-PLUGINS = ["musicbrainz", "chroma", "lastgenre", "fetchart", "embedart", "lyrics"]
+# Order matters: `musicbrainz` must precede `chroma` (ADR-007). The first six are
+# the spec §2 identify/tag/art/lyrics set. `ftintitle` is the one deliberate
+# addition outside it (ADR-012): without it a collaboration's artist field keeps
+# MusicBrainz's credit phrase, and `PATHS["singleton"]` turns every "A feat. B"
+# into its own Jellyfin artist.
+PLUGINS = [
+    "musicbrainz",
+    "chroma",
+    "lastgenre",
+    "fetchart",
+    "embedart",
+    "lyrics",
+    "ftintitle",
+]
 
 # Set once configure_beets() has run so it's idempotent at *our* layer too (beets'
 # load_plugins is already guarded, but we also mutate global config + LASTFM_KEY).
@@ -54,7 +65,7 @@ _configured = False
 
 
 def configure_beets(settings: Settings | None = None):
-    """Build the shared beets config and load the six plugins (ADR-007).
+    """Build the shared beets config and load the plugins (ADR-007, ADR-012).
 
     Idempotent: safe to call from both the startup hook and `smoke_check()`.
     Returns the beets global `config` object.
@@ -68,6 +79,21 @@ def configure_beets(settings: Settings | None = None):
     config["directory"].set(LIBRARY_DIRECTORY)
     config["paths"].set(PATHS)
     config["plugins"].set(PLUGINS)
+
+    # ftintitle (ADR-012): move a featured artist out of the artist field so the
+    # `$artist/$title` folder groups under the real artist. `drop: no` keeps the
+    # credit — it moves to the title, it is never discarded.
+    #
+    # `preserve_album_artist: no` is set EXPLICITLY, not left at its default of
+    # yes. `ft_in_title()` bails when `artist == albumartist`, and today that
+    # never fires only because `TrackInfo` carries no albumartist (hooks.py:400),
+    # so `TPE2` is whatever yt-dlp left — currently absent, hence falsy, hence
+    # short-circuited before the comparison. Depending on an absent tag is how
+    # ADR-011 happened; turn the guard off instead of relying on the accident.
+    config["ftintitle"]["auto"].set(True)
+    config["ftintitle"]["drop"].set(False)
+    config["ftintitle"]["format"].set("(feat. {})")
+    config["ftintitle"]["preserve_album_artist"].set(False)
 
     # NOTE: `original_date` is deliberately NOT set here. It looks like the fix
     # for reissue years (a decades-old song stamped 2024) but it is inert on our

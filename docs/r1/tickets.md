@@ -343,6 +343,7 @@ Run (terminal 1) `cd server && ./.venv/bin/uvicorn app.main:app --reload --port 
 | 4 | DevTools → Network → Offline ~10s, then back | Same as #3 | **T-020** | EventSource auto-retry + server replay — the mechanism T-016 now leans on entirely |
 | 5 | Paste an obscure/live/remix track | Parks: "Weak match — parked for your review" then stops | — | **Expected dead end** — the review panel is T-017. Song is safe in the queue |
 | 6 | Paste a **playlist** URL | Refused with a clear message, not expanded | T-019 (§7) | Spec §7 |
+| 7 | Paste a track credited **"A feat. B"** | Lands under `A/`, title reads `Song (feat. B)`, and Jellyfin's artist view shows **one** `A` — not `A feat. B` as a separate artist | **T-024** | T-024's "Done when", word for word. ADR-012 is verified on the singleton path but has **never landed a real download**; this is its only receipt |
 
 Record what actually happened per row — a symptom beats a hypothesis. **Row 1 passing is the
 T-016 acceptance receipt**; rows 3–4 are evidence for T-020, not pass/fail gates on anything today.
@@ -432,7 +433,12 @@ Nothing could be tested at all until they were fixed:
   closed as accepted behaviour with the reason.
 
 ### T-024 — "feat." in the artist field fragments the library
-- **Status:** todo — **found in the first browser session (2026-07-18).**
+- **Status:** **BUILT (2026-07-19) — not done: needs one browser row.** ADR-012 written, `ftintitle`
+  added to `PLUGINS` with `drop: no` / `format: "(feat. {})"` / `preserve_album_artist: no`, and
+  6 regression tests added in `tests/test_beets_engine.py` (suite 301 green). What remains is the
+  "Done when" below, verbatim: **land a real "A feat. B" track in a browser and see it group under
+  `A/` in Jellyfin's artist view.** That cannot be driven here (the sandbox blocks sockets), so it
+  is **row 7 on the browser run list**. Do not mark this done until that row is run.
 - **Depends on:** nothing
 - **Agent:** back-end
 - **What:** A collaboration lands with the featured artist baked into the artist field, so
@@ -448,12 +454,23 @@ Nothing could be tested at all until they were fixed:
 - **Not our `artist_credit` setting.** beets defaults `artist_credit: no` (`config_default.yaml:103`)
   and we never set it — the "feat." comes from **MusicBrainz's own recording artist credit phrase**,
   which beets uses as `item.artist` for a singleton. Don't start by flipping that config; it isn't on.
-- **Candidate fix:** the stock **`ftintitle`** plugin (ships with beets 2.12 —
-  `beetsplug/ftintitle.py`), which moves a featured artist out of the artist field and into the
-  title. **This is a decision, not a free change:** `PLUGINS` in `beets_engine.py` is commented
-  "the spec §2 identify/tag/art/lyrics set — no more, no less" (ADR-007), so adding a seventh plugin
-  needs a spec amendment or an ADR first. Do that before writing code (ADR-010's rule).
+- **Fix taken:** the stock **`ftintitle`** plugin, recorded as **ADR-012** before any code (ADR-010's
+  rule — `PLUGINS` was closed at the spec §2 set by ADR-007, so a seventh plugin needed a decision,
+  not a quiet edit). Verified against the *singleton* path before acceptance, per ADR-011's lesson:
+  the plugin stage fires on `SingletonImportTask` (`session.py:237` → `stages.py:245`, no singleton
+  branch; `tasks.py:699` returns `[self.item]`) and runs **before** `manipulate_files`, so the folder
+  is written as `Nines/` rather than renamed after. Observed on the real file's tags:
+  `artist='Nines feat. Tiggs da Author' title='NIC'` → `artist='Nines' title='NIC (feat. Tiggs da Author)'`.
+- **Trap found while verifying — why `preserve_album_artist: no` is explicit.** `ft_in_title()` bails
+  when `artist == albumartist`, and the option defaults **yes**. It doesn't trip today only because
+  `TrackInfo.item_data` carries no albumartist (`hooks.py:400`), so `TPE2` is whatever yt-dlp left —
+  and on the observed file it is **absent**, hence falsy, hence short-circuited before comparing.
+  A future yt-dlp that writes `TPE2` would silently no-op the plugin with a green suite. Setting it
+  off removes the dependency; `test_fires_even_when_albumartist_equals_artist` locks it in (confirmed
+  to fail when the setting is removed, so it is a real guard, not decoration).
 - **Note:** not retroactive — tracks already landed keep their folders until a re-tag pass.
+  `Nines feat. Tiggs da Author/NIC.mp3` is still on disk; the owner accepted that rather than scope
+  a backfill here.
 - **Done when:** a track credited "A feat. B" lands under `A/`, groups with A's other tracks in
   Jellyfin's artist view, and the featured credit is preserved somewhere (title or a tag) rather
   than discarded. Verify in a browser, not just on disk.
