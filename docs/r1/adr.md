@@ -189,3 +189,41 @@ Format: `ADR-NNN — decision. Rationale. [date]`
   "T-014/T-017 fill it when the owner actually views the queue" — they don't, by decision.
   (Owner decision; found by reading T-016's diff against its ticket text, not by any code review —
   see the Definition of Done's acceptance check in `CLAUDE.md`.) [2026-07-17]
+
+- **ADR-011 — REJECTED (same night it was written). `original_date: yes` is NOT the fix for reissue
+  years; it is inert on this product's path.** Kept, not deleted, because the reasoning below is
+  sound and the *problem* is real — only the remedy was wrong, and the next person to notice a
+  wrong year will reach for exactly this option. **Why it does nothing:** beets consults
+  `original_date` only in `AlbumInfo.item_data` (`autotag/hooks.py:325`), the album-apply path.
+  R1 imports every track as a **singleton** (`import_seam.py:845` → `imp["singletons"].set(True)`),
+  which builds a **`TrackInfo`** — a different class (`hooks.py:400`) with no such override and no
+  `original_year` field for one to read. Setting the option changes no byte of any file we write.
+  **How it got recorded as decided:** it was written up and accepted on argument, then reverted on
+  the review pass an hour later. Nothing in the 273-test suite asserts on year, so the suite stayed
+  green throughout and supplied no signal. This is ADR-010's failure mode exactly — *a decision
+  recorded whose payload cannot deliver it* — committed on the same night ADR-010's lesson was
+  being cited, which is the useful part of keeping it: **the acceptance check must be run against
+  the code path the product actually takes, not the one the option's documentation describes.**
+  The open problem moves to **T-025**, where reaching an original date needs a MusicBrainz release
+  lookup per recording — the same cost ADR-010 declined for candidate enrichment, so T-025 must
+  price it before building. Superseded-by: T-025. [rejected 2026-07-19]
+
+  <details><summary>Original rationale, preserved (the problem statement still holds)</summary>
+
+  beets defaults this off (`config_default.yaml:102`), so the year written
+  is whichever *release* MusicBrainz resolved the fingerprint to — a remaster, compilation, or
+  anniversary reissue. Observed in the first browser session: a track the owner knew to be much
+  older landed stamped **2024**. The recording match was correct — same performance, right audio;
+  only the date came from a reissue. Rationale: a personal library is browsed and sorted by era, so
+  "when did this song come out" is the question the year field is asked, and a reissue year answers
+  a question nobody posed. It is also the failure mode that quietly erodes trust in the whole
+  tagging engine — the audio is right, the art is right, and the one visibly wrong field makes the
+  rest suspect. Consequences: set in `configure_beets()` alongside `directory`/`paths`/`plugins`, so
+  it applies to every import including the migrate flow. **Not retroactive** — tracks landed before
+  this need a re-tag pass (the migrate flow, unbuilt). Accepted cost: a genuine remaster or remix
+  for which the *later* date is the honest answer will now be stamped with the original's; rare, and
+  overridable per track. Revisit if the library turns out to be remaster-heavy (it isn't).
+  (Owner decision, prompted by the owner noticing the wrong year on a landed card — not by any
+  test or review; nothing in the suite asserts on year.) [2026-07-18]
+
+  </details>

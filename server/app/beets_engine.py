@@ -69,6 +69,16 @@ def configure_beets(settings: Settings | None = None):
     config["paths"].set(PATHS)
     config["plugins"].set(PLUGINS)
 
+    # NOTE: `original_date` is deliberately NOT set here. It looks like the fix
+    # for reissue years (a decades-old song stamped 2024) but it is inert on our
+    # path: beets reads it only in `AlbumInfo.item_data` (autotag/hooks.py:325),
+    # and R1 imports every track as a **singleton** (import_seam.py:845), which
+    # builds a `TrackInfo` — a different class (hooks.py:400) with no such
+    # override and no `original_year` field for one to read. Setting it changes
+    # nothing. The wrong-year problem is real and open: see T-025. (ADR-011 was
+    # written accepting this option as the fix, then rejected on review the same
+    # night — the option was never verified against the singleton path.)
+
     # Optional API keys. Absent keys must NOT crash (spec §6): each plugin ships a
     # working built-in key, so we override only when the owner actually set one.
     if s.acoustid_apikey:
