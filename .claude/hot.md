@@ -21,44 +21,38 @@ are in `CLAUDE.md`; scope in `cleanmuzik-prd.md`. Not restated here.
 
 ## Current State (2026-07-19)
 
-- **On `main`, clean and pushed** through `6c7c4ee`. Only `.claude/worktrees/` is untracked.
-  Suite **295 green** at this head.
-- `.env` is git-ignored and **machine-local**: `JELLYFIN_URL` → WSL gateway IP.
-- Ledger: **T-016 DONE**; open = T-017, T-019, T-020, T-021→T-027.
-- **Re-review debt is discharged.** `757bda5..b3385ef` was reviewed; two defects found and fixed
-  in `6c7c4ee` (URL normalisation discarded before download; a stale `noplaylist` comment).
-  T-026 and T-027 remain unfixed on purpose; each ticket says why.
-- **Ticket triage is the next thing the owner wants** (deferred to next session by his call).
-  7 new tickets in one session is too many. **T-021 + T-024 are the only two touching whether the
-  acquire flow is trustworthy.** T-022 and T-023 are checks/won't-fix dressed as build tickets;
-  T-025 may be R2. Reasoning in `b3385ef`.
+- **On `main`, clean**, through `2cd39f5`. Server suite **309 green**; client suite **4 green**
+  (new — `npm run test` in `client/`).
+- **The owner's dev servers are up**: `uvicorn --reload` on 8137, Vite on 8137's proxy. Note the
+  hazard now in `CLAUDE.md`: editing `db.py` re-runs the lifespan against the **live** DB.
+- Ledger: **T-016, T-028 done**; **T-024 built** (needs browser row 7); open = T-017, T-019, T-020,
+  T-021→T-027.
 
 ## NEXT
 
-1. **Ticket triage + decide T-026** — owner calls, ~15 min, block nothing. **Start here** — he
-   asked to open the next session with this.
-2. **Finish the run list** (`docs/r1/tickets.md`, "First owner-driven browser session") — rows
-   **2, 3, 4, 6** unrun. Needs the owner in a browser; rows 3–4 are T-020's only evidence. Row 6
-   now tests the changed classifier **and** the scheme-less URL path. **Paste one link without
-   `https://`** — that path was verified by extractor-regex inference, never actually downloaded
-   (sandbox blocks sockets).
-3. Then **T-017** (review panel UI) — reuses T-016's EventSource pattern, now proven live.
+1. **T-017 — review panel UI.** The session's remaining work; nothing blocks it now. Harness,
+   prerequisite and design inputs are all in place — read T-017's ticket first, it carries a
+   measured score table that constrains the design.
+2. **Browser rows 2, 3, 4, 6, 7** — needs the owner in a browser. Row 7 is T-024's only receipt.
+3. Then **T-019** (the §7 acceptance pass, unblocked once T-017 lands).
 
-**Standing setup note:** two terminals — the server per `server/README.md`, and
-`cd client && npm run dev`. (The `.env`-needs-a-restart caveat now lives in that README.)
+**Ticket triage is discharged** — the answer was that T-021–T-027 were already triaged in the
+writing; only T-024 was urgent (it corrupted the library on every collaboration). T-026 is still
+parked with option (c) as the standing recommendation.
 
 ## Recent sessions (rolling — last 2–3)
 
-### 2026-07-19 — re-review of the unreviewed fixes; 2 defects, both fixed
-- The fixes for the 9 review findings had never been reviewed. Classifier logic held up under 11
-  edge shapes; all docs claims checked out. The two defects and their lessons are in `learnings.md`
-  and `6c7c4ee`. Triage deferred to next session at the owner's request.
+### 2026-07-19 (b) — T-024 + a prerequisite T-017 didn't know it had
+- T-024 built (ADR-012, `ftintitle`); **T-028 found and done** — the review queue could never
+  supply `score`, the field ADR-010 makes the picker's discriminator. Caught by the DoD acceptance
+  check on T-017's *ticket*, before writing any of it.
+- **`localhost` sockets are not blocked** — `CLAUDE.md` said they were and that claim had scoped
+  three tickets around a wall that doesn't exist. Corrected there; autopsy in `learnings.md`.
+- Client test harness (vitest + testing-library) stood up, mutation-checked.
 
-### 2026-07-18/19 — first browser session ever; rows 1 + 5 pass, then a review that bit back
-- **Nothing could be tested until four defects were fixed**, none visible to a green suite. The
-  review then found 9 more in those same fixes. All durable output is filed; see the stores.
-- Still open: **WSL mirrored networking** (`.wslconfig` → `networkingMode=mirrored`) is the durable
-  fix for the Jellyfin URL; the gateway IP in `.env` moves when WSL restarts, and is untracked.
+### 2026-07-19 (a) — re-review of the unreviewed fixes; 2 defects, both fixed
+- The fixes for the 9 review findings had never been reviewed. Two defects found and fixed in
+  `6c7c4ee`; lessons in `learnings.md`.
 
 ## Where the rest of the context lives
 
