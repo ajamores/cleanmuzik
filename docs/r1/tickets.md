@@ -267,8 +267,28 @@ side effect for pipeline tickets, transcribe corrections to `docs/learnings.md`.
   the failing stage. (Spec §7 SSE live progress + forced-failure error; §4 step 3.)
 
 ### T-017 — Review panel UI
-- **Status:** todo
-- **Depends on:** T-014, T-016
+- **Status:** todo — **unblocked 2026-07-19 by T-028** (`score` was `null` on every queue row until
+  then; see below before designing the picker).
+- **Depends on:** T-014, T-016, **T-028**
+- **Design input — `score` is the discriminator, but do not render it as a verdict.** Measured on
+  the one real parked review (2026-07-19, over live HTTP):
+
+  | candidate | score |
+  |---|---|
+  | Nines — "Nines SBTV Bars 2015" | 0.4598 |
+  | Nines — "Nines Freestyle 2007" | 0.4415 |
+  | Bella Ballon — "Super Bella" | 0.4247 |
+  | Bella Ballon — "Jij maakt de zomer top" | 0.3635 |
+  | Bella Ballon — "Feest voor iedereen" | 0.3403 |
+
+  The top two are **0.018 apart**, the whole field sits in a narrow 0.34–0.46 band, and the right
+  answer is plausibly *not in the list at all* (the song is "Outro"). So the real-world shape of a
+  parked review is "five weak, similar numbers", not "one clear winner". Consequences for the panel:
+  **reject must be as reachable as accept** (it is often the correct action, not the exceptional
+  one); don't print raw floats as though 0.4598 beats 0.4415 in any meaningful sense — a bar or a
+  coarse band communicates the truth better than four decimal places; and **don't label the top row
+  "best match"**, which asserts more than the number supports. ADR-010's "chosen between on `score`
+  alone" is the *contract*; this table is what it looks like in practice.
 - **Agent:** front-end
 - **What:** When a card flips to **Needs review** (`track.review_required`), show the candidate
   matches — per candidate: **title, artist, `score`** — plus the normalized query. **No album/year/
@@ -539,13 +559,19 @@ Nothing could be tested at all until they were fixed:
   the shape unreachable — and that demonstration is recorded here, closing the ticket.
 
 ### T-028 — Persist candidate `score`: the queue can't supply the field ADR-010 picks on
-- **Status:** **BUILT (2026-07-19) — unblocks T-017.** Found by reading T-017's ticket against the
+- **Status:** **DONE (2026-07-19) — unblocks T-017.** Found by reading T-017's ticket against the
   payload it needs (the ADR-010 acceptance check), not by any code review. 8 tests in
-  `tests/test_review_scores.py`, suite 309 green. **Receipt:** the owner's live DB was migrated in
-  place — the running `uvicorn --reload` picked up the `db.py` edit, re-ran its lifespan, and
-  `_migrate` added the column with the pending `Outro` review and its 5 candidate ids intact
-  (confirmed via a live `GET /api/reviews`). What remains for **done** is a *new* park writing a
-  non-null score end to end, which needs one real download.
+  `tests/test_review_scores.py`, suite 309 green.
+- **Receipt (both halves of "Done when", driven over real HTTP):**
+  1. *Migration preserves the queue* — the owner's live DB migrated in place when the running
+     `uvicorn --reload` re-ran its lifespan on the `db.py` edit; the pending `Outro` review and its
+     5 candidate ids survived, confirmed by a live `GET /api/reviews` (scores stay null there, as
+     designed: the row predates the column).
+  2. *A new park writes non-null scores that survive a restart* — an isolated server
+     (`DB_PATH` → temp dir, so the real library was untouched) was given the same URL that produced
+     the legacy row. It parked, `GET /api/reviews` returned five scored candidates, the process was
+     **restarted**, and the same scores came back. A clean A/B on one track: all `null` before,
+     fully scored after.
 - **The bug, observed live.** That surviving review is a clean demonstration of why this ticket
   exists: its candidates include `Nines — "Nines SBTV Bars 2015"` and `Nines — "Nines Freestyle
   2007"` — two rows reading nearly alike — with `score: null` on both. That is ADR-010's "chosen
