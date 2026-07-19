@@ -55,18 +55,32 @@ _VIDEO_PATH_PREFIXES = frozenset({"shorts", "embed", "live", "v"})
 _NOT_A_VIDEO_ID = frozenset({"videoseries", "playlist"})
 
 
-def _parse(url: str):
-    """urlparse, tolerating a scheme-less paste.
+def normalize_url(url: str) -> str:
+    """Return `url` stripped and carrying a scheme — the form everything downstream wants.
 
-    Without a scheme urlparse puts the host in `path` and leaves `hostname`
-    None, so `youtu.be/<id>?list=…` (a plain-text or mobile copy) would read as
-    "no song named" and get refused. Normalise before deciding anything.
+    A plain-text or mobile copy arrives scheme-less (`youtu.be/<id>?list=…`).
+    Two separate things break on that, which is why this returns a *string* the
+    caller passes on rather than only feeding the classifier:
+
+    - `urlparse` puts the host in `path` and leaves `hostname` None, so the URL
+      reads as "no song named" and gets refused.
+    - yt-dlp matches its extractors on the raw string: none of the YouTube
+      `_VALID_URL` patterns match without a scheme, so a scheme-less URL falls
+      through to the **generic** extractor — which is not YoutubeIE and does not
+      honour `noplaylist`. Verified 2026-07-19; this is why the normalised value
+      must travel with the request instead of being discarded after the check.
+
+    Callers must classify, store, and download the *returned* string.
     """
     stripped = url.strip()
-    parts = urlparse(stripped)
-    if not parts.scheme:
-        parts = urlparse("https://" + stripped.lstrip("/"))
-    return parts
+    if urlparse(stripped).scheme:
+        return stripped
+    return "https://" + stripped.lstrip("/")
+
+
+def _parse(url: str):
+    """urlparse a URL that may have arrived scheme-less."""
+    return urlparse(normalize_url(url))
 
 
 def _names_one_song(parts, query: dict) -> bool:
@@ -168,6 +182,10 @@ def download_song(url: str, staging_dir: Path | None = None) -> Path:
 
     `staging_dir` is created if not supplied; the caller (T-012) owns cleanup.
     """
+    # Normalise first, and download the normalised string: a scheme-less paste
+    # never matches YoutubeIE's `_VALID_URL` and would silently fall through to
+    # the generic extractor, where `noplaylist` below means nothing.
+    url = normalize_url(url)
     reject_playlist_url(url)
 
     if staging_dir is None:
@@ -183,7 +201,9 @@ def download_song(url: str, staging_dir: Path | None = None) -> Path:
         # --embed-metadata: write the source title/artist/etc. into the file so a
         # weak/absent MusicBrainz match still has tags to fall back on (learnings).
         "postprocessors": [{"key": "FFmpegMetadata", "add_metadata": True}],
-        # Never expand a playlist even if one reaches here — R1 is one song.
+        # LOAD-BEARING, not a backup — see this function's docstring. Since the
+        # classifier accepts a song carrying a `list=`, this is the ONLY thing
+        # keeping such a URL to one file. Do not drop it as redundant.
         "noplaylist": True,
         "quiet": True,
         "no_warnings": True,

@@ -450,6 +450,21 @@ def test_post_song_url_creates_job_and_submits(client):
     assert client.worker.submitted == [(job_id, "https://youtu.be/abc123")]
 
 
+def test_post_scheme_less_url_is_normalised_before_storing_and_submitting(client):
+    # A plain-text/mobile paste arrives without `https://`. The classifier has
+    # always tolerated that, but the *raw* string used to be what got stored and
+    # downloaded — and yt-dlp matches its extractors on the raw string, so a
+    # scheme-less URL fell through to the generic extractor instead of YouTube's
+    # (re-review, 2026-07-19). The normalised URL must be what travels.
+    resp = client.post("/api/jobs", json={"url": "  youtu.be/dQw4w9WgXcQ?list=RDx  "})
+    assert resp.status_code == 200
+
+    job_id = resp.json()["job_id"]
+    expected = "https://youtu.be/dQw4w9WgXcQ?list=RDx"
+    assert client.worker.submitted == [(job_id, expected)]
+    assert client.store.get_job(job_id).url == expected
+
+
 def test_get_unknown_job_404(client):
     assert client.get("/api/jobs/nope").status_code == 404
 

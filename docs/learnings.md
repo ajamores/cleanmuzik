@@ -393,3 +393,32 @@ Format: `- <date> — what went wrong → the correction / rule now in place`
   it — only checking does. The problem itself is real and unfixed → T-025; ADR-011 kept as
   **rejected**, with the autopsy, so the next person who reaches for that option finds the answer.
   (First-browser-session follow-up; caught by the review pass an hour later, not by the suite.)
+- 2026-07-19 — **A normaliser whose output you throw away is not a normaliser — it is a second
+  opinion nobody acts on.** `_parse` was added so a scheme-less paste (`youtu.be/<id>`, the shape
+  you get copying from a text message) would stop being false-rejected: it prepended `https://`
+  and handed the tidied URL to the classifier. But it returned *parsed parts for the decision*,
+  not a string for the caller, so the **raw** URL was what got stored, submitted, and passed to
+  `extract_info`. yt-dlp picks its extractor by regex over the raw string, and no YouTube
+  `_VALID_URL` matches without a scheme — so every scheme-less paste fell through to the
+  **generic** extractor, which is not a YouTube extractor and does not honour `noplaylist`, by
+  then the *sole* one-song guarantee. Net effect: the fix converted a clean 422 into a confusing
+  failure deeper in the pipeline, on exactly the input it was written to support. Rule: **when you
+  clean a value in order to judge it, the cleaned value is what must travel** — validating X and
+  then using Y is the same bug whether Y is dirtier, staler, or merely different. The tell is a
+  helper that takes a string and returns something that isn't one: it can inform a decision but
+  cannot be propagated, so the call site silently keeps the original. Corollary, and the reason
+  the suite was no help: the three scheme-less tests added alongside `_parse` asserted only
+  *classification*, never that the URL survived to the downloader — a fix's own tests will happily
+  cover the half of the path the author was thinking about.
+- 2026-07-19 — **A placeholder that can't match the real pattern makes a test pass for the wrong
+  reason.** Writing the regression test above, the first version used `abc123` as a video id and
+  asserted against `YoutubeIE`. Both were wrong and each hid the other: YouTube's `_VALID_URL`
+  requires an **11-character** id, so a 6-character placeholder matches no YouTube extractor at
+  all — the "scheme-less URLs don't reach YouTube" assertion would have held for a URL with a
+  scheme too. And there is no single `YoutubeIE` to assert on: a `watch?v=…&list=` goes to
+  `youtube:tab`, the short domain to `YoutubeYtBe`, a plain song to `youtube`. Only running it
+  surfaced either. Rules: **test fixtures must be able to match the thing under test** — if a
+  value cannot possibly satisfy the real pattern, an assertion that it doesn't proves nothing; and
+  **assert the behaviour, not the class that implements it** (here: "some YouTube extractor
+  claims this", not "this exact one does"), or the test breaks on refactors while missing the bug.
+  (Caught by running the test, which is the only reason it was caught.)

@@ -53,7 +53,12 @@ def create_job(payload: dict, request: Request) -> dict[str, str]:
     # Imported here, not at module top: download.py pulls yt-dlp, which we keep off
     # the import path of the app (T-001 lazy-engine). is_playlist_url itself is a
     # pure, network-free shape check (T-004).
-    from app.download import is_playlist_url
+    from app.download import is_playlist_url, normalize_url
+
+    # Normalise before classifying, storing, or submitting: a scheme-less paste
+    # (`youtu.be/<id>` from a text message) classifies fine but never matches
+    # yt-dlp's YouTube extractors, so the job must carry the normalised URL.
+    url = normalize_url(url)
 
     if is_playlist_url(url):
         raise HTTPException(

@@ -9,7 +9,12 @@ Run from the `server/` directory: `./.venv/bin/pytest tests/test_download.py -v`
 
 import pytest
 
-from app.download import PlaylistURLError, is_playlist_url, reject_playlist_url
+from app.download import (
+    PlaylistURLError,
+    is_playlist_url,
+    normalize_url,
+    reject_playlist_url,
+)
 
 # (url, expected_is_playlist) — the acceptance matrix from the ticket, plus the
 # host variants the classifier must handle (youtu.be, music.youtube.com).
@@ -100,3 +105,70 @@ def test_reject_playlist_url_passes_a_song() -> None:
 def test_playlist_error_is_a_valueerror() -> None:
     # T-012 relies on the typed exception; keep the ValueError lineage stable.
     assert issubclass(PlaylistURLError, ValueError)
+
+
+# --- Scheme-less pastes reach yt-dlp intact (re-review, 2026-07-19) ----------
+# `_parse` normalised scheme-less URLs for the *classifier* and threw the result
+# away, so the raw string still went to yt-dlp. These assert the string that is
+# classified is the string that gets downloaded.
+
+NORMALIZE_CASES = [
+    # Scheme-less pastes gain one.
+    ("youtu.be/dQw4w9WgXcQ?list=PL1", "https://youtu.be/dQw4w9WgXcQ?list=PL1"),
+    ("www.youtube.com/watch?v=abc", "https://www.youtube.com/watch?v=abc"),
+    # An existing scheme is left alone — including http, which we must not upgrade
+    # silently (that would change what the user asked for).
+    ("https://youtu.be/abc", "https://youtu.be/abc"),
+    ("http://youtu.be/abc", "http://youtu.be/abc"),
+    # Surrounding whitespace and a leading slash from a sloppy copy.
+    ("  youtu.be/abc  ", "https://youtu.be/abc"),
+    ("//youtu.be/abc", "https://youtu.be/abc"),
+]
+
+
+@pytest.mark.parametrize("raw,expected", NORMALIZE_CASES)
+def test_normalize_url(raw: str, expected: str) -> None:
+    assert normalize_url(raw) == expected
+
+
+def _claiming_extractors(url: str) -> list[str]:
+    """IE_NAMEs that would claim `url`, in yt-dlp's own precedence order.
+
+    Pure regex matching against each extractor's `_VALID_URL` — no network.
+    """
+    from yt_dlp import YoutubeDL
+
+    with YoutubeDL({"quiet": True, "no_warnings": True}) as ydl:
+        return [ie.IE_NAME for ie in ydl._ies.values() if ie.suitable(url)]
+
+
+# Ids must be a real 11-character YouTube id: `_VALID_URL` enforces the length,
+# so a short placeholder like `abc123` matches nothing and would make these
+# tests pass for the wrong reason.
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "youtu.be/dQw4w9WgXcQ?list=RDdQw4w9WgXcQ",
+        "www.youtube.com/watch?v=dQw4w9WgXcQ&list=PL123",
+        "www.youtube.com/shorts/dQw4w9WgXcQ",
+        "youtu.be/dQw4w9WgXcQ",
+    ],
+)
+def test_normalized_url_reaches_a_youtube_extractor(raw: str) -> None:
+    """The defect this whole block exists for.
+
+    yt-dlp picks its extractor by regex over the raw string, and no YouTube
+    `_VALID_URL` matches without a scheme — so before normalisation every
+    scheme-less paste fell through to **generic**, which is not a YouTube
+    extractor and does not honour `noplaylist`, the sole one-song guarantee.
+
+    Which YouTube extractor claims it depends on shape (`youtube`,
+    `youtube:tab` for a `watch?v=…&list=`, `YoutubeYtBe` for the short domain),
+    so this asserts the family, not one class.
+    """
+    assert _claiming_extractors(raw) == ["generic"], (
+        "test case is not scheme-less; it proves nothing"
+    )
+
+    claimed = _claiming_extractors(normalize_url(raw))
+    assert any(ie.lower().startswith("youtube") for ie in claimed), claimed
