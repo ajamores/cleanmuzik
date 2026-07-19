@@ -21,24 +21,25 @@ are in `CLAUDE.md`; scope in `cleanmuzik-prd.md`. Not restated here.
 
 ## Current State (2026-07-19)
 
-- **On `main`, nothing committed.** Uncommitted: `server/app/download.py` + tests (classifier),
-  `server/app/beets_engine.py` (`original_date` reverted — inert on singletons), and `docs/`
-  (ADR-011 rejected, 3 learnings, T-016 receipt, T-021→T-027). Rationale for each is in those
-  files, not here.
+- **On `main`, clean and pushed** through `b3385ef` (classifier fix · ADR-011 revert · docs batch).
+  Only `.claude/worktrees/` is untracked. Suite **284 green** at this head.
 - `.env` is git-ignored and **machine-local**: `JELLYFIN_URL` → WSL gateway IP.
-- Suite **284 green**. Ledger: **T-016 DONE**; open = T-017, T-019, T-020, T-021→T-027.
-- **RE-REVIEW OWED.** A 23-agent review found 9 defects; 7 are fixed in this tree and **the fixes
-  are themselves unreviewed**. T-026 and T-027 were left unfixed on purpose — each ticket says why.
+- Ledger: **T-016 DONE**; open = T-017, T-019, T-020, T-021→T-027.
+- **RE-REVIEW OWED.** A 23-agent review found 9 defects; 7 are fixed in `757bda5`/`8498519` and
+  **those fixes are themselves unreviewed** — review the three commits, not a working tree.
+  T-026 and T-027 were left unfixed on purpose; each ticket says why.
+- **Ticket list needs triage** (owner, 2026-07-19): 7 new tickets in one session is too many.
+  **T-021 + T-024 are the only two touching whether the acquire flow is trustworthy.** T-022 and
+  T-023 are checks/won't-fix dressed as build tickets; T-025 may be R2. Reasoning in `b3385ef`.
 
 ## NEXT
 
-1. **Re-review the working tree** (the fixes for the 9 findings are unreviewed), then commit + push.
-   Nothing from this session is landed. Suggested commits: the classifier fix, the ADR-011
-   rejection + revert, the docs/findings batch.
-2. **Decide T-026** — one owner call, blocks nothing else.
+1. **Re-review `757bda5..b3385ef`** — the fixes for the 9 review findings were never themselves
+   reviewed. Do this before building anything new on the classifier.
+2. **Triage the ticket list** and **decide T-026** — both are owner calls, ~15 minutes, block nothing.
 3. **Finish the run list** (`docs/r1/tickets.md`, "First owner-driven browser session") — rows
    **2, 3, 4, 6** are unrun. Needs the owner in a browser; rows 3–4 are T-020's only evidence, and
-   row 6 now re-tests the changed classifier.
+   row 6 now doubles as the live test of the changed classifier.
 4. Then **T-017** (review panel UI) — reuses T-016's EventSource pattern, now proven live.
 
 **Standing setup note:** two terminals — `cd server && ./.venv/bin/uvicorn app.main:app --reload
