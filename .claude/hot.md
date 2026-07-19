@@ -21,8 +21,8 @@ are in `CLAUDE.md`; scope in `cleanmuzik-prd.md`. Not restated here.
 
 ## Current State (2026-07-19)
 
-- **On `main`, clean**, through `2cd39f5`. Server suite **309 green**; client suite **4 green**
-  (new — `npm run test` in `client/`).
+- **On `main`, clean and pushed** through `ba3fe51`. Server suite **309 green**; client suite
+  **4 green** (new — `npm run test` in `client/`).
 - **The owner's dev servers are up**: `uvicorn --reload` on 8137, Vite on 8137's proxy. Note the
   hazard now in `CLAUDE.md`: editing `db.py` re-runs the lifespan against the **live** DB.
 - Ledger: **T-016, T-028 done**; **T-024 built** (needs browser row 7); open = T-017, T-019, T-020,
