@@ -1,9 +1,21 @@
+/// <reference types="vitest/config" />
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
+  test: {
+    // jsdom, not the browser: these tests cover the stateful logic a click-through
+    // can't reliably reach — the resolve-body shapes, the 409 double-click race,
+    // and the settle-on-stream-close path that has no terminal event. Visual and
+    // real-EventSource behaviour is still the owner's browser session's job
+    // (T-019/T-020); this is the net under the parts that bit us three times.
+    environment: 'jsdom',
+    globals: true,
+    setupFiles: './src/test/setup.ts',
+    css: false,
+  },
   server: {
     // Same-origin API in dev: the frontend fetches /api/* and Vite forwards it
     // to the FastAPI/uvicorn backend. SSE (T-016) needs no buffering, so the
