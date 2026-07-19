@@ -743,6 +743,35 @@ def test_get_reviews_lists_a_parked_song_with_its_shape(client, monkeypatch):
     assert row["candidates"][0]["candidate_id"] == "rec-A"
 
 
+def test_get_single_review_returns_its_hydrated_shape(client, monkeypatch):
+    # The narrow read the card uses to re-hydrate one panel (T-017) — same row shape
+    # as the list route, one row not the queue.
+    _, review, _ = _parked(client.store, client.tmp_path, candidate_ids=("rec-A",))
+    monkeypatch.setattr(reviews_mod, "_hydration_cache", {})
+    import beets.metadata_plugins as mp
+
+    monkeypatch.setattr(
+        mp, "track_for_id", lambda mbid, src: type("TI", (), {"title": "S", "artist": "B"})()
+    )
+    row = client.get(f"/api/reviews/{review.id}").json()
+    assert set(row) == {"review_id", "job_id", "query", "rec", "candidates"}
+    assert row["review_id"] == review.id
+    assert row["rec"] == "medium"
+    assert row["candidates"][0]["candidate_id"] == "rec-A"
+
+
+def test_get_single_review_404_when_gone(client):
+    assert client.get("/api/reviews/nope").status_code == 404
+
+
+def test_get_single_review_404_once_resolved(client):
+    # A resolved/claimed row is no longer resolvable, so the panel must not render
+    # controls over it — the endpoint reports it gone rather than serving a stale row.
+    _, review, _ = _parked(client.store, client.tmp_path)
+    client.store.claim_review(review.id)  # → "resolving", no longer pending
+    assert client.get(f"/api/reviews/{review.id}").status_code == 404
+
+
 def test_resolve_unknown_review_404(client):
     assert client.post("/api/reviews/nope/resolve", json={"choice": "reject"}).status_code == 404
 

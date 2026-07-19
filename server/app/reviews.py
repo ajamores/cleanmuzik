@@ -229,6 +229,40 @@ _hydration_cache: dict[str, dict] = {}
 _hydration_lock = threading.Lock()
 
 
+def hydrate_review(store: Store, review_id: str) -> dict | None:
+    """One pending review, shaped like a `GET /api/reviews` row (spec §6, T-017).
+
+    The narrow read behind `GET /api/reviews/{id}`. Two callers need one row, not the
+    queue:
+
+      - the card re-hydrates a single panel when it has lost the live payload — a
+        stream drop, or a process restart, which wipes the in-memory SSE channel the
+        panel's candidates rode in on (the durable row survives; the event doesn't);
+      - the duplicate panel reads its one row's existing-vs-incoming detail without
+        triggering `hydrate_reviews`' per-candidate MusicBrainz pass over *every other*
+        parked review (the cost that route's own callers must eat).
+
+    Returns None when the row is gone or already resolved (→ 404), so a stale panel
+    reads as "not here" rather than rendering controls over a review that can no
+    longer be resolved.
+    """
+    from app.db import REVIEW_PENDING
+
+    review = store.get_review(review_id)
+    if review is None or review.status != REVIEW_PENDING:
+        return None
+    with _hydration_lock:
+        lib = None
+        if review.rec == DUPLICATE_REC:
+            from app.import_seam import get_library
+
+            try:
+                lib = get_library()
+            except Exception as exc:  # noqa: BLE001 — a bad library still lists the row bare
+                logger.warning("library open failed for review %s: %s", review_id, exc)
+        return _hydrate(review, lib)
+
+
 def hydrate_reviews(store: Store) -> list[dict]:
     """Every pending review, shaped for `GET /api/reviews` (spec §6).
 

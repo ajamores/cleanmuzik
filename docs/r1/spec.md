@@ -182,7 +182,8 @@ some of it is tempting to fold in now.
 | `POST` | `/api/jobs` | `{ "url": "<one youtube song url>" }` | `{ "job_id": "<id>" }`. Rejects playlist URLs with 422. |
 | `GET` | `/api/jobs/{job_id}/events` | — | **SSE stream** (see below) for that job. |
 | `GET` | `/api/jobs/{job_id}` | — | Job status snapshot (for reconnect / SSE fallback). |
-| `GET` | `/api/reviews` | — | Parked reviews: `[{ review_id, job_id, query, candidates[] }]`. |
+| `GET` | `/api/reviews` | — | Parked reviews: `[{ review_id, job_id, query, rec, candidates[] }]` (a `duplicate` row also carries `duplicate`). |
+| `GET` | `/api/reviews/{review_id}` | — | One hydrated pending review (same row shape); `404` if gone/resolved. The card re-hydrates a lost panel from this after a stream drop/restart; the duplicate panel reads its one row without re-hydrating the whole queue (T-017). |
 | `POST` | `/api/reviews/{review_id}/resolve` | see the two body shapes below | `{ "ok": true }`; resumes the import. |
 | `GET` | `/api/health` | — | `{ "status": "ok" }`. |
 
@@ -229,7 +230,7 @@ One stream per job. Names are stable; the UI keys the track card off them.
 - `track.downloading` → `{ job_id, pct? }`
 - `track.transcoding` → `{ job_id }`
 - `track.identifying` → `{ job_id }`
-- `track.review_required` → `{ job_id, review_id, query, candidates: [ { candidate_id, title, artist, score } ] }` — ADR-010: no album/year/art_url; a recording lookup can't reach them.
+- `track.review_required` → `{ job_id, review_id, rec, query, candidates: [ { candidate_id, title, artist, score } ] }` — ADR-010: no album/year/art_url; a recording lookup can't reach them. `rec` is the row's recommendation (`"none"`/`"low"`/… for a weak match, `"duplicate"` for a "keep-which-copy" park), so the card knows *which question* to render without a `GET /api/reviews` round-trip (T-017). The duplicate branch's existing-vs-incoming detail is not in the event — it needs a library read — so `rec == "duplicate"` is the card's cue to fetch that detail; a weak match renders from the inline candidates alone.
 - `track.tagging` → `{ job_id, chosen: { title, artist, album, year } }` — the *accepted* match, unlike a candidate, has been through beets' full apply, so its album/year are real.
 - `track.done` → `{ job_id, path, tags: { title, artist, album, year, genre, has_art, has_lyrics } }`
 - `track.error` → `{ job_id, stage: "download|transcode|identify|tag|land|scan", message }`

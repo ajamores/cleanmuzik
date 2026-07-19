@@ -17,7 +17,12 @@ import logging
 from fastapi import APIRouter, HTTPException, Request
 
 from app.db import get_store
-from app.reviews import ResolveValidationError, hydrate_reviews, validate_resolve_body
+from app.reviews import (
+    ResolveValidationError,
+    hydrate_review,
+    hydrate_reviews,
+    validate_resolve_body,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +40,21 @@ async def list_reviews(request: Request) -> list[dict]:
     of a download. ADR-001 governs the *pipeline*, which this isn't.
     """
     return await asyncio.to_thread(hydrate_reviews, get_store())
+
+
+@router.get("/reviews/{review_id}")
+async def get_review_row(review_id: str, request: Request) -> dict:
+    """One pending review, hydrated (spec §6, T-017). 404 if it is gone or resolved.
+
+    Off the loop for the same reason as the list route — a weak-match row does a
+    MusicBrainz lookup per candidate — but narrow by construction: one row, not the
+    queue. The card re-hydrates a single panel after a stream drop or a restart
+    without paying every other parked review's network cost.
+    """
+    row = await asyncio.to_thread(hydrate_review, get_store(), review_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail=f"No pending review {review_id}.")
+    return row
 
 
 @router.post("/reviews/{review_id}/resolve")

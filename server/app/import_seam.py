@@ -348,6 +348,10 @@ class Outcome:
     gap: float
     track_id: str | None = None  # the accepted recording MBID (landed)
     review_id: str | None = None  # the parked review row id (parked)
+    rec: str | None = None  # parked: the row's `rec`, so the SSE event can tell the
+    # card WHICH question to render — a weak/ambiguous match ("none"/"low"/…) vs a
+    # "duplicate" (T-017). The card would otherwise have to fetch GET /api/reviews just
+    # to discriminate; carrying it here keeps the common weak-match path fetch-free.
     art_embedded: bool = False  # Door B: did a cover land on the file (landed only)
     # --- T-013 SSE payloads, sourced where the data is in hand ------------------
     chosen: dict | None = None  # landed: {title, artist, album, year} of the match
@@ -664,6 +668,7 @@ class FingerprintTrustSession(ImportSession):
                 top_score=dominance.top_score,
                 gap=dominance.gap,
                 review_id=review.id,
+                rec=rec,
                 candidates=candidates or [],
             )
         )

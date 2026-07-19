@@ -307,6 +307,7 @@ def run_pipeline(
                 bus.publish(job_id, "track.review_required", {
                     "job_id": job_id,
                     "review_id": parked.id,
+                    "rec": parked.rec,
                     "query": query,
                     "candidates": _id_only_candidates(parked.candidate_ids),
                 })
@@ -326,6 +327,7 @@ def run_pipeline(
             bus.publish(job_id, "track.review_required", {
                 "job_id": job_id,
                 "review_id": parked.review_id,
+                "rec": parked.rec,
                 "query": query,
                 "candidates": parked.candidates or [],
             })

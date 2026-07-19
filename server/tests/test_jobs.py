@@ -284,7 +284,7 @@ def test_sse_parked_emits_review_required_with_candidates(tmp_path):
     from app.events import candidate_row
 
     candidates = [candidate_row("rec-A", title="Song", artist="Band", score=0.8)]
-    parked = Outcome("parked", 0.2, 0.0, review_id="rev-9", candidates=candidates)
+    parked = Outcome("parked", 0.2, 0.0, review_id="rev-9", rec="medium", candidates=candidates)
     state, events = _events_after_run(tmp_path, import_fn=lambda *a, **k: [parked])
     assert state.status == "review"
     assert [name for name, _ in events] == [
@@ -296,6 +296,7 @@ def test_sse_parked_emits_review_required_with_candidates(tmp_path):
     ]
     rr = dict(events)["track.review_required"]
     assert rr["review_id"] == "rev-9"
+    assert rr["rec"] == "medium"  # the card reads this to pick weak-match vs duplicate (T-017)
     assert rr["query"] == ""  # a 3-byte fake mp3 has no readable title → empty query
     assert rr["candidates"][0]["candidate_id"] == "rec-A"
     assert rr["candidates"][0]["score"] == 0.8

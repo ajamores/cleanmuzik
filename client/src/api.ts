@@ -57,6 +57,110 @@ export async function getJob(jobId: string): Promise<JobSnapshot> {
   return request<JobSnapshot>(`/api/jobs/${encodeURIComponent(jobId)}`)
 }
 
+// --- reviews (spec §6, T-017) -----------------------------------------------
+
+/**
+ * A weak-match candidate. **No album/year/art** — a candidate is a MusicBrainz
+ * *recording* and those are release properties (ADR-010), so they aren't in the
+ * contract. `score` is beets' tag distance against this download — the
+ * discriminator the owner picks on, `null` only for a pre-T-028 row.
+ */
+export interface ReviewCandidate {
+  candidate_id: string | null
+  title: string | null
+  artist: string | null
+  score: number | null
+}
+
+/** A copy already in the library, in a duplicate review (read off the beets item). */
+export interface DuplicateExisting {
+  path: string | null
+  bitrate: number
+  title: string | null
+  artist: string | null
+  album: string | null
+}
+
+/** The just-downloaded copy. `exists: false` is real, not an error: a temp-dir
+ *  sweep can take the staging file while the row survives (the landing branches
+ *  will 409, so the owner must see it). */
+export interface DuplicateIncoming {
+  exists: boolean
+  bitrate: number
+  title: string | null
+  artist: string | null
+}
+
+export interface DuplicateDetail {
+  existing: DuplicateExisting[]
+  incoming: DuplicateIncoming
+}
+
+/** One row of `GET /api/reviews`. `rec === "duplicate"` selects the keep-which
+ *  branch and carries `duplicate`; every other `rec` is a weak match with
+ *  `candidates`. */
+export interface ReviewRow {
+  review_id: string
+  job_id: string
+  query: string
+  rec: string
+  candidates: ReviewCandidate[]
+  duplicate?: DuplicateDetail
+}
+
+/**
+ * `GET /api/reviews` — the whole parked queue.
+ *
+ * T-017 hits this **only for a duplicate** review, to get the existing-vs-incoming
+ * detail the SSE event can't carry (it needs a library read). A weak match renders
+ * straight from the `track.review_required` payload, so it never pays this route's
+ * rate-limited per-candidate MusicBrainz re-hydration.
+ */
+export async function listReviews(): Promise<ReviewRow[]> {
+  return request<ReviewRow[]>('/api/reviews')
+}
+
+/**
+ * `GET /api/reviews/{id}` — one hydrated review, or a 404 `ApiError` if it is gone
+ * or already resolved.
+ *
+ * The narrow read the card falls back to when it has lost the live payload — a
+ * stream drop, or a process restart that wiped the SSE channel the candidates rode
+ * in on. Unlike {@link listReviews} it costs only this row's hydration, not the
+ * whole queue's.
+ */
+export async function getReview(reviewId: string): Promise<ReviewRow> {
+  return request<ReviewRow>(`/api/reviews/${encodeURIComponent(reviewId)}`)
+}
+
+/** The two resolve body shapes (spec §6), keyed by the review's `rec`. A weak
+ *  match sends a `candidate_id` or `"reject"`; a duplicate sends one of the three
+ *  keep-which choices, with a `suffix` required for (and only for) `keep_both`. */
+export type ResolveBody =
+  | { choice: string }
+  | { choice: 'keep_existing' }
+  | { choice: 'replace' }
+  | { choice: 'keep_both'; suffix: string }
+
+/**
+ * `POST /api/reviews/{id}/resolve` — apply the owner's decision and resume the
+ * import. Returns as soon as the work is handed to the worker; by then the job's
+ * SSE channel is reopened, so the caller can open a fresh EventSource immediately.
+ */
+export async function resolveReview(
+  reviewId: string,
+  body: ResolveBody,
+): Promise<{ ok: boolean }> {
+  return request<{ ok: boolean }>(
+    `/api/reviews/${encodeURIComponent(reviewId)}/resolve`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    },
+  )
+}
+
 /** Fetch + the error contract every route shares: an ApiError with the server's
  *  own `detail` when there is one, a reachability hint when there isn't. */
 async function request<T>(path: string, init?: RequestInit): Promise<T> {

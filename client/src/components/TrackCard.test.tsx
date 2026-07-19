@@ -8,11 +8,25 @@
  * connection triggers exactly one snapshot per outage (not one per retry).
  */
 
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { TrackCard } from './TrackCard'
 import { FakeEventSource, installFakeEventSource } from '../test/fakeEventSource'
+
+function jsonResponse(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { 'Content-Type': 'application/json' },
+  })
+}
+
+const PARKED = {
+  review_id: 'rev-1',
+  rec: 'low',
+  query: 'nines outro',
+  candidates: [{ candidate_id: 'rec-A', title: 'Outro', artist: 'Nines', score: 0.46 }],
+}
 
 beforeEach(() => {
   installFakeEventSource()
@@ -44,6 +58,71 @@ describe('stream lifecycle T-017 must not break', () => {
     const es = renderCard()
     es.emit('track.review_required', { review_id: 'rev-1' })
     await waitFor(() => expect(es.closed).toBe(true))
+  })
+
+  it('renders the review panel from the stream payload', async () => {
+    const es = renderCard()
+    es.emit('track.review_required', PARKED)
+    await waitFor(() => expect(screen.getByText('Outro')).toBeInTheDocument())
+    // From the SSE event alone — no GET /api/reviews round-trip for a weak match.
+    expect(screen.getByRole('button', { name: /accept/i })).toBeInTheDocument()
+  })
+
+  it('re-hydrates the review panel from a snapshot when the stream never delivered it (restart)', async () => {
+    // A process restart wipes the in-memory channel, so the fresh stream never
+    // replays track.review_required — `review` stays null. The snapshot says the job
+    // is parked; the card must fetch the row and render the panel, not a dead note.
+    vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
+      const url = String(input)
+      if (url.includes('/api/reviews/'))
+        return Promise.resolve(
+          jsonResponse({
+            review_id: 'rev-1',
+            job_id: 'job-1',
+            query: 'nines outro',
+            rec: 'low',
+            candidates: [{ candidate_id: 'rec-A', title: 'Outro', artist: 'Nines', score: 0.46 }],
+          }),
+        )
+      if (url.includes('/api/jobs/'))
+        return Promise.resolve(
+          jsonResponse({ job_id: 'job-1', status: 'review', review_id: 'rev-1' }),
+        )
+      throw new Error(`unexpected fetch: ${url}`)
+    })
+
+    const es = renderCard()
+    es.fail() // stream drops with no terminal event delivered
+    await waitFor(() => expect(screen.getByText('Outro')).toBeInTheDocument())
+    expect(screen.getByRole('button', { name: /accept/i })).toBeInTheDocument()
+  })
+
+  it('re-subscribes on resolve with a fresh stream that keeps the reconcile fallback', async () => {
+    // POST /resolve → ok; the resume then settles via the snapshot (a reject-style
+    // branch emits no terminal event, so stream-close + GET /api/jobs is the signal).
+    vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
+      const url = String(input)
+      if (url.includes('/resolve')) return Promise.resolve(jsonResponse({ ok: true }))
+      if (url.includes('/api/jobs/'))
+        return Promise.resolve(jsonResponse({ job_id: 'job-1', status: 'done' }))
+      throw new Error(`unexpected fetch: ${url}`)
+    })
+
+    const es1 = renderCard()
+    es1.emit('track.review_required', PARKED)
+    await waitFor(() => expect(es1.closed).toBe(true))
+
+    fireEvent.click(await screen.findByRole('button', { name: /accept/i }))
+
+    // A FRESH EventSource opens for the resume episode — not a reused/naive stream.
+    await waitFor(() => expect(FakeEventSource.instances).toHaveLength(2))
+    const es2 = FakeEventSource.latest()
+    expect(es2.url).toBe('/api/jobs/job-1/events')
+
+    // The resume emits no terminal event (reject/keep_existing shape); the fresh
+    // stream must still settle via the one-shot snapshot rather than loop forever.
+    es2.fail()
+    await waitFor(() => expect(screen.getByText('Done')).toBeInTheDocument())
   })
 
   it('takes one snapshot per outage, not one per failed retry', async () => {
