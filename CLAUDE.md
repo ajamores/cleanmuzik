@@ -81,12 +81,27 @@ setup + run commands live in **`server/README.md`** — don't duplicate them her
 `uvicorn app.main:app --reload` serves `GET /api/health`; secrets load from the git-ignored
 **repo-root** `.env` (spec §6, template in `.env.example`).
 
-There is no automated test runner wired yet; `requirements-dev.txt` adds the FastAPI `TestClient`
-used to verify routes without a socket. **This sandbox blocks live sockets, so `TestClient` is this
-repo's `/verify` handle** — it still drives the real pipeline (real yt-dlp/ffmpeg/fpcalc/AcoustID
-over real HTTP + SSE), so it satisfies the observable-artifact bar below; a live `localhost`
-browser round-trip is simply not drivable here. Isolate `DB_PATH` + the beets library to a temp dir
-when verifying, or the run pollutes the real library.
+There is no automated test runner wired yet; `requirements-dev.txt` adds the FastAPI `TestClient`,
+which drives the real pipeline (real yt-dlp/ffmpeg/fpcalc/AcoustID) without needing a server up.
+
+**`localhost` HTTP is reachable from here — the earlier claim that "this sandbox blocks live
+sockets" was wrong** (disproved 2026-07-19 by `curl`-ing the owner's running `uvicorn`; see
+`docs/learnings.md`). So `/verify` has two handles, and the second was unavailable only in theory:
+
+- **`TestClient`** — no server needed, best for route/pipeline logic.
+- **The running server over HTTP** — `curl http://localhost:8137/...`, including `POST /api/jobs`,
+  SSE, and the review endpoints. This exercises the real ASGI stack, the real DB, and the real
+  Vite proxy target. Prefer it when the question is "does the deployed thing behave".
+
+What still genuinely needs the owner is a **browser**: DOM rendering, `EventSource` reconnect
+behaviour, DevTools offline toggling, and anything visual in Jellyfin. Scope tickets against *that*
+line, not against a socket wall that doesn't exist.
+
+Two standing hazards when verifying:
+- **Isolate `DB_PATH` + the beets library to a temp dir**, or the run pollutes the real library.
+- **Check for a running dev server first** (`pgrep -af uvicorn`). It runs with `--reload`, so
+  editing a module that mutates state at startup — `db.py` especially — re-runs the lifespan
+  against the **live** database within seconds, unprompted.
 
 There is no root-level workspace tooling — packages are managed independently.
 

@@ -631,11 +631,20 @@ class FingerprintTrustSession(ImportSession):
         `candidate_ids` and `rec`.
 
         `candidates` is the rich per-candidate payload for T-013's
-        `track.review_required` event (title/artist/album/…), distinct from the bare
+        `track.review_required` event (title/artist/…), distinct from the bare
         `candidate_ids` persisted to the row: the DB keeps only MBIDs (ADR-006), while
         the SSE event carries the display fields that are in hand *right now* so the
         card can render without a re-hydration round-trip. A duplicate park has no
         such candidates (it's a "keep which copy?" prompt), so it defaults to empty.
+
+        **`score` is the one exception to "MBIDs only" (T-028 / ADR-010 addendum).**
+        The other display fields are re-derivable from a recording lookup; `score` is
+        beets' tag distance between *this download* and the candidate, so it exists
+        only here, at park time. Dropping it left `GET /api/reviews` returning
+        `score: null` forever — the discriminator ADR-010 says the owner picks on,
+        absent from the queue that exists to be picked from. The map is derived from
+        the same `candidates` rows the event uses, so the stored and streamed scores
+        cannot disagree.
         """
         review = self.store.create_review(
             job_id=self.job_id,
@@ -643,6 +652,11 @@ class FingerprintTrustSession(ImportSession):
             query=self.normalized_query,
             candidate_ids=candidate_ids,
             rec=rec,
+            candidate_scores={
+                row["candidate_id"]: row["score"]
+                for row in (candidates or [])
+                if row.get("candidate_id") and row.get("score") is not None
+            },
         )
         self.outcomes.append(
             Outcome(

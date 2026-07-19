@@ -537,3 +537,49 @@ Nothing could be tested at all until they were fixed:
 - **Done when:** either a URL is found that produces a playlist-shaped result (then: guard it, and
   the card reports the Download stage honestly), or it is demonstrated that `noplaylist=True` makes
   the shape unreachable — and that demonstration is recorded here, closing the ticket.
+
+### T-028 — Persist candidate `score`: the queue can't supply the field ADR-010 picks on
+- **Status:** **BUILT (2026-07-19) — unblocks T-017.** Found by reading T-017's ticket against the
+  payload it needs (the ADR-010 acceptance check), not by any code review. 8 tests in
+  `tests/test_review_scores.py`, suite 309 green. **Receipt:** the owner's live DB was migrated in
+  place — the running `uvicorn --reload` picked up the `db.py` edit, re-ran its lifespan, and
+  `_migrate` added the column with the pending `Outro` review and its 5 candidate ids intact
+  (confirmed via a live `GET /api/reviews`). What remains for **done** is a *new* park writing a
+  non-null score end to end, which needs one real download.
+- **The bug, observed live.** That surviving review is a clean demonstration of why this ticket
+  exists: its candidates include `Nines — "Nines SBTV Bars 2015"` and `Nines — "Nines Freestyle
+  2007"` — two rows reading nearly alike — with `score: null` on both. That is ADR-010's "chosen
+  between on `score` alone" with the field empty. The row keeps its nulls (it predates the column);
+  new parks won't.
+- **Depends on:** T-014
+- **Agent:** back-end
+- **What:** ADR-010 makes `score` load-bearing — *"`score` is the discriminator"*, with the accepted
+  cost that *"two identical-reading candidates must be chosen between on `score` alone."* But
+  `GET /api/reviews`, which is the review panel's only data source, returns **`score: null` always**:
+  - `db.py:14` — `candidate_ids_json` is *"a JSON array of MBID strings, nothing more"*. The score is
+    computed at park time (`import_seam._candidate_rows:823`, `1.0 - distance`), emitted once on the
+    `track.review_required` SSE event, and **never persisted**.
+  - `reviews.py:307` — the re-hydration path states it outright: *"score stays null: a recording
+    lookup carries no per-candidate tag distance."*
+  So the discriminator exists only in the live SSE moment. Reload the page and it is gone.
+- **Why that is not survivable:** spec §7 requires *"restart preserves reviews"*, so the queue's
+  normal case is being worked **later** — exactly when `score` is null. Building T-017 as written
+  ships a picker that shows its discriminator only if you happened to be watching.
+- **This is the ADR-010/ADR-011 failure class, caught in time for once.** A decision recorded whose
+  payload cannot deliver it. The DoD's acceptance check says: *if the ticket asks for something the
+  spec's payload can't deliver, stop and amend, don't build the nearest thing.* Hence this ticket
+  rather than a null-tolerant panel.
+- **Fix:** persist the score at park time. **Add `candidate_scores_json` — a map of MBID → score —
+  not an id+score array.** The map avoids duplicating the id list and cannot drift out of order with
+  `candidate_ids_json`; a missing key degrades to `None`, which is exactly today's behaviour, so
+  legacy rows and duplicate parks (which have no scores) need no special case.
+- **Migration, not a recreate:** the live DB has **1 pending review** (row 5's parked track) and
+  spec §7 promises it survives. `db.py` has no migration mechanism — only `CREATE TABLE IF NOT
+  EXISTS` — so this needs an idempotent `ALTER TABLE ... ADD COLUMN` guarded on the column being
+  absent. The legacy row keeps `score: null`, which is what it has today.
+- **Done when:** a track parks, the server is restarted, `GET /api/reviews` still returns a non-null
+  `score` for each candidate, and the pre-existing pending review still lists (with null scores)
+  rather than disappearing or 500ing. **Second half done** (live `GET /api/reviews` above); the
+  first half needs one real download that parks — **row 8 on the browser run list**, or a direct
+  `POST /api/jobs` against the running server, which is now known to work (see `learnings.md`,
+  2026-07-19: localhost sockets are *not* blocked).

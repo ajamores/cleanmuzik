@@ -190,6 +190,22 @@ Format: `ADR-NNN — decision. Rationale. [date]`
   (Owner decision; found by reading T-016's diff against its ticket text, not by any code review —
   see the Definition of Done's acceptance check in `CLAUDE.md`.) [2026-07-17]
 
+  - **ADR-010 addendum — `score` must be *persisted*, or this decision is unimplementable (T-028).**
+    The decision above rests on `score` being the discriminator and "free". It was free at park
+    time and thrown away immediately: the DB stored bare MBIDs (`db.py:14`), so `GET /api/reviews`
+    re-hydrated from MusicBrainz and returned **`score: null` on every row** (`reviews.py:307` — a
+    recording lookup carries no tag distance). The discriminator therefore existed only during the
+    live `track.review_required` event, while spec §7 requires *"restart preserves reviews"* — so
+    the queue's normal case, worked later, was precisely the case with no discriminator. **This is
+    the same failure as ADR-011 and as ADR-010's own origin: a decision whose payload cannot deliver
+    it.** It was caught before T-017 built on it, by running the DoD acceptance check on T-017's
+    ticket rather than reviewing a diff — which is the third time that check has found what no code
+    review could, and the reason it is a separate step. Remedy: persist scores at park time as a
+    **MBID → score map** (`candidate_scores_json`), chosen over an id+score array because it cannot
+    drift out of order with the id list and a missing key degrades to `None` — the existing
+    behaviour — so legacy rows and duplicate parks need no special case. (Owner decision,
+    2026-07-19.) [2026-07-19]
+
 - **ADR-011 — REJECTED (same night it was written). `original_date: yes` is NOT the fix for reissue
   years; it is inert on this product's path.** Kept, not deleted, because the reasoning below is
   sound and the *problem* is real — only the remedy was wrong, and the next person to notice a

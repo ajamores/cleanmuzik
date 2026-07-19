@@ -279,20 +279,27 @@ def _hydrate(review: Review, lib=None) -> dict:
         if review.rec == DUPLICATE_REC:
             row["duplicate"] = _duplicate_detail(review, lib)
         else:
-            row["candidates"] = [_candidate(cid) for cid in review.candidate_ids]
+            row["candidates"] = [
+                _candidate(cid, review.candidate_scores.get(cid))
+                for cid in review.candidate_ids
+            ]
     except Exception as exc:  # noqa: BLE001 — one bad row must not blank the queue
         logger.warning("could not hydrate review %s (%s) — listing it bare", review.id, exc)
     return row
 
 
-def _candidate(recording_id: str) -> dict:
+def _candidate(recording_id: str, score: float | None = None) -> dict:
     """A candidate row re-hydrated from its MBID, degrading to id-only on failure.
 
     `events.candidate_row` builds it either way, so the key set is identical whether
     the lookup succeeded — the UI never has to branch on which path produced the row.
+
+    `score` is passed in from the review row, not looked up (T-028): it is the tag
+    distance measured against *this download* at park time, which no recording lookup
+    can recover. `None` for a row written before T-028.
     """
     if (cached := _hydration_cache.get(recording_id)) is not None:
-        return cached
+        return {**cached, "score": score}
     try:
         from beets import metadata_plugins
 
@@ -303,18 +310,20 @@ def _candidate(recording_id: str) -> dict:
     if info is None:
         # Not cached: a merged MBID stays gone, but a rate-limited one comes back, and
         # remembering the failure would make a transient blip permanent for the process.
-        return candidate_row(recording_id)
-    # score stays null: a recording lookup carries no per-candidate tag distance
-    # (the park-time SSE row has it; this re-hydration path does not). album / year /
-    # art_url are gone from the contract entirely — a recording is not a release
-    # (ADR-010), so they were never reachable here to begin with.
+        return candidate_row(recording_id, score=score)
+    # album / year / art_url are gone from the contract entirely — a recording is not
+    # a release (ADR-010), so they were never reachable here to begin with. `score`
+    # comes from the caller, not from `info`, and is deliberately NOT cached below:
+    # the cache is keyed by recording id, and the same recording can be parked by two
+    # different downloads at two different distances. Caching it would serve one
+    # review's score to another.
     row = candidate_row(
         recording_id,
         title=getattr(info, "title", None),
         artist=getattr(info, "artist", None),
     )
     _hydration_cache[recording_id] = row
-    return row
+    return {**row, "score": score}
 
 
 def _duplicate_detail(review: Review, lib=None) -> dict:

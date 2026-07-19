@@ -422,3 +422,31 @@ Format: `- <date> — what went wrong → the correction / rule now in place`
   **assert the behaviour, not the class that implements it** (here: "some YouTube extractor
   claims this", not "this exact one does"), or the test breaks on refactors while missing the bug.
   (Caught by running the test, which is the only reason it was caught.)
+- 2026-07-19 — **`localhost` sockets are NOT blocked in this sandbox; `CLAUDE.md` said they were,
+  and that claim shaped four tickets' worth of verification.** While checking T-028's migration, a
+  plain `curl http://localhost:8137/api/reviews` against the owner's running `uvicorn` returned the
+  real JSON — a full HTTP round-trip, no `TestClient` involved. `CLAUDE.md` had asserted "this
+  sandbox blocks live sockets, so `TestClient` is this repo's `/verify` handle", and that sentence
+  is why T-016's stream reattach, T-020's whole scope, and the browser run list were all filed as
+  "needs the owner in a browser". Some of that is still true — *driving a DOM* needs a browser —
+  but **anything reachable over HTTP was drivable all along**, including `POST /api/jobs`, the SSE
+  stream, and the review endpoints. Rule: **an environment limit is a claim, and a claim that
+  routes work away from you deserves one cheap test before it is written into the rules file.**
+  The cost of checking was one `curl`; the cost of not checking was months of tickets scoped around
+  a wall that wasn't there. Corollary: the tell was that nobody ever recorded the *symptom* — no
+  connection-refused, no timeout, just an inherited "sandbox blocks sockets". A limit with no
+  observed failure behind it is a rumour. (Found incidentally, chasing an unrelated question about
+  which process migrated the live DB.)
+- 2026-07-19 — **A running `uvicorn --reload` will silently migrate the owner's live database the
+  moment you edit the schema module.** Adding `_migrate()` to `db.py:init_schema` was meant to be
+  inert until the next boot. But the owner's dev server was up with `--reload`, so saving the file
+  triggered a reload, which re-ran the lifespan, which called `init_schema()` — and the live DB
+  gained its new column within seconds of the edit, with no command issued and no output seen. It
+  worked, and the pending review survived, but that was luck rather than design: had the migration
+  been destructive it would have run against real data before a single test did. Rules: **check for
+  a running dev server before editing anything that mutates state at startup** (`pgrep -af uvicorn`
+  costs nothing), and **test a migration against a copy first, on purpose, rather than discovering
+  afterwards that production already ran it.** The confusion this caused is its own tell — several
+  minutes went into "which test touched the live DB?" when no test had; the answer was a process
+  nobody had accounted for. When state changes and no command you ran explains it, **look for the
+  daemon before doubting the code.**

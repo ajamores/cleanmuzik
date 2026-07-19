@@ -11,7 +11,16 @@ Two deliberate shape choices:
 - **Store candidate *IDs*, never rich candidate objects** (ADR-006 corollary /
   spec §5). A cached MusicBrainz candidate object would go stale and bloats the
   row; the resume path (T-014) re-matches from the stored MBIDs instead. So
-  `reviews.candidate_ids_json` is a JSON array of MBID strings, nothing more.
+  `reviews.candidate_ids_json` is a JSON array of MBID strings — **plus one
+  exception, `candidate_scores_json`** (T-028 / ADR-010 addendum): the per-candidate
+  score, a MBID → float map. It is the one field that cannot be re-derived, because
+  it is beets' *tag distance against this download* — not a property of the
+  recording — so a MusicBrainz re-lookup can never recover it. ADR-010 makes it the
+  discriminator the owner picks on, and spec §7 says the queue survives a restart;
+  storing it is what makes those two true at the same time. A map rather than a
+  parallel array so it cannot drift out of order with `candidate_ids_json`, and a
+  missing key degrades to `None` — which is the pre-T-028 behaviour, so legacy rows
+  and duplicate parks need no special case.
 - **A connection per operation, not one shared handle.** The backend runs the
   pipeline on a worker thread (spec §4) while FastAPI serves routes on the event
   loop; a single sqlite3 connection isn't safe to share across threads. Opening
@@ -27,7 +36,7 @@ import json
 import sqlite3
 import uuid
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
@@ -46,15 +55,39 @@ CREATE TABLE IF NOT EXISTS jobs (
 );
 
 CREATE TABLE IF NOT EXISTS reviews (
-    id                 TEXT PRIMARY KEY,
-    job_id             TEXT NOT NULL REFERENCES jobs(id),
-    staging_path       TEXT NOT NULL,
-    query              TEXT NOT NULL,
-    candidate_ids_json TEXT NOT NULL,
-    rec                TEXT NOT NULL,
-    status             TEXT NOT NULL
+    id                    TEXT PRIMARY KEY,
+    job_id                TEXT NOT NULL REFERENCES jobs(id),
+    staging_path          TEXT NOT NULL,
+    query                 TEXT NOT NULL,
+    candidate_ids_json    TEXT NOT NULL,
+    candidate_scores_json TEXT,
+    rec                   TEXT NOT NULL,
+    status                TEXT NOT NULL
 );
 """
+
+# Columns added after the first release, as (table, column, DDL type). Applied by
+# `_migrate` on every connect for a DB that predates them — `CREATE TABLE IF NOT
+# EXISTS` is a no-op on an existing table, so a new column in `_SCHEMA` above
+# would silently never appear on the owner's live DB. Nullable with no default,
+# so an old row reads as "unknown", which is what it is.
+_ADDED_COLUMNS = [
+    ("reviews", "candidate_scores_json", "TEXT"),  # T-028
+]
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    """Add any `_ADDED_COLUMNS` missing from an existing DB. Idempotent.
+
+    Runs on every `init_schema()`. Needed because `CREATE TABLE IF NOT EXISTS` does
+    nothing to a table that already exists, so a column added to `_SCHEMA` would
+    appear on a fresh checkout and never on the owner's live DB — the one that has
+    the parked reviews spec §7 promises to keep.
+    """
+    for table, column, ddl_type in _ADDED_COLUMNS:
+        present = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
+        if column not in present:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {ddl_type}")
 
 
 @dataclass(frozen=True)
@@ -73,6 +106,13 @@ class Review:
 
     `candidate_ids` is the decoded JSON array: MusicBrainz recording MBIDs, not
     candidate objects (ADR-006). T-014 re-hydrates them on resume.
+
+    `candidate_scores` maps MBID → score (T-028). Empty for a duplicate park (no
+    candidates were scored) and for any row written before T-028; a missing key is
+    `None`, i.e. "unknown", which is what every row returned before this existed.
+    It is stored rather than re-derived because it is the tag distance between
+    *this download* and the candidate — not a property of the recording — so no
+    MusicBrainz lookup can recover it (ADR-010 addendum).
     """
 
     id: str
@@ -82,6 +122,7 @@ class Review:
     candidate_ids: list[str]
     rec: str  # the beets `task.rec` recommendation, recorded as text
     status: str  # "pending" | "resolving" | "resolved" | "rejected" (see STATUS_* below)
+    candidate_scores: dict[str, float] = field(default_factory=dict)
 
 
 # Review lifecycle (T-014). `pending` is what the queue lists and what a resolve
@@ -139,6 +180,7 @@ class Store:
             # anticipates the *.db-wal / *.db-shm sidecars.
             conn.execute("PRAGMA journal_mode = WAL")
             conn.executescript(_SCHEMA)
+            _migrate(conn)
 
     # --- jobs -------------------------------------------------------------
 
@@ -192,6 +234,7 @@ class Store:
         candidate_ids: list[str],
         rec: str,
         status: str = REVIEW_PENDING,
+        candidate_scores: dict[str, float] | None = None,
     ) -> Review:
         review = Review(
             id=uuid.uuid4().hex,
@@ -201,18 +244,21 @@ class Store:
             candidate_ids=candidate_ids,
             rec=rec,
             status=status,
+            candidate_scores=candidate_scores or {},
         )
         with self._connect() as conn:
             conn.execute(
                 "INSERT INTO reviews "
-                "(id, job_id, staging_path, query, candidate_ids_json, rec, status) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                "(id, job_id, staging_path, query, candidate_ids_json, "
+                "candidate_scores_json, rec, status) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     review.id,
                     review.job_id,
                     review.staging_path,
                     review.query,
                     json.dumps(review.candidate_ids),
+                    json.dumps(review.candidate_scores),
                     review.rec,
                     review.status,
                 ),
@@ -334,6 +380,11 @@ def _review_from_row(row: sqlite3.Row) -> Review:
         candidate_ids=json.loads(row["candidate_ids_json"]),
         rec=row["rec"],
         status=row["status"],
+        # NULL on any row written before T-028, and on a DB whose ALTER hasn't run
+        # yet. Decodes to {} → every score reads `None`, which is what this endpoint
+        # returned for every row before T-028 existed. Degrade, never raise: a queue
+        # that 500s is a queue the owner can't empty (`_hydrate`'s rule).
+        candidate_scores=json.loads(row["candidate_scores_json"] or "{}"),
     )
 
 
