@@ -334,3 +334,62 @@ Format: `- <date> — what went wrong → the correction / rule now in place`
   server's replay buffer) was already a correct recovery story — the bugs were all in the bespoke
   policy layered on top of it. Prefer the mechanism you can't get wrong to the one you can't test.
   (T-016 → T-020 carve-out; cost: three fix rounds + two full review passes)
+- 2026-07-18 — **A rejecter written without watching how the input is actually produced will
+  reject the real input.** `is_playlist_url` refused *any* `list=` parameter, a breadth its own
+  docstring called "deliberate": `watch?v=X&list=Y` was read as "a song *in* a playlist" and
+  refused rather than "guess which track was meant". The first browser session showed there was
+  nothing to guess and nothing to protect. YouTube appends `&list=RD…` **by itself** whenever you
+  play from Liked Videos or a search result, so the owner's everyday URL — his *primary* way of
+  getting a link — was refused outright, and only the share-sheet link (which strips the parameter)
+  ever worked. Meanwhile `v=` names exactly one video, and `download_song` already passes
+  `noplaylist=True`: verified live against the exact radio URL, yt-dlp returned **one** line, the
+  named track. So the outer check was pure cost — it blocked the main flow while the guarantee it
+  claimed to provide was enforced a layer below it. Rules: **breadth in a validator is not safety,
+  it is untested scope** — every extra thing you reject is a thing you have not watched a real user
+  produce. And **before adding a guard, check whether the layer beneath already enforces it**; two
+  guards for one invariant means the outer one's only unique contribution is its false positives.
+  The tell was in the docstring all along: "deliberately broad" and "rather than guess" are
+  confidence about a case nobody had observed. (First browser session; cost: the entire evening's
+  primary flow, worked around by accident via the share menu.)
+- 2026-07-18 — **`localhost` is not a location, and a dependency that is *down* cannot tell you
+  whether your error handling is *wrong*.** Two lessons from one incident. First: `JELLYFIN_URL`
+  defaulted to `http://localhost:8096` and could **never** have worked — the server runs inside
+  WSL, Jellyfin runs on Windows, and WSL2's `localhost` is its own namespace. Not "misconfigured":
+  structurally unreachable, since T-001, invisible because the scan is the one step that crosses a
+  host boundary (the library path doesn't — beets writes `/mnt/c/...` directly). Phase 0 was
+  written as "the owner's laptop at localhost", and the laptop turned out to be **two hosts**. The
+  fix is the WSL gateway IP from `ip route show default`, with mirrored networking
+  (`.wslconfig` → `networkingMode=mirrored`) as the durable answer since that IP moves on restart.
+  Rule: **an environment assumption is load-bearing code and gets exercised like code** — "it's
+  just config" is how a value survives four tickets unrun. Second, and the sharper one: with
+  Jellyfin down, a proposal was made to change how a scan failure is reported — reasoning that it
+  poisoned an otherwise successful landing. The owner pushed back: with the service off, a card
+  reading `ERROR` and a card *wrongly* reading `ERROR` are the **same observation**. Starting
+  Jellyfin resolved it in a minute and the proposed fix evaporated into a preference about a
+  failure path never actually seen. Rule: **when a dependency is down, you cannot distinguish
+  correct error reporting from a bug — restore the dependency before diagnosing anything above
+  it.** This is the sandbox lesson above ("a green build is evidence only about the happy path")
+  wearing different clothes, and it recurred *in the very session convened to fix it*: the
+  temptation to reason past missing evidence does not announce itself as such.
+  (First browser session; caught by the owner, not by the suite.)
+- 2026-07-19 — **A config flag is not a fix until you've followed it to the code path your product
+  actually takes.** `original_date: yes` was researched, justified, written into the config, and
+  recorded as **ADR-011** — all in one pass, and all wrong. beets reads that option only in
+  `AlbumInfo.item_data` (`autotag/hooks.py:325`); R1 imports **singletons**, which build a
+  `TrackInfo` (`hooks.py:400`) with no such override and no `original_year` to read. The change
+  altered no byte of any file. What made it survive to an ADR: the option's *name and
+  documentation* answered the question perfectly, `config_default.yaml` confirmed it existed and
+  defaulted off, and the suite stayed green — because **nothing in 284 tests asserts on year**, so
+  a no-op change is indistinguishable from a working one. Three plausible-looking confirmations,
+  none of them evidence. Rules: **when the fix is "set a flag", the acceptance check is to find the
+  code that reads it and confirm your call path reaches that code** — grep the option name in the
+  dependency, don't stop at its docs. And **never write the decision record before the observable
+  artifact**: ADR-011 was filed within minutes of the edit and before any import ran, which
+  inverted the Definition of Done's order and turned a wrong guess into recorded doctrine. Recording
+  a wrong fix is worse than recording an open problem — the problem stays visible, the "fix" stops
+  anyone looking. This is ADR-010's failure mode (*a decision whose payload cannot deliver it*)
+  repeated **on the same night ADR-010's lesson was being cited to the owner**, which is the
+  uncomfortable part worth keeping: knowing a failure mode by name does not stop you walking into
+  it — only checking does. The problem itself is real and unfixed → T-025; ADR-011 kept as
+  **rejected**, with the autopsy, so the next person who reaches for that option finds the answer.
+  (First-browser-session follow-up; caught by the review pass an hour later, not by the suite.)

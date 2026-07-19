@@ -19,38 +19,43 @@ status: evergreen
 CleanMuzik — personal YouTube → Jellyfin music tool. Purpose, stack, constraints and read-order
 are in `CLAUDE.md`; scope in `cleanmuzik-prd.md`. Not restated here.
 
-## Current State (2026-07-18)
+## Current State (2026-07-19)
 
-- **T-016 landed on `main` (`a644c07`), pushed, suite green (269).** Scope was reduced at
-  integration: the stream *reattach* layer was cut to **T-020** after two review passes found 8 then
-  10 defects in it. Tree clean bar untracked `.claude/worktrees/`.
-- **The app now has a UI and has never been run in a browser.** Owner is testing next session.
-- Ledger `docs/r1/tickets.md`: open = **T-017, T-019, T-020**.
+- **On `main`, nothing committed.** Uncommitted: `server/app/download.py` + tests (classifier),
+  `server/app/beets_engine.py` (`original_date` reverted — inert on singletons), and `docs/`
+  (ADR-011 rejected, 3 learnings, T-016 receipt, T-021→T-027). Rationale for each is in those
+  files, not here.
+- `.env` is git-ignored and **machine-local**: `JELLYFIN_URL` → WSL gateway IP.
+- Suite **284 green**. Ledger: **T-016 DONE**; open = T-017, T-019, T-020, T-021→T-027.
+- **RE-REVIEW OWED.** A 23-agent review found 9 defects; 7 are fixed in this tree and **the fixes
+  are themselves unreviewed**. T-026 and T-027 were left unfixed on purpose — each ticket says why.
 
-## NEXT — owner drives the app, together, next session
+## NEXT
 
-1. **Run the 6-row list** filed under T-019 in `docs/r1/tickets.md` ("First owner-driven browser
-   session"). Two terminals: `server` → `./.venv/bin/uvicorn app.main:app --reload --port 8137`;
-   `client` → `npm run dev`. **The rows close different tickets:** row 1 is **T-016's** "Done when"
-   verbatim — passing it is what makes T-016 done. Rows 2+6 are T-019 §7 items; rows 3–4 are
-   evidence for **T-020** (the failure paths this sandbox can't produce); row 5 dead-ends by design
-   until T-017.
-2. **Fix against real symptoms**, not hypotheses. That's the whole point of the session.
-3. Then **T-017** (review panel UI) — its EventSource reuses T-016's pattern, so row-by-row results
-   from #1 decide whether that pattern is safe to build on.
+1. **Re-review the working tree** (the fixes for the 9 findings are unreviewed), then commit + push.
+   Nothing from this session is landed. Suggested commits: the classifier fix, the ADR-011
+   rejection + revert, the docs/findings batch.
+2. **Decide T-026** — one owner call, blocks nothing else.
+3. **Finish the run list** (`docs/r1/tickets.md`, "First owner-driven browser session") — rows
+   **2, 3, 4, 6** are unrun. Needs the owner in a browser; rows 3–4 are T-020's only evidence, and
+   row 6 now re-tests the changed classifier.
+4. Then **T-017** (review panel UI) — reuses T-016's EventSource pattern, now proven live.
+
+**Standing setup note:** two terminals — `cd server && ./.venv/bin/uvicorn app.main:app --reload
+--port 8137`, and `cd client && npm run dev`. `.env` lives at the **repo root** and `--reload` only
+watches `server/`, so an `.env` edit needs a manual uvicorn restart (`get_settings` is `lru_cache`d).
 
 ## Recent sessions (rolling — last 2–3)
 
-### 2026-07-18 (later) — T-016 integration: scope cut, not patched
-- Two pre-commit reviews on the merge: 8 defects, then 10 — the second set including 3 regressions
-  from fixing the first. All in failure-path logic that can't be exercised here. Cut the give-up
-  policy to T-020 rather than patch a 4th time; kept EventSource auto-retry + one snapshot per
-  outage (required — a duplicate skip emits no §6 event). Lessons → `learnings.md`.
-- Found + fixed a **dead Vite proxy port** (8000 vs README's 8137, broken since T-001, `fbf2da3`) —
-  latent because client and server had never run together until there was a UI.
+### 2026-07-18/19 — first browser session ever; rows 1 + 5 pass, then a review that bit back
+- **Nothing could be tested until four defects were fixed**, none visible to a green suite. The
+  review then found 9 more in those same fixes. All durable output is filed; see the stores.
+- Still open: **WSL mirrored networking** (`.wslconfig` → `networkingMode=mirrored`) is the durable
+  fix for the Jellyfin URL; the gateway IP in `.env` moves when WSL restarts, and is untracked.
 
-### 2026-07-18 (earlier) — T-014 re-review + integration
-- T-014 fully done: optional re-review found 4 bugs (2 confirmed), fixed in `cd3d3a2`, pushed.
+### 2026-07-18 (earlier) — T-016 integration: scope cut, not patched
+- Two pre-commit reviews on the merge: 8 defects, then 10. Cut the give-up policy to T-020 rather
+  than patch a 4th time. Also fixed a dead Vite proxy port (`fbf2da3`).
 
 ## Where the rest of the context lives
 

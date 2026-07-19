@@ -232,8 +232,20 @@ side effect for pipeline tickets, transcribe corrections to `docs/learnings.md`.
   shows the rejection, not a silent expand. (Spec §4 step 1–2.)
 
 ### T-016 — Track card: SSE consumer + per-stage animation
-- **Status:** built (branch `worktree-agent-aaffef646dc8b8e5c` @ `3885939`); integration in progress
-  2026-07-18, **scope reduced**. Two pre-commit review passes found 8 then 10 defects in the stream
+- **Status: DONE** (2026-07-18, `a644c07` on `main`). **Acceptance receipt — run-list row 1,
+  observed in a browser:** `Children of Yeshua` / Odeal pasted → rail ran clean through
+  Download → Transcode → Identify → Tag → Land → `DONE` badge; title, artist and year on the card;
+  final path shown; ART + LYRICS chips; audio stream **exactly 320 kbps** (ADR-002 satisfied —
+  `ffprobe -select_streams a:0` reports `bit_rate=320000`; the container-level figure reads ~337k
+  because the embedded cover art inflates it, which is not the audio bitrate) with lyrics at
+  `/mnt/c/Users/aj_am/Music/CleanMuzik/Odeal/Children of Yeshua.mp3`; and the track appeared in
+  Jellyfin **without a manual scan** — the first time the scan nudge has ever fired (it could not
+  before; see the `localhost` learning). The **genre chip was absent and that is correct**: Last.fm
+  returns zero tags for that 2025 release (verified directly against the API; a control query for
+  a-ha/Take On Me returned `80s, pop, new wave, synthpop`), so beets wrote no genre and the card
+  showed no chip. Spec §6: a missing genre is not a failure.
+- **Integration history:** built on branch `worktree-agent-aaffef646dc8b8e5c` @ `3885939`;
+  integrated 2026-07-18, **scope reduced**. Two pre-commit review passes found 8 then 10 defects in the stream
   *reattach* logic — the second set including three regressions introduced by the fixes for the
   first. All of it was failure-path behaviour written blind (this sandbox has no sockets), so the
   reattach layer was **cut to T-020** rather than patched a fourth time. What lands here is the SSE
@@ -336,6 +348,15 @@ Record what actually happened per row — a symptom beats a hypothesis. **Row 1 
 T-016 acceptance receipt**; rows 3–4 are evidence for T-020, not pass/fail gates on anything today.
 T-019 stays open regardless: it owns the *whole* §7 checklist, of which rows 2 and 6 are two items.
 
+**Results — session 1 (2026-07-18).** Rows **1 ✅** (receipt on T-016) and **5 ✅** (parked exactly
+as specified; the dead end is by design until T-017). Rows **2, 3, 4, 6 not yet run** — the session
+was spent on the four blockers the first paste exposed, which is the session working as intended.
+Nothing could be tested at all until they were fixed:
+- Playlist rejection blocked every URL the owner had (→ fixed; learnings + regression tests).
+- `JELLYFIN_URL=localhost` was structurally unreachable from WSL (→ fixed in `.env`; learnings).
+- Wrong year from a reissue release (→ ADR-011, `original_date`).
+- Junk `TCON` from the YouTube category, plus two lesser finds (→ T-021, T-022, T-023).
+
 ### T-020 — Track card: stream reattach + the snapshot payload gap
 - **Status:** todo — **carved out of T-016 on 2026-07-18 because it could not be verified.**
 - **Depends on:** T-016, T-019 (needs a live browser; that's the whole point)
@@ -364,3 +385,138 @@ T-019 stays open regardless: it owns the *whole* §7 checklist, of which rows 2 
 - **Done when:** a stream killed in DevTools (offline toggle) recovers or reports honestly, a
   `uvicorn --reload` mid-job does **not** detach the card, a landed song shows its path and tags
   after a drop that raced completion, and each is *observed in a browser*, not reasoned about.
+
+### T-021 — Junk genre: the YouTube category survives into `TCON`
+- **Status:** todo — **found in the first browser session (2026-07-18).**
+- **Depends on:** nothing
+- **Agent:** back-end
+- **What:** When Last.fm has no tags for a track, `lastgenre` writes nothing — and the genre that
+  yt-dlp's `--embed-metadata` already put on the file *survives*. That value is YouTube's
+  **category**, not a genre: two tracks landed as `TCON="Entertainment"` and `TCON="Music"`. The
+  card correctly shows no genre chip (beets' item has no genre), so this is invisible in the UI and
+  visible only in Jellyfin, which will build genre categories called "Music" and "Entertainment"
+  out of it and pollute the library's browse-by-genre view.
+- **Note:** the Last.fm key is fine — verified live; obscure/new releases genuinely have no tags.
+  This is about what happens in that gap, not about fetching.
+- **Done when:** a track for which Last.fm has no tags lands with **no** genre tag rather than a
+  YouTube category, confirmed on disk and in Jellyfin's genre list.
+
+### T-022 — No JavaScript runtime for yt-dlp: formats may be silently missing
+- **Status:** todo — **found in the first browser session (2026-07-18).**
+- **Depends on:** nothing
+- **Agent:** back-end
+- **What:** yt-dlp warns on every run: *"No supported JavaScript runtime could be found… YouTube
+  extraction without a JS runtime has been deprecated, and some formats may be missing."* Downloads
+  currently succeed, so this is latent — but "some formats may be missing" means the bestaudio
+  picker may be choosing from a **degraded set**, which would quietly cost audio quality on a tool
+  whose entire point is a clean library. Not measured yet.
+- **Done when:** either a JS runtime is installed and the warning is gone, or it is *measured* that
+  the formats offered with and without one are identical for a sample of tracks — and whichever it
+  is, recorded here. Do not close on "downloads still work".
+
+### T-023 — Jellyfin needs a second scan before sidecar lyrics appear
+- **Status:** todo (low priority) — **found in the first browser session (2026-07-18).**
+- **Depends on:** T-010
+- **Agent:** back-end
+- **What:** After a track lands, `POST /Library/Refresh` makes the **track** appear in Jellyfin
+  promptly, but its `.lrc` lyrics do not — a second, manual library scan is what surfaces them.
+  Reproduced twice.
+- **Not a race (evidence):** file mtimes show the `.lrc` written 401 ms *after* the `.mp3`, and the
+  scan nudge only fires after the import seam returns — so **both files were on disk before the
+  POST**. Jellyfin enumerated them and attached lyrics on a later metadata pass regardless. This is
+  scan *depth*, not timing, so a `sleep` before the nudge would not fix it.
+- **Note — probably don't fix:** lyrics arrive on Jellyfin's next scheduled scan anyway. A second
+  delayed nudge is a hack for a cosmetic delay and adds a timer to a pipeline that has none. Filed
+  so the behaviour is known rather than rediscovered; close as won't-fix if that still reads right.
+- **Done when:** a decision is recorded — either lyrics appear on the first nudge, or this is
+  closed as accepted behaviour with the reason.
+
+### T-024 — "feat." in the artist field fragments the library
+- **Status:** todo — **found in the first browser session (2026-07-18).**
+- **Depends on:** nothing
+- **Agent:** back-end
+- **What:** A collaboration lands with the featured artist baked into the artist field, so
+  `PATHS["singleton"] = "$artist/$title"` creates a folder — and in Jellyfin, a distinct **artist** —
+  per collaboration. Observed: `Nines feat. Tiggs da Author/NIC.mp3`. A future Nines track lands
+  under `Nines/`, and the two never group. This is the library fragmentation the tool exists to
+  prevent, and it compounds silently: every feature spawns another phantom artist.
+- **Evidence (the clean value is already on the file):**
+  - `TPE1` = `Nines feat. Tiggs da Author` ← names the folder
+  - `TXXX:ARTISTS` = `Nines` ← the actual artist
+  - `TXXX:MusicBrainz Artist Id` = `79598541-…` ← **Nines alone**, one ID, not the pair
+  So nothing needs fetching; the correct value is already tagged.
+- **Not our `artist_credit` setting.** beets defaults `artist_credit: no` (`config_default.yaml:103`)
+  and we never set it — the "feat." comes from **MusicBrainz's own recording artist credit phrase**,
+  which beets uses as `item.artist` for a singleton. Don't start by flipping that config; it isn't on.
+- **Candidate fix:** the stock **`ftintitle`** plugin (ships with beets 2.12 —
+  `beetsplug/ftintitle.py`), which moves a featured artist out of the artist field and into the
+  title. **This is a decision, not a free change:** `PLUGINS` in `beets_engine.py` is commented
+  "the spec §2 identify/tag/art/lyrics set — no more, no less" (ADR-007), so adding a seventh plugin
+  needs a spec amendment or an ADR first. Do that before writing code (ADR-010's rule).
+- **Note:** not retroactive — tracks already landed keep their folders until a re-tag pass.
+- **Done when:** a track credited "A feat. B" lands under `A/`, groups with A's other tracks in
+  Jellyfin's artist view, and the featured credit is preserved somewhere (title or a tag) rather
+  than discarded. Verify in a browser, not just on disk.
+
+### T-025 — Reissue years: a singleton lands with the matched release's date, not the original
+- **Status:** todo — **the real problem behind the rejected ADR-011.**
+- **Depends on:** nothing
+- **Agent:** back-end
+- **What:** AcoustID matches the *recording* correctly, but MusicBrainz metadata comes from a
+  **release**, and the one chosen may be a remaster/compilation/reissue. A track the owner knew to
+  be much older landed stamped **2024** (first browser session, 2026-07-18). The audio is right;
+  only the date is a reissue's.
+- **Do NOT start with `original_date: yes` — it is inert here and has already been tried.** beets
+  reads it only in `AlbumInfo.item_data` (`autotag/hooks.py:325`); R1 imports singletons
+  (`import_seam.py:845`), which build a `TrackInfo` (`hooks.py:400`) with no such override and no
+  `original_year` field. See the rejected ADR-011 for the full autopsy.
+- **Price it before building.** The data is not on the singleton path at all, so reaching it means
+  an extra MusicBrainz call per import (the recording's earliest release date, or its release
+  group's `first-release-date`). That is the same per-item lookup cost **ADR-010 explicitly
+  declined** for candidate enrichment — so this ticket must justify why the year is worth what the
+  album/art fields were not. Plausible answer: it is one call on the *auto-accept* path only (not
+  per candidate), and the year is visible in Jellyfin on every browse. Decide, record, then build.
+- **Done when:** a known reissued track lands stamped with its **original** release year, verified
+  on disk and in Jellyfin — and if the call is instead "not worth it", that is recorded here with
+  the measured cost and the ticket closed won't-fix.
+
+### T-026 — A deliberately-pasted playlist now lands one track with no signal
+- **Status:** todo — **needs an owner decision before any code.**
+- **Depends on:** nothing
+- **Agent:** back-end
+- **What:** Narrowing the playlist classifier (2026-07-19) fixed the false rejection of
+  `watch?v=SONG&list=RD…`, but it also means a URL carrying *real* playlist intent —
+  `music.youtube.com/watch?v=TRACK1&list=OLAK5uy_ALBUM`, copied while an album played — is now
+  accepted. One track lands, the other eleven are silently dropped, and nothing in the UI says the
+  URL named more than one song. Spec §3's "don't expand" guarantee still holds; what was lost is
+  the *"playlists aren't supported yet"* message for the shape most likely to mean an album.
+- **The decision:** list ids are distinguishable — `RD…` is an auto-generated radio/mix seed
+  (YouTube's, not the owner's), while `PL…` / `OLAK5uy_…` / `UU…` are curated playlists. So the
+  refusal *could* be restored for curated ids only. **Counter-argument, and it is not weak:** the
+  owner also reaches songs by clicking into his own `PL…` playlist, so refusing those re-creates
+  the exact false rejection just removed — and over-rejecting is the mistake this repo has now made
+  once (see the "breadth in a validator is not safety" learning). Landing the named song is also
+  arguably the more useful behaviour: R1 does not do playlists at all, so a track in hand beats an
+  error message.
+- **Options:** (a) leave as is, accept the silent single-track landing; (b) refuse curated list ids
+  only; (c) accept, but have the UI *say* "this URL was part of a playlist — only the named song
+  was taken", which keeps the owner's flow and restores the signal. **(c) looks strongest** — it
+  is additive, refuses nothing, and needs no id-prefix taxonomy to be correct.
+- **Done when:** a decision is recorded here with its reason, and if (b) or (c), the behaviour is
+  observed in a browser against a real album URL.
+
+### T-027 — `download_song` has no guard for a playlist-shaped `extract_info` result
+- **Status:** todo — **deferred deliberately: this is a failure path this sandbox cannot produce.**
+- **Depends on:** T-019 (needs a live browser / real yt-dlp failure to drive)
+- **Agent:** back-end
+- **What:** With `list=` URLs now admitted, `extract_info` can return a playlist-shaped dict. That
+  result has no top-level `requested_downloads`, so the fallback `prepare_filename(info)` returns a
+  path for a file that was never written; there is no `info.get("_type") == "playlist"` guard. The
+  transcode stage would then fail with a bare `FileNotFoundError` **attributed to the wrong stage**.
+- **Why it is not being fixed blind:** the review verdict was PLAUSIBLE, not confirmed, and nobody
+  has produced the input that triggers it. Writing the guard now means writing failure-handling for
+  a condition we cannot make fail — the exact mis-sequencing that cost T-016 three fix rounds and
+  two full review passes (see `learnings.md`, 2026-07-18). Reproduce it first, then guard it.
+- **Done when:** either a URL is found that produces a playlist-shaped result (then: guard it, and
+  the card reports the Download stage honestly), or it is demonstrated that `noplaylist=True` makes
+  the shape unreachable — and that demonstration is recorded here, closing the ticket.
