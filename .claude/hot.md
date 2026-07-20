@@ -1,7 +1,7 @@
 ---
 type: meta
 title: "Hot — cleanmuzik"
-updated: 2026-07-19
+updated: 2026-07-20
 tags:
   - meta
   - hot-cache
@@ -19,44 +19,46 @@ status: evergreen
 CleanMuzik — personal YouTube → Jellyfin music tool. Purpose, stack, constraints and read-order
 are in `CLAUDE.md`; scope in `cleanmuzik-prd.md`. Not restated here.
 
-## Current State (2026-07-19)
+## Current State (2026-07-20)
 
-- **On `main`, clean** through `8e075cd` (docs commit for T-017 pending). Server suite **312 green**,
-  client **20 green**.
-- **T-017 is DONE** — browser receipt discharged this session (all "Done when" clauses observed
-  live: weak-match render/accept/reject, duplicate keep/replace/keep_both, no reconnect-loop,
-  restart re-hydration). Full receipt in `tickets.md`.
-- Ledger: **T-016, T-017, T-028 done**; **T-024 built** (owes only its **row 7** browser receipt —
-  a collaboration `feat.` landing, *not* yet run). **T-029 drafted**. Open = T-019, T-020,
-  T-021→T-027, T-029, + T-024 row 7.
+- **On `main`, clean** through `0684eb9`. Server suite **312 green**, client **20 green** (no code
+  changed this session — docs only).
+- **T-024 is DONE** — row 7 discharged: ADR-012's first *real download* receipt. Jay-Z "Coming of
+  Age (feat. Memphis Bleek)" landed as `JAŸ‐Z/…` with `TPE1='JAŸ‐Z'` (single primary artist),
+  featured credit in the title, MP3 320 + art + lyrics. Full receipt in `tickets.md`.
+- Ledger: **T-016, T-017, T-018, T-024, T-028 done** (T-001–T-018 all done + T-024 + T-028 = 20).
+  Open = **T-019, T-020, T-021, T-022, T-023, T-025, T-026, T-027, T-029**.
 
 ## NEXT
 
-1. **T-024 row 7** — the last outstanding browser receipt: a collaboration lands with the featured
-   artist baked into the artist field (`Nines feat. …`). Reuse this session's harness (below);
-   needs a real collab-song download (mind the YouTube 403 rate-limit from repeated pulls).
-2. **T-019** — the §7 acceptance pass; unblocked now that T-017 is verified.
-3. **T-029** — back-end: a failed resume sets job=`error` while the row stays `pending`, orphaning
+1. **T-019** — the §7 end-to-end acceptance pass. Now fully unblocked (its deps T-016/T-017 done).
+   Reuse the isolated harness below; it owns the whole §7 checklist.
+2. **T-029** — back-end: a failed resume sets job=`error` while the row stays `pending`, orphaning
    the review. Verifiable over HTTP, no browser.
+3. **T-026** — **needs an owner decision first** (option a/b/c in `tickets.md`), then code. Don't
+   start building it without the call.
+
+## Harness (still up — reuse, don't rebuild)
+
+Isolated verify stack from the T-017/T-024 sessions is **still running and sound**: backend `:8100`
+(prior-session launcher `verify_launcher.py`, temp `DB_PATH` + sandboxed `LIBRARY_DIRECTORY` +
+blanked Jellyfin key → real library untouchable) and client `:5175` (`client/vite.verify.config.ts`,
+proxies `/api`→`:8100`). Real dev stack also up: `:8137` + `:5173`. Untracked throwaways to clean
+when done with browser tickets: `client/vite.verify.config.ts`, `.playwright-mcp/`, scratchpad.
 
 ## Recent sessions (rolling — last 2–3)
 
-### 2026-07-19 (d) — T-017 browser-verified → DONE
-- Built an **isolated verification harness** and drove the panel live in Playwright's own Firefox
-  (no clash with the owner's Chrome): temp `DB_PATH` + patched `LIBRARY_DIRECTORY` + blanked
-  Jellyfin key on `:8100`, throwaway vite on `:5175`. Real library untouched (8 files throughout).
-- Fixtures were **real parks, not seeded rows** — there is no queue view to surface a seeded row.
-  Weak match: a sped-up upload parks with 5 clustered candidates. Duplicate: downgrade a landed
-  320 copy to 192k in the sandbox, re-download → parks as duplicate.
-- Two corrections filed to `learnings.md`: **MusicBrainz is reachable here** (T-013's "can't reach
-  MB" was an inherited wall — so the harness ran fully real, no stubs).
-- Left running for poking: `:8100` API, `:5175` client. Untracked throwaways to clean:
-  `client/vite.verify.config.ts`, `client/.playwright-mcp/`, root `t017-*.jpeg`, scratchpad.
+### 2026-07-20 — T-024 row 7 verified → DONE
+- Drove a real collab download over HTTP against the isolated `:8100` harness (already running from
+  the prior session; read `verify_launcher.py` to confirm isolation before trusting it). `ftintitle`
+  pulled "Memphis Bleek" into the title, left artist as single `JAŸ‐Z`. Flipped T-024 → done.
+- Two non-T-024 observations on the file, both filed: genre `Music` (T-018 `lastgenre` follow-up)
+  and year `2026` — current year, not a reissue's — logged to T-025 as a second data point.
 
-### 2026-07-19 (c) — T-017 built, reviewed, landed
-- Review panel shipped (weak-match pick/reject + duplicate keep/replace/both), `rec` on the SSE
-  event, narrow `GET /api/reviews/{id}` for panel re-hydration. High-effort `/code-review`: 5
-  findings fixed, finding 2 → **T-029**. Committed `0e41956` + `0a4816c`, pushed.
+### 2026-07-19 (d) — T-017 browser-verified → DONE
+- Built the isolated harness (above) and drove the review panel live in Playwright's Firefox: weak
+  match, duplicate keep/replace/both, no reconnect-loop, restart re-hydration. Real library untouched.
+- Filed to `learnings.md`: **MusicBrainz is reachable here** (T-013's "can't reach MB" was inherited).
 
 ## Where the rest of the context lives
 
