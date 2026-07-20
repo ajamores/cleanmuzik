@@ -476,12 +476,17 @@ Nothing could be tested at all until they were fixed:
   closed as accepted behaviour with the reason.
 
 ### T-024 — "feat." in the artist field fragments the library
-- **Status:** **BUILT (2026-07-19) — not done: needs one browser row.** ADR-012 written, `ftintitle`
+- **Status:** **DONE (2026-07-19)** — row 7 discharged. ADR-012 written, `ftintitle`
   added to `PLUGINS` with `drop: no` / `format: "(feat. {})"` / `preserve_album_artist: no`, and
-  6 regression tests added in `tests/test_beets_engine.py` (suite 301 green). What remains is the
-  "Done when" below, verbatim: **land a real "A feat. B" track in a browser and see it group under
-  `A/` in Jellyfin's artist view.** That cannot be driven here (the sandbox blocks sockets), so it
-  is **row 7 on the browser run list**. Do not mark this done until that row is run.
+  6 regression tests added in `tests/test_beets_engine.py` (suite 301 green). The "Done when"
+  below is now proven against a **real download** — ADR-012's first real-world receipt. Landed via
+  the isolated verify harness (`:8100`, temp DB + sandboxed library, real yt-dlp/AcoustID):
+  `youtube.com/watch?v=nInBDfbZBbo` (Jay-Z "Coming of Age (feat. Memphis Bleek)") auto-accepted and
+  landed as `JAŸ‐Z/Coming of Age (feat. Memphis Bleek).mp3` — `TPE1='JAŸ‐Z'` (single primary artist,
+  **not** `… feat. …`), featured credit in the title, MP3 320 CBR, embedded art, synced lyrics. So
+  it groups under one `JAŸ‐Z` in Jellyfin's artist view, exactly the fragmentation this ticket
+  killed. (Two non-T-024 observations on the same file: genre canonicalized to generic `Music` — the
+  T-018 `lastgenre`-whitelist follow-up — and year stamped `2026` — see T-025.)
 - **Depends on:** nothing
 - **Agent:** back-end
 - **What:** A collaboration lands with the featured artist baked into the artist field, so
@@ -526,6 +531,11 @@ Nothing could be tested at all until they were fixed:
   **release**, and the one chosen may be a remaster/compilation/reissue. A track the owner knew to
   be much older landed stamped **2024** (first browser session, 2026-07-18). The audio is right;
   only the date is a reissue's.
+- **Second data point (2026-07-19, T-024 row 7):** Jay-Z "Coming of Age" — a 1996 *Reasonable Doubt*
+  track — landed stamped **2026**, the *current* year, not merely a reissue's. That flavour is worth
+  a look: a plain reissue would carry some real-but-later release date, whereas landing today's year
+  suggests the singleton path may be **defaulting** when it can't resolve a release date at all,
+  rather than picking a wrong-but-real one. Same fix reaches both; the diagnosis may differ.
 - **Do NOT start with `original_date: yes` — it is inert here and has already been tried.** beets
   reads it only in `AlbumInfo.item_data` (`autotag/hooks.py:325`); R1 imports singletons
   (`import_seam.py:845`), which build a `TrackInfo` (`hooks.py:400`) with no such override and no
