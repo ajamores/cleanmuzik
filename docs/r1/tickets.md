@@ -19,6 +19,29 @@ Ticket format (one block each, kept in this file — no GitHub Issues):
 - **Done when:** the check that proves it — ties back to a spec acceptance item
 ```
 
+## How a ticket enters a release (scope triage)
+
+R1 was specced as **19 tickets**; the build surfaced a dozen more (T-020…T-031) and they were
+appended as if all were R1 — scope crept to 31 with no decision gate. The lesson is **not** "stop
+finding things": those tickets came from the DoD's review/verify/acceptance checks doing exactly
+their job. It is that **capturing a finding and committing it to the current release are two
+different acts**, and only the first is automatic.
+
+The rule, applied at a ticket's **birth**:
+
+1. **A release's scope is its exit criteria, not everything discovered mid-build.** R1's exit
+   criteria are the spec §7 acceptance checklist (swept by T-019). A discovered ticket is *in R1*
+   only if closing §7 **requires** it.
+2. **Required for exit criteria → current release** (a ticket above the Backlog line). Everything
+   else — real, worth keeping, but not needed to ship this release → **`## Backlog (post-R1)`**,
+   no matter how good the find.
+3. **The backlog is triaged into a future release only when that release is specced** (roadmap:
+   `backlog` → `specing`). Backlog items are then pulled up into the new spec/tickets — they do not
+   silently become "current" by sitting in the file.
+
+This keeps "we found something real" (always capture) separate from "this release now includes it"
+(a decision against exit criteria) — which is the gate whose absence let 19 become 31.
+
 **Build order.** Three phases: **A — engine spine** (prove download → transcode → identify →
 tag → land via scripts, no web layer yet), **B — API + orchestration** (job queue, SSE, review
 endpoints), **C — UI**. Plus setup + a final verify pass. The spine is provable on its own before
