@@ -1,7 +1,19 @@
-# Backlog — unscoped ideas
+# Backlog — post-R1 parking lot
 
-Parking lot for ideas that aren't in a release yet. Nothing here is committed. When an idea
-graduates, it gets scoped into a release spec and leaves this folder.
+Everything here is real but **not in a release yet**. Nothing is committed to a release by sitting
+here. An item graduates only when a release moves to `specing` (see `docs/roadmap.md`): it gets
+pulled up into that release's spec/tickets and leaves this folder. This is the one gate that keeps
+"we found something real" (always capture) separate from "this release now includes it" (a decision
+against exit criteria) — see the scope-triage rules at the top of `docs/r1/tickets.md`.
+
+Two tiers live here:
+
+- **Filed tickets** — findings that earned a ticket number, one file each. Triaging one into a
+  release is a clean `git mv` into that release's `tickets.md`.
+  - [`T-023.md`](T-023.md) — Jellyfin needs a second scan before sidecar lyrics appear *(duplicate of T-030)*
+  - [`T-030.md`](T-030.md) — landed lyrics don't surface in Jellyfin until a second scan *(reconcile with T-023 first)*
+  - [`T-031.md`](T-031.md) — recover the album when it's real (Topic-channel rips, same-album clusters)
+- **Unscoped ideas** — broader directions not yet worked into tickets:
 
 - Playlist support (batch of tracks from one URL)
 - **Migrate + clean the existing library (R2 — the PRD's second job).** Re-tag and reorganize the

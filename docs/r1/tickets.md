@@ -32,9 +32,9 @@ The rule, applied at a ticket's **birth**:
 1. **A release's scope is its exit criteria, not everything discovered mid-build.** R1's exit
    criteria are the spec §7 acceptance checklist (swept by T-019). A discovered ticket is *in R1*
    only if closing §7 **requires** it.
-2. **Required for exit criteria → current release** (a ticket above the Backlog line). Everything
-   else — real, worth keeping, but not needed to ship this release → **`## Backlog (post-R1)`**,
-   no matter how good the find.
+2. **Required for exit criteria → current release** (a ticket in this file). Everything
+   else — real, worth keeping, but not needed to ship this release → **`docs/backlog/`** (one file
+   per ticket; see the `## Backlog` pointer at the foot of this file), no matter how good the find.
 3. **The backlog is triaged into a future release only when that release is specced** (roadmap:
    `backlog` → `specing`). Backlog items are then pulled up into the new spec/tickets — they do not
    silently become "current" by sitting in the file.
@@ -376,7 +376,15 @@ side effect for pipeline tickets, transcribe corrections to `docs/learnings.md`.
   table; §5 output.)
 
 ### T-019 — End-to-end verify pass against the §7 acceptance checklist
-- **Status:** todo
+- **Status:** **done (2026-07-20)** — every §7 acceptance item observed against the real side
+  effect; owner confirmed the browser/Jellyfin rows live. The whole §7 checklist was *observed* by
+  session 2 (2026-07-19, HTTP against the isolated harness — see the run-list results below); its
+  **only** remaining gate was #4's two tag-quality defects (genre=`Music`, year=current), and both
+  landed via **T-021 + T-025** (`80c74b4`, ADR-013 `from_scratch` + ADR-014 year proxy). Re-verified
+  on a real download (`nInBDfbZBbo`, isolated temp library): `Coming of Age` lands **`date=1996-06-25`**
+  (the true original, was `2026`) with **no genre tag** (was `TCON="Music"`) — so #4 is now fully
+  green on disk. Owner phone-tested the browser-only rows (Row 1 DOM/SSE, #5 Jellyfin auto-scan) and
+  confirmed everything proven. R1's exit criteria are met.
 - **Depends on:** T-016, T-017, T-010, T-014
 - **Agent:** verify
 - **What:** Drive the real flow and observe side effects for **every** §7 acceptance item —
@@ -754,77 +762,14 @@ deliberately retains staging.
 
 ## Backlog (post-R1 — triage into a future release)
 
-Not R1 scope. These are real, filed so they aren't rediscovered, but they do **not** gate R1 or
-T-019's close. Triage them when R2 is scoped (see `docs/roadmap.md`). Everything above this line is
-the R1 set.
+Moved out of this file 2026-07-20. The backlog now lives as one file per ticket under
+**`docs/backlog/`** (see its `README.md`). Nothing there gates R1 or T-019's close; items are
+triaged into a future release only when that release moves to `specing` (`docs/roadmap.md`) —
+graduating a ticket is a `git mv` of its file into that release's `tickets.md`. **Everything above
+this line is the R1 set.**
 
-### T-030 — Landed lyrics don't surface in Jellyfin until a second scan (minor, deferred)
-- **Status:** todo — **minor, owner-deferred (2026-07-19).** Found during T-019 #5. Not a §7 gate:
-  §7 #4 requires lyrics *embedded in the file*, which is proven; lyrics *visible in Jellyfin* is
-  beyond the literal checklist. Park until the R1 must-haves are closed.
-- **Depends on:** T-010 (the scan trigger this adjusts).
-- **The finding.** A freshly-landed track auto-appears in Jellyfin via the app's scan trigger, but
-  its **lyrics do not show until the owner clicks "Scan All Libraries" a second time.** Confirmed
-  live 2026-07-19 on Jellyfin **10.11.11**.
-- **What's NOT the cause (verified).** The landed file is complete: synced lyrics both embedded in
-  the tag AND written as a `.lrc` sidecar at land time (real library: every `.mp3` has a same-mtime
-  `.lrc`; e.g. `JAŸ‐Z/Coming of Age….lrc` @ 22:05:16). So this is not a tagging/sidecar gap.
-- **Likely cause — a race, not the wrong scan.** The owner's manual button is **the same
-  `/Library/Refresh`** the app already fires (`jellyfin.py`). A second identical scan surfacing the
-  lyrics points to the app's scan firing **before Jellyfin can index the just-written `.lrc`** (or
-  before the file settles), so the first pass ingests the track but not its lyrics.
-- **Fix directions to weigh in the ticket (don't pre-commit):** (a) a short delay / retry before or
-  a second deferred `/Library/Refresh` after land; (b) an item-level metadata-refresh call once the
-  item exists; (c) confirm `.lrc` is flushed+closed before triggering the scan. Prefer the smallest
-  reliable option; a single-user localhost tool doesn't need a polling loop.
-- **Done when:** a landed track shows its lyrics in Jellyfin with **no manual scan**, driven once
-  through the real stack and watched (owner browser, like #5).
-- **⚠ Duplicate of T-023 below — reconcile before working.** T-023 is the same finding from the
-  first browser session, and its analysis **contradicts** this one: T-023's file-mtime evidence
-  argues *not a race, it's scan depth* (both files on disk before the nudge, so a `sleep` wouldn't
-  help), whereas this ticket's "likely cause" says *a race*. Merge the two into one and settle the
-  cause from T-023's evidence (mtimes) before choosing any fix.
+Currently parked:
 
-### T-023 — Jellyfin needs a second scan before sidecar lyrics appear (duplicate of T-030)
-- **Status:** todo (low priority) — **moved to backlog 2026-07-20; duplicate of T-030 above.**
-  Found in the first browser session (2026-07-18); same behaviour, better-supported analysis.
-- **Depends on:** T-010
-- **Agent:** back-end
-- **What:** After a track lands, `POST /Library/Refresh` makes the **track** appear in Jellyfin
-  promptly, but its `.lrc` lyrics do not — a second, manual library scan is what surfaces them.
-  Reproduced twice.
-- **Not a race (evidence):** file mtimes show the `.lrc` written 401 ms *after* the `.mp3`, and the
-  scan nudge only fires after the import seam returns — so **both files were on disk before the
-  POST**. Jellyfin enumerated them and attached lyrics on a later metadata pass regardless. This is
-  scan *depth*, not timing, so a `sleep` before the nudge would not fix it. **(This evidence should
-  win the reconciliation with T-030's "a race" framing.)**
-- **Note — probably don't fix:** lyrics arrive on Jellyfin's next scheduled scan anyway. A second
-  delayed nudge is a hack for a cosmetic delay and adds a timer to a pipeline that has none. Filed
-  so the behaviour is known rather than rediscovered; close as won't-fix if that still reads right.
-- **Done when:** a decision is recorded — either lyrics appear on the first nudge, or this is
-  closed as accepted behaviour with the reason.
-
-### T-031 — Recover the album when it's real (Topic-channel rips, same-album clusters)
-- **Status:** todo — **future feature, owner-deferred (2026-07-20).** Born from ADR-013 / T-021's
-  F1: `from_scratch` correctly blanks yt-dlp's junk album, but that also drops the *real* album on
-  the rips that carry one. Not an R1 blocker (see ADR-013 — album isn't load-bearing for a
-  singles-by-`$artist/$title` library), but the owner does want the album when it's genuine.
-- **Depends on:** ADR-013 (the behavior this refines), likely the R2 migrate flow.
-- **The opportunity.** The owner's flow is individual tracks off YouTube saved to playlists, so a
-  lone track legitimately often has no album — that's fine. But two cases carry real album data
-  worth keeping: (a) a **YouTube "Topic" channel** rip, where the embedded album is the label's
-  actual release (e.g. `Thriller`), not a video title; (b) **several tracks from one release** landing
-  over time, which should recover and **group under that album** in Jellyfin rather than stay loose
-  singles.
-- **Why it's abstract (the owner's own framing).** R1 imports everything as a *singleton*
-  (`PATHS["singleton"] = "$artist/$title"`), and a MusicBrainz recording lookup carries no album. So
-  "put the album back" means either trusting yt-dlp's embedded album (junk-prone — the exact thing
-  ADR-013 stops) or an extra release/release-group lookup + a which-release heuristic (the per-item
-  cost ADR-010 declined) plus a re-organize into album folders. It reopens the album-vs-singleton
-  path decision, which is why it's its own ticket, not a tweak.
-- **Directions to weigh (don't pre-commit):** (a) detect Topic-channel uploads and trust their album
-  tag specifically; (b) on the migrate/re-tag pass, cluster landed tracks by release-group and
-  promote a group to an album; (c) a MusicBrainz release lookup on auto-accept to pick a canonical
-  release (cost + heuristic — price it like ADR-014 priced the year).
-- **Done when:** a decision is recorded here, and if built, a real album's tracks land grouped under
-  that album in Jellyfin — verified in a browser.
+- `docs/backlog/T-023.md` — Jellyfin needs a second scan before sidecar lyrics appear *(duplicate of T-030)*
+- `docs/backlog/T-030.md` — landed lyrics don't surface in Jellyfin until a second scan *(reconcile with T-023 first)*
+- `docs/backlog/T-031.md` — recover the album when it's real (Topic-channel rips, same-album clusters)

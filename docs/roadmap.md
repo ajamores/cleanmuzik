@@ -8,9 +8,10 @@ Source of truth for scope: `cleanmuzik-prd.md` (product) → `docs/rN/spec.md` (
 **Scope triage (the gate that keeps a release from creeping).** A release's scope is its **exit
 criteria**, not everything found while building it. Work discovered mid-build (from reviews,
 verifies, browser sessions) is captured as a ticket, then triaged **at birth**: required to meet
-this release's exit criteria → current release; else → that release's **`## Backlog`** in its
-`tickets.md`. Backlog items enter a future release only when that release moves to `specing` and
-pulls them into its spec. Capturing a finding is automatic; committing it to *this* release is a
+this release's exit criteria → current release; else → the **`docs/backlog/`** parking lot (one
+file per ticket; see its `README.md`). Backlog items enter a future release only when that release
+moves to `specing` and pulls them into its spec — a `git mv` of the ticket file into that release's
+`tickets.md`. Capturing a finding is automatic; committing it to *this* release is a
 decision. (R1 was specced at 19 tickets and drifted to 31 because this gate didn't exist — the
 mechanism now lives in `docs/r1/tickets.md` "How a ticket enters a release".)
 
