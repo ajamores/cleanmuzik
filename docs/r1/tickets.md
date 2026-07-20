@@ -498,15 +498,15 @@ deliberately retains staging.
   after a drop that raced completion, and each is *observed in a browser*, not reasoned about.
 
 ### T-021 — Junk genre: the YouTube category survives into `TCON`
-- **Status:** **BUILT (2026-07-20)** — fixed via **ADR-013 `from_scratch: yes`**, not `lastgenre
-  force`. Diagnosis in the ticket was half-right: the junk `TCON` survived not because `lastgenre`
+- **Status:** **done (2026-07-20)** — on `main` (`80c74b4`). Fixed via **ADR-013 `from_scratch: yes`**,
+  not `lastgenre force`. Diagnosis in the ticket was half-right: the junk `TCON` survived not because `lastgenre`
   "writes nothing", but because with `force: no` (default) an existing genre short-circuits it at
   `"keep any, no-force"` (`lastgenre/__init__.py:462`) — it never even queries Last.fm. `from_scratch`
   clears the junk at apply, so `lastgenre` then fetches fresh (or leaves blank). **Verified on a real
   download** (isolated temp library, `nInBDfbZBbo`): the landed `Coming of Age` MP3 carries **no genre
   tag** where it previously read `TCON="Music"` — Last.fm had no tags, so it lands blank, exactly the
   "Done when". `/code-review` (high) clean after fixes; suite 324 green. In-Jellyfin genre-list check
-  is the owner's browser confirmation, but the on-disk absence is proven. **Done when merged to main.**
+  is the owner's browser confirmation, but the on-disk absence is proven.
 - **Depends on:** nothing
 - **Agent:** back-end
 - **What:** When Last.fm has no tags for a track, `lastgenre` writes nothing — and the genre that
@@ -532,23 +532,6 @@ deliberately retains staging.
 - **Done when:** either a JS runtime is installed and the warning is gone, or it is *measured* that
   the formats offered with and without one are identical for a sample of tracks — and whichever it
   is, recorded here. Do not close on "downloads still work".
-
-### T-023 — Jellyfin needs a second scan before sidecar lyrics appear
-- **Status:** todo (low priority) — **found in the first browser session (2026-07-18).**
-- **Depends on:** T-010
-- **Agent:** back-end
-- **What:** After a track lands, `POST /Library/Refresh` makes the **track** appear in Jellyfin
-  promptly, but its `.lrc` lyrics do not — a second, manual library scan is what surfaces them.
-  Reproduced twice.
-- **Not a race (evidence):** file mtimes show the `.lrc` written 401 ms *after* the `.mp3`, and the
-  scan nudge only fires after the import seam returns — so **both files were on disk before the
-  POST**. Jellyfin enumerated them and attached lyrics on a later metadata pass regardless. This is
-  scan *depth*, not timing, so a `sleep` before the nudge would not fix it.
-- **Note — probably don't fix:** lyrics arrive on Jellyfin's next scheduled scan anyway. A second
-  delayed nudge is a hack for a cosmetic delay and adds a timer to a pipeline that has none. Filed
-  so the behaviour is known rather than rediscovered; close as won't-fix if that still reads right.
-- **Done when:** a decision is recorded — either lyrics appear on the first nudge, or this is
-  closed as accepted behaviour with the reason.
 
 ### T-024 — "feat." in the artist field fragments the library
 - **Status:** **DONE (2026-07-19)** — row 7 discharged. ADR-012 written, `ftintitle`
@@ -599,7 +582,7 @@ deliberately retains staging.
   than discarded. Verify in a browser, not just on disk.
 
 ### T-025 — Reissue years: a singleton lands with the matched release's date, not the original
-- **Status:** **BUILT (2026-07-20)** — the diagnosis was wrong: the bad year was **not** a MusicBrainz
+- **Status:** **done (2026-07-20)** — on `main` (`80c74b4`). The diagnosis was wrong: the bad year was **not** a MusicBrainz
   reissue date, it was **yt-dlp's embedded date surviving** the same way T-021's genre did (a
   singleton `TrackInfo` carries no year, and `apply_metadata` only overwrites non-None fields). Two
   fixes, both owner-signed: **ADR-013 `from_scratch`** clears the junk year, and **ADR-014** stamps
@@ -611,7 +594,7 @@ deliberately retains staging.
   previously read `2026`. `/code-review` (high) surfaced 7 findings; 5 fixed (recording-level date,
   same-year fullest-date tie-break, write-fail rollback, cached MB client, reuse beets' `_get_date`),
   1 accepted (double tag-write — negligible for a single-user tool), 1 escalated (album-family
-  blanking → owner decision → T-031). Suite 324 green. **Done when merged to main.**
+  blanking → owner decision → T-031). Suite 324 green.
 - **Depends on:** nothing
 - **Agent:** back-end
 - **What:** AcoustID matches the *recording* correctly, but MusicBrainz metadata comes from a
@@ -796,6 +779,30 @@ the R1 set.
   reliable option; a single-user localhost tool doesn't need a polling loop.
 - **Done when:** a landed track shows its lyrics in Jellyfin with **no manual scan**, driven once
   through the real stack and watched (owner browser, like #5).
+- **⚠ Duplicate of T-023 below — reconcile before working.** T-023 is the same finding from the
+  first browser session, and its analysis **contradicts** this one: T-023's file-mtime evidence
+  argues *not a race, it's scan depth* (both files on disk before the nudge, so a `sleep` wouldn't
+  help), whereas this ticket's "likely cause" says *a race*. Merge the two into one and settle the
+  cause from T-023's evidence (mtimes) before choosing any fix.
+
+### T-023 — Jellyfin needs a second scan before sidecar lyrics appear (duplicate of T-030)
+- **Status:** todo (low priority) — **moved to backlog 2026-07-20; duplicate of T-030 above.**
+  Found in the first browser session (2026-07-18); same behaviour, better-supported analysis.
+- **Depends on:** T-010
+- **Agent:** back-end
+- **What:** After a track lands, `POST /Library/Refresh` makes the **track** appear in Jellyfin
+  promptly, but its `.lrc` lyrics do not — a second, manual library scan is what surfaces them.
+  Reproduced twice.
+- **Not a race (evidence):** file mtimes show the `.lrc` written 401 ms *after* the `.mp3`, and the
+  scan nudge only fires after the import seam returns — so **both files were on disk before the
+  POST**. Jellyfin enumerated them and attached lyrics on a later metadata pass regardless. This is
+  scan *depth*, not timing, so a `sleep` before the nudge would not fix it. **(This evidence should
+  win the reconciliation with T-030's "a race" framing.)**
+- **Note — probably don't fix:** lyrics arrive on Jellyfin's next scheduled scan anyway. A second
+  delayed nudge is a hack for a cosmetic delay and adds a timer to a pipeline that has none. Filed
+  so the behaviour is known rather than rediscovered; close as won't-fix if that still reads right.
+- **Done when:** a decision is recorded — either lyrics appear on the first nudge, or this is
+  closed as accepted behaviour with the reason.
 
 ### T-031 — Recover the album when it's real (Topic-channel rips, same-album clusters)
 - **Status:** todo — **future feature, owner-deferred (2026-07-20).** Born from ADR-013 / T-021's

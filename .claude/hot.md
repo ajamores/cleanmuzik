@@ -21,29 +21,30 @@ are in `CLAUDE.md`; scope in `cleanmuzik-prd.md`. Not restated here.
 
 ## Current State (2026-07-20)
 
-- **On `main`, pushed** (`8415be0`). Working tree clean but for two untracked throwaways. Server
-  suite **324 green**.
-- **T-021 + T-025 — DONE.** Both were one bug: yt-dlp's `--embed-metadata` junk surviving on
-  singletons. Fixed via **ADR-013** (`from_scratch` — MB is sole tag source) + **ADR-014** (one MB
-  call stamps an original-*ish* year, honest proxy). Real-download verify: `Coming of Age` landed
+- **On `main`, pushed.** Working tree clean but for two untracked throwaways. Server suite **324 green**.
+- **R1: 22 of 31 done.** Engine + orchestration + SSE + UI + review all shipped and verified live.
+- **T-021 + T-025 — DONE** (`80c74b4`), status flipped this session. One junk-survival bug: yt-dlp's
+  `--embed-metadata` surviving on singletons. Fixed via **ADR-013** (`from_scratch`) + **ADR-014**
+  (one MB call stamps an original-*ish* year, honest proxy). Verified: `Coming of Age` landed
   **`date=1996-06-25`** (was 2026), **no genre tag** (was `"Music"`).
-- **T-019 (§7 pass) — closeable.** Its only open gate was #4's genre+year defects; now fixed and
-  proven on disk. Formal close may want a glance at Jellyfin's genre list (T-021 Done-when).
-- **Scope-triage is now a system, not ad-hoc.** `tickets.md` "How a ticket enters a release" +
-  `roadmap.md`: scope = exit criteria; capture always, commit deliberately, backlog triages in at
-  spec time. Backlog holds T-030 (lyrics 2nd-scan) + T-031 (album recovery).
-- **Graft dropped, not yet ingested.** `2026-07-20-release-scope-is-exit-criteria.md` sits in the
-  garden's `.inbox/pending/` — the general scope-discipline lesson. Inert until a `/garden` run.
+- **T-019 (§7 pass) — closeable.** Its only open gate was #4's genre+year; now fixed and proven on
+  disk. Formal close may want a glance at Jellyfin's genre list (T-021 Done-when).
+- **Scope-triage is a governed system** (`tickets.md` "How a ticket enters a release" + `roadmap.md`).
+  **Backlog** holds T-030 + **T-023** (duplicates — reconcile at triage; T-023's mtime evidence
+  wins) + T-031 (album recovery).
+- **Graft dropped, not yet ingested** — `2026-07-20-release-scope-is-exit-criteria.md` in the
+  garden's `.inbox/pending/`. Inert until a `/garden` run.
 
 ## NEXT (owner picks)
 
 0. **In the garden terminal: run `/garden`** to ingest the pending scope-triage graft.
 1. **Stamp T-019 done** — every §7 item now observed; genre+year proven.
-2. **T-022** — JS-runtime download-quality *measurement* (latent, unrelated to tagging). Owner asked.
-3. **T-023** — **duplicate of backlog T-030 and contradicts it** (T-023: "scan depth"; T-030:
-   "a race"). Reconcile into one, then a won't-fix call. Owner asked.
-4. **T-029** — failed resume leaves job=`error` / row `pending`. Clean back-end fix, HTTP-verifiable.
-5. **T-026** — needs an owner decision (a/b/c in `tickets.md`) before code.
+2. **T-029** — failed resume leaves job=`error` / row `pending`. Clean back-end fix, HTTP-verifiable.
+3. **T-026** — needs an owner decision (a/b/c in `tickets.md`) before code.
+4. **T-022** — JS-runtime download-quality *measurement* (latent, unrelated to tagging).
+5. **T-020** — track-card stream reattach + payload gap (needs a browser that can go offline).
+
+Realistic R1 close: **T-019** (exit gate) + **T-029** (real bug), then the **T-026** decision.
 
 ## Verifying
 
@@ -56,8 +57,8 @@ throwaways to clean: `.playwright-mcp/`, `client/vite.verify.config.ts`, `scratc
 
 ### 2026-07-20 — T-021 + T-025 done; scope-triage systematized
 - One junk-survival bug → ADR-013 (`from_scratch`) + ADR-014 (year proxy); verified `date=1996-06-25`,
-  genre blank. Filed T-031 + a Backlog section. Made backlog/triage a governed system; grafted the
-  general lesson to the garden (pending ingest).
+  genre blank. Filed T-031 + a Backlog section; made triage a governed system; grafted the general
+  lesson (pending ingest). Flipped T-021/T-025 → done; moved T-023 to backlog next to its dup T-030.
 
 ### 2026-07-19 — T-019 §7 verify pass (near-closed)
 - Drove every §7 item not needing a browser over HTTP; owner confirmed #5 in Jellyfin. The only gate
