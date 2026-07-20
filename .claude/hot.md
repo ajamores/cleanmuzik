@@ -21,24 +21,27 @@ are in `CLAUDE.md`; scope in `cleanmuzik-prd.md`. Not restated here.
 
 ## Current State (2026-07-20)
 
-- **On `main`, pushed.** Commit `80c74b4` landed **T-021 + T-025**; a follow-up docs commit carries
-  the learnings note + this board. Server suite **324 green**.
+- **On `main`, pushed** (`8415be0`). Working tree clean but for two untracked throwaways. Server
+  suite **324 green**.
 - **T-021 + T-025 — DONE.** Both were one bug: yt-dlp's `--embed-metadata` junk surviving on
-  singletons (MB doesn't overwrite what it doesn't supply). Fixed via **ADR-013** (`from_scratch:
-  yes` — MB is the sole tag source) + **ADR-014** (one MB call stamps an original-*ish* year, honest
-  proxy). Verified on a real download: `Coming of Age` landed **`date=1996-06-25`** (was 2026) and
-  **no genre tag** (was `"Music"`). High-effort review: 5 fixed, 1 accepted, 1 → T-031.
-- **T-019 (§7 pass) — closeable.** Its only open gate was #4's genre+year defects; those are now
-  fixed and proven on disk. Formal close may want a glance at Jellyfin's genre list (T-021 Done-when).
-- **`tickets.md` now has a `## Backlog (post-R1)` section.** T-030 (lyrics 2nd-scan) + T-031 (album
-  recovery — new, the F1 escalation) live there; triage into R2 via `roadmap.md`.
+  singletons. Fixed via **ADR-013** (`from_scratch` — MB is sole tag source) + **ADR-014** (one MB
+  call stamps an original-*ish* year, honest proxy). Real-download verify: `Coming of Age` landed
+  **`date=1996-06-25`** (was 2026), **no genre tag** (was `"Music"`).
+- **T-019 (§7 pass) — closeable.** Its only open gate was #4's genre+year defects; now fixed and
+  proven on disk. Formal close may want a glance at Jellyfin's genre list (T-021 Done-when).
+- **Scope-triage is now a system, not ad-hoc.** `tickets.md` "How a ticket enters a release" +
+  `roadmap.md`: scope = exit criteria; capture always, commit deliberately, backlog triages in at
+  spec time. Backlog holds T-030 (lyrics 2nd-scan) + T-031 (album recovery).
+- **Graft dropped, not yet ingested.** `2026-07-20-release-scope-is-exit-criteria.md` sits in the
+  garden's `.inbox/pending/` — the general scope-discipline lesson. Inert until a `/garden` run.
 
 ## NEXT (owner picks)
 
+0. **In the garden terminal: run `/garden`** to ingest the pending scope-triage graft.
 1. **Stamp T-019 done** — every §7 item now observed; genre+year proven.
-2. **T-022** — JS-runtime download-quality *measurement* (unrelated to tagging; latent). Owner asked.
-3. **T-023** — it's a **duplicate of backlog T-030 and contradicts it** (T-023: "not a race, scan
-   depth"; T-030: "a race"). Reconcile into one, then a won't-fix call. Owner asked.
+2. **T-022** — JS-runtime download-quality *measurement* (latent, unrelated to tagging). Owner asked.
+3. **T-023** — **duplicate of backlog T-030 and contradicts it** (T-023: "scan depth"; T-030:
+   "a race"). Reconcile into one, then a won't-fix call. Owner asked.
 4. **T-029** — failed resume leaves job=`error` / row `pending`. Clean back-end fix, HTTP-verifiable.
 5. **T-026** — needs an owner decision (a/b/c in `tickets.md`) before code.
 
@@ -51,16 +54,14 @@ throwaways to clean: `.playwright-mcp/`, `client/vite.verify.config.ts`, `scratc
 
 ## Recent sessions (rolling — last 2–3)
 
-### 2026-07-20 — T-021 + T-025 done
-- Traced both to one junk-survival bug; ADR-013 (`from_scratch`) + ADR-014 (year proxy). Real-download
-  verify: `date=1996-06-25`, genre blank. Filed T-031 (album recovery) + a Backlog section.
+### 2026-07-20 — T-021 + T-025 done; scope-triage systematized
+- One junk-survival bug → ADR-013 (`from_scratch`) + ADR-014 (year proxy); verified `date=1996-06-25`,
+  genre blank. Filed T-031 + a Backlog section. Made backlog/triage a governed system; grafted the
+  general lesson to the garden (pending ingest).
 
 ### 2026-07-19 — T-019 §7 verify pass (near-closed)
-- Drove every §7 item not needing a browser over HTTP vs :8100; owner confirmed #5 in Jellyfin.
-- Only gate left was #4's tag-quality defects — now closed by T-021/T-025.
-
-### 2026-07-20 (earlier) — T-024 row 7 verified → DONE
-- Real collab download: `ftintitle` folded "Memphis Bleek" into the title, artist stayed single.
+- Drove every §7 item not needing a browser over HTTP; owner confirmed #5 in Jellyfin. The only gate
+  left was #4's tag defects — now closed by T-021/T-025.
 
 ## Where the rest of the context lives
 
