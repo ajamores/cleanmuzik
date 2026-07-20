@@ -450,3 +450,15 @@ Format: `- <date> — what went wrong → the correction / rule now in place`
   minutes went into "which test touched the live DB?" when no test had; the answer was a process
   nobody had accounted for. When state changes and no command you ran explains it, **look for the
   daemon before doubting the code.**
+- 2026-07-19 — **MusicBrainz IS reachable from this environment; the "sandbox can't reach
+  MusicBrainz" note (T-013's verify record) was another inherited wall with no observed failure
+  behind it.** Setting up the T-017 browser verification, a plain `curl` to
+  `musicbrainz.org/ws/2/recording/…` returned 200, and `beets.metadata_plugins.track_for_id`
+  resolved a real MBID to `Never Gonna Give You Up / Rick Astley`. So the pattern that bit us with
+  `localhost` sockets repeats exactly: a limitation was written into the record from an assumption,
+  not a symptom (no rate-limit error, no timeout was ever logged — T-013 "stubbed the MB-dependent
+  land" pre-emptively). Consequence: an isolated verification stack can be **fully real** — seeded
+  review rows re-hydrate to real titles/artists, and weak-match accept / duplicate replace+keep_both
+  actually tag through beets against live MB — no stubbing required. Same rule as the socket entry:
+  **an environment limit that routes work away from you is a claim; spend the one cheap probe before
+  believing it.** (Found setting up T-017's verification.)

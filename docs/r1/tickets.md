@@ -267,11 +267,31 @@ side effect for pipeline tickets, transcribe corrections to `docs/learnings.md`.
   the failing stage. (Spec §7 SSE live progress + forced-failure error; §4 step 3.)
 
 ### T-017 — Review panel UI
-- **Status:** **BUILT (2026-07-19)** — checks pass, high-effort `/code-review` done and its 5 code
-  findings fixed (finding 2 → T-029); **owes the browser receipt** (step 3) before it is *done*.
-  Server suite 312 green, client 20 green. Shipped the panel + `rec`-on-SSE (spec §6) + the narrow
-  `GET /api/reviews/{id}` the reconcile path re-hydrates from. Was **unblocked 2026-07-19 by T-028**
-  (`score` was `null` on every queue row until then; see below).
+- **Status:** **DONE (2026-07-19)** — browser receipt discharged; all "Done when" clauses observed
+  live. Landed on `main` @ `0e41956`; high-effort `/code-review` done, its 5 findings fixed
+  (finding 2 → T-029). Server suite 312 green, client 20 green. Shipped the panel + `rec`-on-SSE
+  (spec §6) + the narrow `GET /api/reviews/{id}` the reconcile path re-hydrates from. Was
+  **unblocked 2026-07-19 by T-028** (`score` was `null` on every queue row until then; see below).
+- **Acceptance receipt — driven live in a real browser (Playwright/Firefox) against a fully
+  isolated stack** (temp `DB_PATH` + temp `LIBRARY_DIRECTORY` + blanked Jellyfin key, on `:8100`/
+  `:5175`; the owner's real `:8137` server and `/mnt/c/.../Music/CleanMuzik` verified untouched —
+  8 files before and after). Fixtures were **real parks**, not seeded rows (there is no queue view
+  to surface a seeded row — T-029 note): a sped-up upload (`watch?v=Rxv4IPW1Y2o`) parks as a
+  weak match with five real clustered candidates (0.18–0.24); re-downloading a song whose 320 copy
+  was manually downgraded to 192k in the sandbox parks as a duplicate. Observed:
+  - **weak match** — five candidates render with **match-strength bars** (not raw floats), Reject a
+    peer of Accept; **Accept** landed `Moderat/Versions (sped up version).mp3` @ 320k and the card
+    completed; **Reject** discarded (review→rejected 404, nothing landed).
+  - **duplicate** — panel shows existing 192k vs incoming 320k; **keep_existing** kept the 192k and
+    discarded the download; **replace** deleted the 192k then landed 320k (exactly one copy, never
+    zero — ADR-009); **keep_both** left two copies with the `(alternate)` suffix in the **title
+    tag**, not the filename (spec §5).
+  - **load-bearing paths** — resolve settles on stream-close with **one** reconcile snapshot, **no
+    reconnect-loop** (the bug two prior review passes caught; confirmed in the network trace); the
+    duplicate panel's `GET /api/reviews/{id}` on-mount hydrate rendered correctly; and a **backend
+    restart under a live parked card** fully recovered the panel (query + all candidates + actions)
+    and the re-hydrated Reject resolved. Zero console errors across the session. (MusicBrainz was
+    reachable throughout — see learnings 2026-07-19 — so nothing was stubbed.)
 - **Depends on:** T-014, T-016, **T-028**
 - **Design input — `score` is the discriminator, but do not render it as a verdict.** Measured on
   the one real parked review (2026-07-19, over live HTTP):

@@ -21,37 +21,42 @@ are in `CLAUDE.md`; scope in `cleanmuzik-prd.md`. Not restated here.
 
 ## Current State (2026-07-19)
 
-- **On `main`, clean and pushed** through `0a4816c`. Server suite **312 green**, client **20 green**.
-- **Owner's dev servers are up**: `uvicorn --reload` on 8137, Vite proxying to it. Hazard
-  (`CLAUDE.md`): editing `db.py` re-runs the lifespan against the **live** DB.
-- Ledger: **T-016, T-028 done**; **T-017 built**, **T-024 built** — both owe only a **browser
-  receipt**. **T-029 drafted** (code-review finding 2). Open = T-019, T-020, T-021→T-027, T-029.
+- **On `main`, clean** through `8e075cd` (docs commit for T-017 pending). Server suite **312 green**,
+  client **20 green**.
+- **T-017 is DONE** — browser receipt discharged this session (all "Done when" clauses observed
+  live: weak-match render/accept/reject, duplicate keep/replace/keep_both, no reconnect-loop,
+  restart re-hydration). Full receipt in `tickets.md`.
+- Ledger: **T-016, T-017, T-028 done**; **T-024 built** (owes only its **row 7** browser receipt —
+  a collaboration `feat.` landing, *not* yet run). **T-029 drafted**. Open = T-019, T-020,
+  T-021→T-027, T-029, + T-024 row 7.
 
 ## NEXT
 
-1. **Browser verification** — the one thing blocking T-017 *and* T-024 from *done*. Needs the owner
-   in a browser: park a song → panel renders → accept lands it / reject discards; a duplicate's
-   three branches; and T-024's collaboration row (its outstanding **row 7**). Everything else on
-   T-017 (review pass + fixes) is discharged.
-2. **T-019** — the §7 acceptance pass; unblocked once T-017 is verified.
-3. **T-029** — back-end: a releasable resume-failure sets job=`error` while the row is `pending`,
-   orphaning the review. Fix rides T-017's new reconcile re-hydration. Verifiable over HTTP.
+1. **T-024 row 7** — the last outstanding browser receipt: a collaboration lands with the featured
+   artist baked into the artist field (`Nines feat. …`). Reuse this session's harness (below);
+   needs a real collab-song download (mind the YouTube 403 rate-limit from repeated pulls).
+2. **T-019** — the §7 acceptance pass; unblocked now that T-017 is verified.
+3. **T-029** — back-end: a failed resume sets job=`error` while the row stays `pending`, orphaning
+   the review. Verifiable over HTTP, no browser.
 
 ## Recent sessions (rolling — last 2–3)
 
-### 2026-07-19 (c) — T-017 built, reviewed, landed
-- Review panel shipped: weak-match (pick/reject, honest score bar) + duplicate (keep/replace/both).
-  Added `rec` to the `track.review_required` SSE event and a narrow `GET /api/reviews/{id}` so the
-  card re-hydrates a lost panel after a restart. Fresh-EventSource resume reuses T-016's reconcile.
-- High-effort `/code-review` (owner-triggered): 5 code findings fixed, finding 2 → **T-029**. The
-  dominant catch — a restart left a parked review showing a dead note, unresolvable — my own
-  self-review had missed.
-- Committed `0e41956` (feat) + `0a4816c` (docs), pushed.
+### 2026-07-19 (d) — T-017 browser-verified → DONE
+- Built an **isolated verification harness** and drove the panel live in Playwright's own Firefox
+  (no clash with the owner's Chrome): temp `DB_PATH` + patched `LIBRARY_DIRECTORY` + blanked
+  Jellyfin key on `:8100`, throwaway vite on `:5175`. Real library untouched (8 files throughout).
+- Fixtures were **real parks, not seeded rows** — there is no queue view to surface a seeded row.
+  Weak match: a sped-up upload parks with 5 clustered candidates. Duplicate: downgrade a landed
+  320 copy to 192k in the sandbox, re-download → parks as duplicate.
+- Two corrections filed to `learnings.md`: **MusicBrainz is reachable here** (T-013's "can't reach
+  MB" was an inherited wall — so the harness ran fully real, no stubs).
+- Left running for poking: `:8100` API, `:5175` client. Untracked throwaways to clean:
+  `client/vite.verify.config.ts`, `client/.playwright-mcp/`, root `t017-*.jpeg`, scratchpad.
 
-### 2026-07-19 (b) — T-024 + T-028 (prerequisite T-017 didn't know it had)
-- T-024 built (ADR-012, `ftintitle`); **T-028 done** — persisted candidate `score`, the field
-  ADR-010 makes the picker's discriminator (was `null` on every queue row).
-- Corrected `CLAUDE.md`: `localhost` sockets are **not** blocked; client test harness stood up.
+### 2026-07-19 (c) — T-017 built, reviewed, landed
+- Review panel shipped (weak-match pick/reject + duplicate keep/replace/both), `rec` on the SSE
+  event, narrow `GET /api/reviews/{id}` for panel re-hydration. High-effort `/code-review`: 5
+  findings fixed, finding 2 → **T-029**. Committed `0e41956` + `0a4816c`, pushed.
 
 ## Where the rest of the context lives
 
