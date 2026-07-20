@@ -13,6 +13,19 @@ Format: `- <date> — what went wrong → the correction / rule now in place`
 
 ---
 
+- 2026-07-20 — (T-021/T-025 verify, paid two flaked runs) **To verify what *lands on the file*
+  (tags/genre/year/art), don't drive the auto-accept path — the AcoustID fingerprint gate flakes
+  under the shared/private quota (ADR-006 addendum) and parks `rec=none` on a track that landed
+  fine last session, giving you no file to inspect.** Land *deterministically* via the resolve path
+  instead: run the pipeline, and if it parks, call `resolve_import(review.staging_path, ...,
+  recording_id=review.candidate_ids[0])` — it shares the exact `_configure_import_options`
+  (`from_scratch`) and `finalize_outcomes` (year stamp) code, so the tags are identical to
+  auto-accept. **And isolate the library in one shot** without a running server: set
+  `beets_engine.LIBRARY_DIRECTORY` to a temp dir *before* `configure_beets` reads it, and pass
+  `Settings(db_path=<temp>)` + `scan_fn=lambda *a, **k: None` to `run_pipeline` — real
+  yt-dlp/ffmpeg/AcoustID/MusicBrainz, zero risk to the real library or Jellyfin. (Recipe lived in
+  `scratchpad/verify_t021_t025.py`.)
+
 - 2026-07-18 — (T-014 optional re-review, caught belt-and-suspenders) **A "commit before the
   best-effort step" reorder must protect the commit boundary in the *generic* exception handler,
   not just the one failure it special-cased.** The T-014 fix that moved the row-commit + staging
