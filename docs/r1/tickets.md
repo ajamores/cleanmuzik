@@ -475,7 +475,15 @@ deliberately retains staging.
   after a drop that raced completion, and each is *observed in a browser*, not reasoned about.
 
 ### T-021 — Junk genre: the YouTube category survives into `TCON`
-- **Status:** todo — **found in the first browser session (2026-07-18).**
+- **Status:** **BUILT (2026-07-20)** — fixed via **ADR-013 `from_scratch: yes`**, not `lastgenre
+  force`. Diagnosis in the ticket was half-right: the junk `TCON` survived not because `lastgenre`
+  "writes nothing", but because with `force: no` (default) an existing genre short-circuits it at
+  `"keep any, no-force"` (`lastgenre/__init__.py:462`) — it never even queries Last.fm. `from_scratch`
+  clears the junk at apply, so `lastgenre` then fetches fresh (or leaves blank). **Verified on a real
+  download** (isolated temp library, `nInBDfbZBbo`): the landed `Coming of Age` MP3 carries **no genre
+  tag** where it previously read `TCON="Music"` — Last.fm had no tags, so it lands blank, exactly the
+  "Done when". `/code-review` (high) clean after fixes; suite 324 green. In-Jellyfin genre-list check
+  is the owner's browser confirmation, but the on-disk absence is proven. **Done when merged to main.**
 - **Depends on:** nothing
 - **Agent:** back-end
 - **What:** When Last.fm has no tags for a track, `lastgenre` writes nothing — and the genre that
@@ -568,7 +576,19 @@ deliberately retains staging.
   than discarded. Verify in a browser, not just on disk.
 
 ### T-025 — Reissue years: a singleton lands with the matched release's date, not the original
-- **Status:** todo — **the real problem behind the rejected ADR-011.**
+- **Status:** **BUILT (2026-07-20)** — the diagnosis was wrong: the bad year was **not** a MusicBrainz
+  reissue date, it was **yt-dlp's embedded date surviving** the same way T-021's genre did (a
+  singleton `TrackInfo` carries no year, and `apply_metadata` only overwrites non-None fields). Two
+  fixes, both owner-signed: **ADR-013 `from_scratch`** clears the junk year, and **ADR-014** stamps
+  an original-*ish* year via one MusicBrainz call on the auto-accept/resolve path (recording-level
+  `first_release_date`, else earliest release date). It is an honest **proxy, not a guarantee** — a
+  recording AcoustID mapped to a reissue master yields a reissue year — the owner accepted this over
+  a blank year, shown the limits before deciding. **Verified on a real download** (`nInBDfbZBbo`): the
+  landed `Coming of Age` MP3 is stamped **`date=1996-06-25`** — the true original — where it
+  previously read `2026`. `/code-review` (high) surfaced 7 findings; 5 fixed (recording-level date,
+  same-year fullest-date tie-break, write-fail rollback, cached MB client, reuse beets' `_get_date`),
+  1 accepted (double tag-write — negligible for a single-user tool), 1 escalated (album-family
+  blanking → owner decision → T-031). Suite 324 green. **Done when merged to main.**
 - **Depends on:** nothing
 - **Agent:** back-end
 - **What:** AcoustID matches the *recording* correctly, but MusicBrainz metadata comes from a
@@ -726,6 +746,12 @@ deliberately retains staging.
   over real HTTP by forcing a resolve to a recording id that won't resolve (no browser strictly
   needed for the status/row assertions; the re-render is the browser half).
 
+## Backlog (post-R1 — triage into a future release)
+
+Not R1 scope. These are real, filed so they aren't rediscovered, but they do **not** gate R1 or
+T-019's close. Triage them when R2 is scoped (see `docs/roadmap.md`). Everything above this line is
+the R1 set.
+
 ### T-030 — Landed lyrics don't surface in Jellyfin until a second scan (minor, deferred)
 - **Status:** todo — **minor, owner-deferred (2026-07-19).** Found during T-019 #5. Not a §7 gate:
   §7 #4 requires lyrics *embedded in the file*, which is proven; lyrics *visible in Jellyfin* is
@@ -747,3 +773,28 @@ deliberately retains staging.
   reliable option; a single-user localhost tool doesn't need a polling loop.
 - **Done when:** a landed track shows its lyrics in Jellyfin with **no manual scan**, driven once
   through the real stack and watched (owner browser, like #5).
+
+### T-031 — Recover the album when it's real (Topic-channel rips, same-album clusters)
+- **Status:** todo — **future feature, owner-deferred (2026-07-20).** Born from ADR-013 / T-021's
+  F1: `from_scratch` correctly blanks yt-dlp's junk album, but that also drops the *real* album on
+  the rips that carry one. Not an R1 blocker (see ADR-013 — album isn't load-bearing for a
+  singles-by-`$artist/$title` library), but the owner does want the album when it's genuine.
+- **Depends on:** ADR-013 (the behavior this refines), likely the R2 migrate flow.
+- **The opportunity.** The owner's flow is individual tracks off YouTube saved to playlists, so a
+  lone track legitimately often has no album — that's fine. But two cases carry real album data
+  worth keeping: (a) a **YouTube "Topic" channel** rip, where the embedded album is the label's
+  actual release (e.g. `Thriller`), not a video title; (b) **several tracks from one release** landing
+  over time, which should recover and **group under that album** in Jellyfin rather than stay loose
+  singles.
+- **Why it's abstract (the owner's own framing).** R1 imports everything as a *singleton*
+  (`PATHS["singleton"] = "$artist/$title"`), and a MusicBrainz recording lookup carries no album. So
+  "put the album back" means either trusting yt-dlp's embedded album (junk-prone — the exact thing
+  ADR-013 stops) or an extra release/release-group lookup + a which-release heuristic (the per-item
+  cost ADR-010 declined) plus a re-organize into album folders. It reopens the album-vs-singleton
+  path decision, which is why it's its own ticket, not a tweak.
+- **Directions to weigh (don't pre-commit):** (a) detect Topic-channel uploads and trust their album
+  tag specifically; (b) on the migrate/re-tag pass, cluster landed tracks by release-group and
+  promote a group to an album; (c) a MusicBrainz release lookup on auto-accept to pick a canonical
+  release (cost + heuristic — price it like ADR-014 priced the year).
+- **Done when:** a decision is recorded here, and if built, a real album's tracks land grouped under
+  that album in Jellyfin — verified in a browser.

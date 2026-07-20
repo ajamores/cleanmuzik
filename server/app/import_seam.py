@@ -52,9 +52,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import acoustid
-from beets import config, dbcore, library, metadata_plugins, util
+from beets import config, dbcore, library, metadata_plugins, plugins, util
 from beets.autotag import Distance, Recommendation, TrackMatch
 from beets.importer import Action, ImportSession
+from beetsplug.musicbrainz import _get_date
 
 from app.artwork import embed_cover, fetch_cover_art
 from app.beets_engine import LIBRARY_DIRECTORY, configure_beets
@@ -360,6 +361,76 @@ class Outcome:
     candidates: list[dict] | None = None  # parked: rich candidate rows for the UI
 
 
+# --- original release year (ADR-014) ----------------------------------------
+
+_mb_api_cache = None
+
+
+def _musicbrainz_api():
+    """The loaded `musicbrainz` plugin's rate-limited API client, or None.
+
+    Reuses beets' own client (its session, config, and MusicBrainz rate limiter)
+    rather than standing up a second one, and caches it: the plugin is a
+    process-lifetime singleton, so re-scanning `find_plugins()` on every landed
+    track is pure waste (review F6). None (uncached) only until plugins load —
+    which happens before the pipeline path via `configure_beets`.
+    """
+    global _mb_api_cache
+    if _mb_api_cache is not None:
+        return _mb_api_cache
+    for plugin in plugins.find_plugins():
+        if plugin.name == "musicbrainz":
+            _mb_api_cache = getattr(plugin, "mb_api", None)
+            return _mb_api_cache
+    return None
+
+
+def fetch_original_date(
+    recording_id: str | None,
+) -> tuple[int | None, int | None, int | None]:
+    """Original-ish release date for a MusicBrainz recording, as (year, month, day).
+
+    ADR-014's proxy for a track's original year: a singleton's `TrackInfo` carries
+    no date (a recording lookup fetches no releases), so we look the accepted
+    recording up ONCE (releases + release-groups) and read a date from it:
+
+    1. the recording's own `first_release_date` — MusicBrainz's authoritative
+       "when this recording first came out" (review F4); failing that,
+    2. the earliest date across the recording's releases (the release-group
+       `first_release_date` preferred, else the per-release `date`), and for a tie
+       on year the most complete date wins (review F3).
+
+    A proxy, not a guarantee: MusicBrainz models each remaster as its own recording,
+    so this is the true original year only when the fingerprint matched the original
+    master. Best-effort — any failure returns all-None and the track lands with a
+    blank year, never an error (the caller treats it like a missing cover).
+    """
+    if not recording_id:
+        return None, None, None
+    api = _musicbrainz_api()
+    if api is None:
+        return None, None, None
+    recording = api.get_recording(
+        recording_id, includes=["releases", "release-groups"]
+    )
+    year, month, day = _get_date(recording.get("first_release_date"))
+    if year:
+        return year, month, day
+
+    dated: list[tuple[int, int | None, int | None]] = []
+    for release in recording.get("releases") or []:
+        release_group = release.get("release_group") or {}
+        for raw in (release_group.get("first_release_date"), release.get("date")):
+            y, m, d = _get_date(raw)
+            if y:
+                dated.append((y, m, d))
+                break  # prefer the release-group date for this release
+    if not dated:
+        return None, None, None
+    # Earliest year, and within that year the most complete date (month/day known).
+    return min(dated, key=lambda t: (t[0], t[1] is None, t[2] is None))
+
+
 class FingerprintTrustSession(ImportSession):
     """Drives a singleton import and answers `choose_item` with the ADR-006 gate.
 
@@ -380,6 +451,7 @@ class FingerprintTrustSession(ImportSession):
         gap_min: float = GAP_MIN,
         dominance_fn=fingerprint_dominance,
         art_fn=fetch_cover_art,
+        date_fn=fetch_original_date,
     ) -> None:
         super().__init__(lib, None, [os.fspath(staging_path)], None)
         self.store = store
@@ -393,6 +465,7 @@ class FingerprintTrustSession(ImportSession):
         self.gap_min = gap_min
         self.dominance_fn = dominance_fn
         self.art_fn = art_fn
+        self.date_fn = date_fn
         self.outcomes: list[Outcome] = []
         # Accepted matches await finalization: choose_item can only *decide* to
         # land; whether beets actually copied the file is known only after run()
@@ -497,6 +570,11 @@ class FingerprintTrustSession(ImportSession):
                     "accepted %s but beets skipped it (duplicate) — not landed",
                     self.staging_path,
                 )
+            # ADR-014: MusicBrainz gives a singleton no year, so stamp the accepted
+            # recording's earliest release year onto the landed file. Before art so the
+            # tag write can't race the cover embed; only for a real landing.
+            if not skipped:
+                self._stamp_original_year(task.item, match.info.track_id)
             # Door B: fetchart skips singletons, so embed the cover ourselves — but
             # only for a track that actually landed, and never let it un-land one.
             art_embedded = False if skipped else self._embed_art(task.item, dominance)
@@ -519,6 +597,52 @@ class FingerprintTrustSession(ImportSession):
             )
         self._accepted.clear()
         return self.outcomes
+
+    def _stamp_original_year(self, item, recording_id: str | None) -> None:
+        """Stamp the accepted recording's original-ish release year (ADR-014).
+
+        Best-effort, mirroring `_embed_art`: a lookup failure, a recording with no
+        dated release, or a write error all leave the year blank and log — none of
+        them un-lands a correctly-tagged song. Writes the tag to the file and stores
+        the item so the beets DB agrees; the item is re-read by `_landed_tags` for the
+        `track.done` payload, so the SSE event carries the stamped year too.
+        """
+        try:
+            year, month, day = self.date_fn(recording_id)
+        except Exception as exc:  # noqa: BLE001 — a wrong year must not un-land a track
+            logger.warning(
+                "original-year lookup failed for %s (%s) — landed without a year",
+                self.staging_path,
+                exc,
+            )
+            return
+        if not year:
+            logger.info(
+                "no MusicBrainz release date for %s (recording %s) — year left blank",
+                self.staging_path,
+                recording_id,
+            )
+            return
+        item.year = year
+        item.month = month or 0
+        item.day = day or 0
+        try:
+            if callable(write := getattr(item, "try_write", None)):
+                write()
+            if callable(store := getattr(item, "store", None)):
+                store()
+        except Exception as exc:  # noqa: BLE001 — persisting the year is best-effort
+            # Roll the in-memory value back to beets' "no year" sentinel so the
+            # track.done payload (which reads item.year) can't report a year the
+            # file on disk never got — the reconciliation _embed_art does via its
+            # bool return (review F2).
+            item.year = item.month = item.day = 0
+            logger.warning(
+                "could not persist year %d for %s (%s) — reporting no year",
+                year,
+                self.staging_path,
+                exc,
+            )
 
     def _embed_art(self, item, dominance: Dominance) -> bool:
         """Fetch + embed a cover for a landed item. Best-effort (Door B).
@@ -883,6 +1007,17 @@ def _configure_import_options() -> None:
     imp["duplicate_keys"]["item"].set("mb_trackid")
     imp["duplicate_action"].set("skip")
     config["threaded"].set(False)
+
+    # ADR-013: MusicBrainz (+ the tag plugins) is the sole source of a landed track's
+    # tags — never yt-dlp's `--embed-metadata` junk. `from_scratch` makes apply clear
+    # the item before applying the match, so a field MusicBrainz doesn't supply lands
+    # BLANK instead of keeping the YouTube value. Without it the singleton path keeps
+    # the junk: genre = YouTube's category (TCON="Music", T-021) and a wrong year
+    # (a 1996 track stamped 2026, T-025) both survive because item_data drops the
+    # None fields MusicBrainz leaves unset. Item.clear() spares audio properties
+    # (models.py:717) and runs before the genre/lyrics/art plugin stages, so it wipes
+    # only stale tags, never a fetched one.
+    imp["from_scratch"].set(True)
 
     # Lyrics: the plugin already auto-fetches on import (LRCLib is a default source,
     # no key). Ask it to prefer *synced* lyrics so Jellyfin can scroll them with

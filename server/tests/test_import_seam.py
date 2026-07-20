@@ -324,6 +324,9 @@ def _session(store, dominance, **kw):
     # Default art_fn returns nothing so decision tests never touch the network;
     # art-specific tests override it.
     kw.setdefault("art_fn", lambda **_: None)
+    # date_fn no-op by default so decision tests never touch MusicBrainz; the
+    # year tests inject their own.
+    kw.setdefault("date_fn", lambda _rid: (None, None, None))
     return FingerprintTrustSession(
         None,
         store=store,
@@ -504,6 +507,174 @@ def test_art_failure_does_not_unland_the_track(store):
     assert outcomes[-1].art_embedded is False
 
 
+# --- T-025 / ADR-014: stamp the accepted recording's original release year -----
+
+
+def test_import_options_set_from_scratch(monkeypatch):
+    # ADR-013: the import must clear yt-dlp's embedded junk before applying the match,
+    # so MusicBrainz is the sole tag source. Guard the config value directly.
+    monkeypatch.setattr(seam, "configure_beets", lambda *a, **k: None)
+    seam.config["import"]["from_scratch"].set(False)  # ensure the assert is real
+    seam._configure_import_options()
+    assert seam.config["import"]["from_scratch"].get(bool) is True
+
+
+def _fake_mb(recording, monkeypatch):
+    """Point `_musicbrainz_api` at a stub whose get_recording returns `recording`."""
+    api = SimpleNamespace(get_recording=lambda _rid, includes=None: recording)
+    monkeypatch.setattr(seam, "_musicbrainz_api", lambda: api)
+    return api
+
+
+def test_fetch_original_date_prefers_recording_level_first_date(monkeypatch):
+    # The recording's own first_release_date is MusicBrainz's authoritative original
+    # date (review F4) — used ahead of any per-release scan, even if releases exist.
+    _fake_mb(
+        {
+            "first_release_date": "1975-10-31",
+            "releases": [{"date": "2020", "release_group": {"first_release_date": "2020"}}],
+        },
+        monkeypatch,
+    )
+    assert seam.fetch_original_date("rec-A") == (1975, 10, 31)
+
+
+def test_fetch_original_date_picks_earliest_across_releases(monkeypatch):
+    # No recording-level date, so fall back to releases: earliest wins, and the
+    # release-group `first_release_date` is preferred over a later per-release `date`.
+    _fake_mb(
+        {
+            "releases": [
+                {"date": "2020-01-15", "release_group": {"first_release_date": "2020"}},
+                {"date": "1975-11-21", "release_group": {"first_release_date": "1975-10-31"}},
+            ]
+        },
+        monkeypatch,
+    )
+    assert seam.fetch_original_date("rec-A") == (1975, 10, 31)
+
+
+def test_fetch_original_date_keeps_fullest_date_on_year_tie(monkeypatch):
+    # Review F3: a year-only date and a full date for the SAME year — the complete
+    # one must win, not get discarded by a naive min() over the tuples.
+    _fake_mb(
+        {
+            "releases": [
+                {"date": None, "release_group": {"first_release_date": "1975"}},
+                {"date": "1975-10-31", "release_group": {}},
+            ]
+        },
+        monkeypatch,
+    )
+    assert seam.fetch_original_date("rec-A") == (1975, 10, 31)
+
+
+def test_fetch_original_date_falls_back_to_release_date(monkeypatch):
+    # No recording-level or release-group date, but the release itself carries one.
+    _fake_mb(
+        {"releases": [{"date": "1982-01-02", "release_group": {}}]}, monkeypatch
+    )
+    assert seam.fetch_original_date("rec-A") == (1982, 1, 2)
+
+
+def test_fetch_original_date_no_dated_release_returns_none(monkeypatch):
+    _fake_mb(
+        {"releases": [{"date": "", "release_group": {"first_release_date": ""}}]},
+        monkeypatch,
+    )
+    assert seam.fetch_original_date("rec-A") == (None, None, None)
+
+
+def test_fetch_original_date_no_recording_id_makes_no_call(monkeypatch):
+    called = []
+    monkeypatch.setattr(
+        seam, "_musicbrainz_api", lambda: called.append(1) or SimpleNamespace()
+    )
+    assert seam.fetch_original_date(None) == (None, None, None)
+    assert called == []  # short-circuits before touching MusicBrainz
+
+
+def test_landed_track_gets_original_year_stamped(store):
+    session = _session(
+        store,
+        Dominance(0.96, 0.30, ("rec-A",)),
+        date_fn=lambda _rid: (1996, 6, 25),
+    )
+    task = _task(["rec-A"])
+    session.choose_item(task)
+    outcomes = session.finalize_outcomes()
+
+    assert outcomes[-1].action == "landed"
+    assert task.item.year == 1996  # stamped onto the item beets will keep
+    assert outcomes[-1].tags["year"] == 1996  # and carried on the track.done payload
+
+
+def test_blank_release_date_leaves_year_unstamped(store):
+    session = _session(
+        store,
+        Dominance(0.96, 0.30, ("rec-A",)),
+        date_fn=lambda _rid: (None, None, None),
+    )
+    task = _task(["rec-A"])
+    session.choose_item(task)
+    outcomes = session.finalize_outcomes()
+
+    assert outcomes[-1].action == "landed"  # a missing date never blocks landing
+    assert getattr(task.item, "year", None) is None
+    assert outcomes[-1].tags["year"] is None
+
+
+def test_year_lookup_failure_does_not_unland_the_track(store):
+    def boom(_rid):
+        raise RuntimeError("MusicBrainz unreachable")
+
+    session = _session(store, Dominance(0.96, 0.30, ("rec-A",)), date_fn=boom)
+    task = _task(["rec-A"])
+    session.choose_item(task)
+    outcomes = session.finalize_outcomes()
+
+    assert outcomes[-1].action == "landed"  # best-effort: a failed year still lands
+    assert outcomes[-1].tags["year"] is None
+
+
+def test_year_write_failure_reports_no_year(store):
+    # Review F2: the year is set in memory before the file write; if that write
+    # fails, the track.done payload must NOT keep reporting a year the disk lacks.
+    session = _session(
+        store,
+        Dominance(0.96, 0.30, ("rec-A",)),
+        date_fn=lambda _rid: (1996, 6, 25),
+    )
+    task = _task(["rec-A"])
+
+    def boom():
+        raise OSError("read-only filesystem")
+
+    task.item.try_write = boom
+    task.item.store = lambda: None
+    session.choose_item(task)
+    outcomes = session.finalize_outcomes()
+
+    assert outcomes[-1].action == "landed"  # still landed
+    assert outcomes[-1].tags["year"] is None  # but rolled back — no phantom year
+
+
+def test_skipped_duplicate_gets_no_year_lookup(store):
+    called = []
+    session = _session(
+        store,
+        Dominance(0.97, 0.30, ("rec-A",)),
+        date_fn=lambda _rid: called.append(1) or (1996, None, None),
+    )
+    task = _task(["rec-A"])
+    task.skip = True
+    session.choose_item(task)
+    outcomes = session.finalize_outcomes()
+
+    assert outcomes[-1].action == "skipped"
+    assert called == []  # a track that didn't land gets no year call
+
+
 # --- T-009: acquire-time duplicate handling (choose_item + the real library) --
 #
 # The song already exists in the library. Detection is by MusicBrainz recording id
@@ -553,6 +724,9 @@ def _lib_with(*items) -> library.Library:
 def _session_with_lib(store, dominance, lib, **kw):
     job = store.create_job("https://youtu.be/x")
     kw.setdefault("art_fn", lambda **_: None)
+    # date_fn no-op by default so decision tests never touch MusicBrainz; the
+    # year tests inject their own.
+    kw.setdefault("date_fn", lambda _rid: (None, None, None))
     return FingerprintTrustSession(
         lib,
         store=store,

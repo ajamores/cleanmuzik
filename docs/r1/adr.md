@@ -222,7 +222,8 @@ Format: `ADR-NNN — decision. Rationale. [date]`
   the code path the product actually takes, not the one the option's documentation describes.**
   The open problem moves to **T-025**, where reaching an original date needs a MusicBrainz release
   lookup per recording — the same cost ADR-010 declined for candidate enrichment, so T-025 must
-  price it before building. Superseded-by: T-025. [rejected 2026-07-19]
+  price it before building. Superseded-by: **ADR-014** (T-025's actual fix: one release lookup on
+  the auto-accept path; the junk-year half is ADR-013's `from_scratch`). [rejected 2026-07-19]
 
   <details><summary>Original rationale, preserved (the problem statement still holds)</summary>
 
@@ -290,3 +291,68 @@ Format: `ADR-NNN — decision. Rationale. [date]`
   (Owner decision, 2026-07-19, prompted by `Nines feat. Tiggs da Author/NIC.mp3` in the first
   browser session. Supersedes ADR-007's "no more, no less" for this one plugin only — the §2 set
   remains closed otherwise.) [2026-07-19]
+
+- **ADR-013 — `from_scratch: yes` on import: a landed track's tags come only from MusicBrainz
+  (plus the tag plugins), never from yt-dlp's embedded metadata.** The download embeds the source's
+  metadata via `--embed-metadata` (`download.py:203`) so beets has a non-empty query — but on the
+  **singleton** path that junk *survives onto the landed file*. `track_info()` (`musicbrainz.py:459`)
+  builds a `TrackInfo` with no genre and no year, `RECORDING_INCLUDES` (`_utils/musicbrainz.py:68`)
+  fetches no releases, and `TrackMatch.apply_metadata` (`match.py:253`) does
+  `item.update(info.item_data)` where `item_data` **drops None fields** — so any field MusicBrainz
+  doesn't supply keeps whatever yt-dlp wrote. Observed: genre = YouTube's **category**
+  (`TCON = "Music"` / `"Entertainment"`, T-021) and a wrong **year** (a 1996 track stamped `2026`,
+  the current year — T-025; *not* a MusicBrainz reissue date, which is why ADR-011's `original_date`
+  was inert). `from_scratch: yes` makes `apply_metadata` call `item.clear()` first, so only
+  MusicBrainz-derived fields land. **Safe:** `Item.clear()` iterates `_media_tag_fields` only, which
+  by construction **excludes audio properties** (`models.py:717` — "excludes fields that represent
+  audio data, such as `bitrate` or `length`"), and it runs at apply time, *before* the
+  `lastgenre`/`lyrics`/art plugin stages, so it never wipes a fetched genre, lyric, or cover.
+  Interactions checked: `ftintitle` still fires (it reads the applied MB `item.artist`), dedup still
+  works (`mb_trackid` is cleared then re-set from the match), and `lastgenre` now fetches fresh
+  because the junk `TCON` no longer short-circuits it at `"keep any, no-force"`
+  (`lastgenre/__init__.py:462`). Chosen over the narrower `lastgenre force: yes` (which fixes only
+  genre) because it is one systemic line that also kills the junk year and immunizes against any
+  other stray `--embed-metadata` field. Discharges **T-021** and the junk half of **T-025**.
+  Accepted cost: a field yt-dlp got right but MusicBrainz lacks now lands blank — correct for this
+  tool, where MusicBrainz is authoritative and YouTube metadata is untrusted. **This includes the
+  album family** (`album` / `albumartist` / `tracknumber`), which a singleton MusicBrainz match does
+  not supply, so a landed single now carries no album — confirmed on the verify (`Coming of Age`
+  landed with a blank album, `track=0/0`). The owner ruled this correct for R1: the library is
+  individual tracks organized by `$artist/$title`, album is not load-bearing, and yt-dlp's "album"
+  for a YouTube rip is usually the video title or a Topic-channel artifact. **The genuinely-valuable
+  case — several tracks from one real album (e.g. a Topic-channel release) should recover and group
+  under that album — is a wanted future feature, deferred to T-031, not a reason to keep the junk
+  now.** (Owner decision, 2026-07-19; found by tracing T-021's genre and T-025's year to one
+  mechanism — the same leftover-`--embed-metadata` tag ADR-012 already noted for `TPE2`; the
+  album-family scope was surfaced by a code-review finding and ratified against the verify
+  evidence.) [2026-07-19]
+
+- **ADR-014 — Stamp the original-ish release year via one MusicBrainz call on the
+  auto-accept/resolve path. The year field is worth the per-item lookup ADR-010 declined for
+  candidate enrichment. Supersedes rejected ADR-011.** After ADR-013 clears the junk year,
+  MusicBrainz gives a singleton **no** year (a recording lookup fetches no releases), so a landed
+  track has a blank year — and year is a first-class Jellyfin browse/sort field. On a landed track
+  (both the auto-accept and the owner-resolve paths, via `finalize_outcomes`), look the accepted
+  recording up **once** with `inc=releases+release-groups` and read a date from it: the recording's
+  own `first_release_date` (MusicBrainz's authoritative "when this recording first came out")
+  preferred, else the earliest date across its releases — release-group `first_release_date` before
+  per-release `date`, with the most complete date winning a same-year tie. **This is not the cost
+  ADR-010 rejected:** that was a browse-releases call *per candidate* on the review path; this is one
+  call on the ~88% auto-accept path, for the one field visible on every Jellyfin browse. The stamp
+  is a post-run tag write on the landed file (one extra write on top of beets' own; accepted for a
+  single-user tool that imports one song at a time), and it rolls its reported value back to blank
+  if that write fails, so the `track.done` payload never claims a year the file lacks.
+  **Best-effort, and honestly a proxy, not a guarantee:** MusicBrainz models each remaster/reissue
+  master as a *separate recording*, so "earliest release of *the matched recording*" is the original
+  year only when AcoustID matched the original master (the common case for a rip of the original
+  upload); a recording that appears only on later compilations yields a reissue year, and a
+  recording with no dated release lands blank. Verified against live MusicBrainz before building — a
+  text-searched recording gave 1993 for a 1975 song (the worst case, mitigated on our path because
+  the recording MBID comes from the AcoustID fingerprint, not a text search). A lookup failure or
+  missing date **never un-lands** the track — it just leaves the year blank, exactly as `_embed_art`
+  treats a missing cover. Injectable (`date_fn`) so tests need no network. **Why not
+  `original_date: yes`** — see ADR-011: it is read only on `AlbumInfo`, and R1 imports singletons.
+  Accepted cost: an occasional reissue year on a recording AcoustID mapped to a reissue master; the
+  owner accepted this over a blank year, on the evidence that it is net better than blank-or-junk and
+  strictly better than the status quo. (Owner decision, 2026-07-19, after being shown the proxy's
+  limits.) [2026-07-19]
