@@ -42,14 +42,12 @@ are in `CLAUDE.md`; scope in `cleanmuzik-prd.md`. Not restated here.
 4. **T-029** — failed resume leaves job=`error` / row `pending`. Clean back-end fix, HTTP-verifiable.
 5. **T-026** — needs an owner decision (a/b/c in `tickets.md`) before code.
 
-## Verifying (learned this session)
+## Verifying
 
-Dev server up on **:8137** (real library — **do NOT POST jobs to it**) + **:5173**. The **:8100/:5175**
-verify stack from last session runs **stale code** — ignore or kill it. For tagging verifies use the
-one-shot temp-library recipe (`docs/learnings.md` 2026-07-20): drive `run_pipeline` against a temp
-`LIBRARY_DIRECTORY` + `db_path`, land via `resolve_import` to dodge the flaky AcoustID gate.
-Untracked throwaways to clean: `.playwright-mcp/`, `client/vite.verify.config.ts`,
-`scratchpad/verify_t021_t025.py`.
+Dev server up on **:8137** (real library — **do NOT POST jobs to it**) + **:5173**; the **:8100/:5175**
+stack is last-session stale code — ignore/kill. Tagging-verify recipe (temp library, land via
+`resolve_import` to dodge the flaky AcoustID gate) is in `docs/learnings.md` 2026-07-20. Untracked
+throwaways to clean: `.playwright-mcp/`, `client/vite.verify.config.ts`, `scratchpad/verify_t021_t025.py`.
 
 ## Recent sessions (rolling — last 2–3)
 
