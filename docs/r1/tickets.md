@@ -401,6 +401,50 @@ Nothing could be tested at all until they were fixed:
 - Wrong year from a reissue release (→ ADR-011, `original_date`).
 - Junk `TCON` from the YouTube category, plus two lesser finds (→ T-021, T-022, T-023).
 
+**Results — session 2 (2026-07-19), HTTP against the isolated `:8100` harness.** Closed every
+§7 item that does not require the owner's browser. Status of the 10 §7 checkboxes:
+
+- **#9 playlist rejected** ✅ — `POST /api/jobs {playlist?list=}` → **422**; `watch?v=X&list=RD…`
+  → **200** (deliberate: owner's everyday URL; `noplaylist:True` at `download.py:207` holds the
+  one-song line, flagged load-bearing).
+- **#10 localhost-only** ✅ — `ss -ltnp`: `:8100` and `:8137` `LISTEN 127.0.0.1` only.
+- **#7 forced failure names stage + cleans staging** ✅ — nonexistent video id → SSE
+  `track.error {stage:"download"}`; no staging dir orphaned by the job.
+- **#4 MP3 320 CBR + art/lyrics/tags** ✅ *partial* — ffprobe of the landed JAŸ‐Z file: stream
+  `320000` flat (CBR), attached mjpeg art, synced lyrics, correct title/single-artist. **genre=
+  `Music`** (Last.fm key unset → junk YouTube category, T-021/22/23) and **date=`2026`** (T-025 /
+  ADR-011) remain the two known tag-quality defects; #4 cannot be *fully* green until those land.
+- **#6 duplicate handling** ✅ — all three branches driven live through the **real beets engine**:
+  - `keep_existing` → download discarded, both existing copies intact, review→resolved, GET→404.
+  - `replace` → single-copy fixture (192k); re-paste parked (320>192); resolve removed the old
+    192k and landed one **320k** upgrade (land-before-delete; never zero copies).
+  - `keep_both` suffix="(Verify KB Take)" → original 192k kept + new **320k** landed with the
+    suffix on the **title tag** (path derived from it). (Resolve sat ~48s in `resolving` due to
+    Genius lyrics `429` retry — transient, not a hang.)
+- **#1 / #2 / #3 / #8** ✅ carried from session 1 + T-017 (Row 1 DOM/SSE render, auto-land,
+  weak-match resolve, restart re-hydration). This session's re-paste SSE also showed the full
+  `downloading → transcoding → identifying → review_required` progression at the stream level.
+
+**#5 (track in Jellyfin within seconds via app-triggered scan)** ✅ — owner-confirmed live
+2026-07-19 on Jellyfin 10.11.11: a landed track auto-appeared via the app's scan trigger, no
+manual click (dashboard showed Songs: 6 + "finished playing JAŸ‐Z — Coming of Age"). A side
+finding — lyrics need a second manual scan — is split out to **T-030** (minor, deferred); it is
+NOT a §7 gate (#4 requires lyrics *in the file*, which is proven).
+
+**T-019's only remaining gate is #4's tag-quality defects** — genre=`Music` (T-021/22/23) and
+year=current-not-original (T-025 / ADR-011). Every §7 item has now been *observed*; T-019 closes
+when those land and a re-verify shows real genre + correct year on a freshly landed file.
+
+**Incidental observation (not a §7 gate, not a current-code bug).** Some orphaned
+`/tmp/cleanmuzik-*` dirs linger (`nInBDfbZBbo`, `nXHW5UsbOIA`), but the current run path does **not**
+leak: `run_pipeline`'s `finally` (jobs.py:389-392) `rmtree`s staging on every terminal outcome,
+retaining only for a parked song — verified this session (forced-failure + both resolve jobs
+cleaned up). The lingering dirs are prior-code debris (`nInBDfbZBbo` predates that `finally`) and
+hard-killed runs (a `SIGKILL`'d process can't run its `finally`). Not a bug to fix in the run path;
+would need a startup/TTL janitor, which is deferred past R1 (single-user localhost, `/tmp` clears on
+reboot). **Not** folded into T-029, whose scope is the job/row status disagreement and which
+deliberately retains staging.
+
 ### T-020 — Track card: stream reattach + the snapshot payload gap
 - **Status:** todo — **carved out of T-016 on 2026-07-18 because it could not be verified.**
 - **Depends on:** T-016, T-019 (needs a live browser; that's the whole point)
@@ -681,3 +725,25 @@ Nothing could be tested at all until they were fixed:
   still `pending` and resolvable, and the owner can see *why* the previous pick failed. Verifiable
   over real HTTP by forcing a resolve to a recording id that won't resolve (no browser strictly
   needed for the status/row assertions; the re-render is the browser half).
+
+### T-030 — Landed lyrics don't surface in Jellyfin until a second scan (minor, deferred)
+- **Status:** todo — **minor, owner-deferred (2026-07-19).** Found during T-019 #5. Not a §7 gate:
+  §7 #4 requires lyrics *embedded in the file*, which is proven; lyrics *visible in Jellyfin* is
+  beyond the literal checklist. Park until the R1 must-haves are closed.
+- **Depends on:** T-010 (the scan trigger this adjusts).
+- **The finding.** A freshly-landed track auto-appears in Jellyfin via the app's scan trigger, but
+  its **lyrics do not show until the owner clicks "Scan All Libraries" a second time.** Confirmed
+  live 2026-07-19 on Jellyfin **10.11.11**.
+- **What's NOT the cause (verified).** The landed file is complete: synced lyrics both embedded in
+  the tag AND written as a `.lrc` sidecar at land time (real library: every `.mp3` has a same-mtime
+  `.lrc`; e.g. `JAŸ‐Z/Coming of Age….lrc` @ 22:05:16). So this is not a tagging/sidecar gap.
+- **Likely cause — a race, not the wrong scan.** The owner's manual button is **the same
+  `/Library/Refresh`** the app already fires (`jellyfin.py`). A second identical scan surfacing the
+  lyrics points to the app's scan firing **before Jellyfin can index the just-written `.lrc`** (or
+  before the file settles), so the first pass ingests the track but not its lyrics.
+- **Fix directions to weigh in the ticket (don't pre-commit):** (a) a short delay / retry before or
+  a second deferred `/Library/Refresh` after land; (b) an item-level metadata-refresh call once the
+  item exists; (c) confirm `.lrc` is flushed+closed before triggering the scan. Prefer the smallest
+  reliable option; a single-user localhost tool doesn't need a polling loop.
+- **Done when:** a landed track shows its lyrics in Jellyfin with **no manual scan**, driven once
+  through the real stack and watched (owner browser, like #5).
