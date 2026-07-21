@@ -13,6 +13,18 @@ Format: `- <date> — what went wrong → the correction / rule now in place`
 
 ---
 
+- 2026-07-21 — (T-029 browser verify, nearly reported a phantom bug) **A long-lived Vite dev
+  server on this repo serves STALE JavaScript — WSL2's inotify does not fire on the `/mnt/c`
+  Windows mount, so Vite never HMRs a source change and a page reload re-serves the cached
+  transform.** The `:5175` verify server had been up ~11h; the T-029 client fix landed *after* it
+  started, so the browser ran the *pre-fix* `TrackCard` and faithfully reproduced the OLD bug
+  (id-only "Unknown title" rows, dead buttons, no re-park message). It looked exactly like a real
+  regression. **Before trusting any browser `/verify`, confirm the served bundle is current**: e.g.
+  `curl -s localhost:<port>/src/components/TrackCard.tsx | grep -c <a-marker-only-in-the-fix>`, or
+  just restart the dev server with `--force` and reload. Rule: a dev server that predates the commit
+  under test is presumed stale until proven otherwise. (The server-side half was correct the whole
+  time; only the client bundle lied.)
+
 - 2026-07-20 — (T-021/T-025 verify, paid two flaked runs) **To verify what *lands on the file*
   (tags/genre/year/art), don't drive the auto-accept path — the AcoustID fingerprint gate flakes
   under the shared/private quota (ADR-006 addendum) and parks `rec=none` on a track that landed

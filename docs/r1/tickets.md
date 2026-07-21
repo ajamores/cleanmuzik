@@ -722,10 +722,22 @@ deliberately retains staging.
   2026-07-19: localhost sockets are *not* blocked).
 
 ### T-029 — A failed resume orphans the review: job goes `error` while the row is `pending`
-- **Status:** **on `main` (2026-07-21)** — code done, both suites green (server **331**, client **26**),
-  acceptance check passed, **two** `/code-review` (high) passes run + all findings fixed, `/verify` 7/7.
-  **Remaining before fully closed:** two browser-only checks deferred to the next session — the real
-  `EventSource` reconnect *timing* (#4) and the visual re-park frame (#7); the logic of both is unit-covered.
+- **Status:** **DONE — on `main` (2026-07-21)**. Code done, both suites green (server **331**, client
+  **26**), acceptance check passed, **two** `/code-review` (high) passes + all findings fixed, `/verify`
+  7/7. **Both browser checks now PASS** against the fixed bundle, driven in a real browser (Playwright)
+  over an isolated backend (temp DB/library, `:8137` untouched):
+  - **#7 (live re-park):** a MutationObserver recording every DOM frame proves the candidate rows
+    **never flash "Unknown title"** — the rich rows are kept through the re-park (`sawUnknown:false`) —
+    the `.review__reparked` reason renders, and the panel remounts so the buttons come back alive.
+  - **#4 (forced stream drop → fallback):** with the live re-park emit suppressed, the resume
+    EventSource logs `open → job.queued → error` (no `review_required`), so recovery goes through
+    `onerror → checkOnce → GET /api/jobs = review → hydrateReview(remount=true)`; the panel remounts
+    (one empty transitional frame), the `submitting` latch clears, and buttons live again.
+  - **Verify note:** the first browser run reproduced the *old* bug because the long-lived `:5175`
+    Vite server was serving a **stale pre-fix bundle** (WSL `/mnt/c` inotify miss) — see
+    `docs/learnings.md` 2026-07-21. Server side was correct throughout. Harness:
+    `scratchpad/verify_launcher_t029.py` (three test-only monkeypatches: force releasable resolve
+    failure, toggle the live-emit for #4, force a deterministic park).
 - **`/code-review` (high, 2026-07-20) — 4 findings, all fixed.** (1) the re-park re-emitted *id-only*
   candidates, so a weak-match retry showed blank rows → client now re-hydrates rich rows via
   `GET /api/reviews/{id}` on a re-park; (2) the failure reason rode only the live SSE frame → now
