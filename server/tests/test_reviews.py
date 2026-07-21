@@ -335,6 +335,20 @@ def _events(bus, job_id):
     return parse_sse(asyncio.run(drain()))
 
 
+class _BusRaisingOn(EventBus):
+    """An EventBus that raises on the first publish of a named event — to inject an
+    unexpected fault at a precise point in run_resolve (T-029 findings #1, #5)."""
+
+    def __init__(self, event):
+        super().__init__()
+        self._raise_on = event
+
+    def publish(self, job_id, name, payload):
+        if name == self._raise_on:
+            raise RuntimeError(f"injected fault publishing {name}")
+        return super().publish(job_id, name, payload)
+
+
 def test_reject_discards_staging_and_marks_rejected(tmp_path):
     store = _store(tmp_path)
     job, review, staging_dir = _parked(store, tmp_path)
@@ -387,10 +401,16 @@ def test_keep_both_passes_the_suffix_to_the_import(tmp_path):
     assert seen["recording_id"] == "rec-E"
 
 
-def test_a_failed_resolve_returns_the_review_to_the_queue_and_keeps_staging(tmp_path):
-    # The song must stay resolvable: deleting its file would strand the row forever.
+def test_a_releasable_resolve_failure_reparks_the_job_not_errors_it(tmp_path):
+    # T-029: a pre-commit resolve failure returns the row to `pending` (the song must
+    # stay resolvable — deleting its file would strand the row forever). The JOB must
+    # then agree: settle to `review`, NOT `error`. Reporting `error` while the row is
+    # pending orphaned the review — the card followed the job to a dead `error` and no
+    # queue view could reach the still-pending row. So: status `review`, row `pending`,
+    # staging kept, and a re-emitted `track.review_required` (not `track.error`) that
+    # re-renders the panel and carries the reason the pick failed.
     store = _store(tmp_path)
-    job, review, staging_dir = _parked(store, tmp_path)
+    job, review, staging_dir = _parked(store, tmp_path, candidate_ids=("rec-A", "rec-B"))
     store.claim_review(review.id)
 
     def boom(*a, **k):
@@ -399,11 +419,107 @@ def test_a_failed_resolve_returns_the_review_to_the_queue_and_keeps_staging(tmp_
     state, bus = _run_resolve(
         store, review, ResolveRequest("rec-A", recording_id="rec-A"), resolve_fn=boom
     )
-    assert state.status == "error"
-    assert state.stage == "land"
+    assert state.status == "review", "a releasable failure re-parks; it does not error the job"
+    assert state.review_id == review.id, "the snapshot names the review so the card re-hydrates"
     assert store.get_review(review.id).status == "pending", "a failed resolve is retryable"
     assert staging_dir.exists(), "a failed resolve must keep the file it needs to retry"
-    assert dict(_events(bus, job.id))["track.error"]["stage"] == "land"
+
+    events = dict(_events(bus, job.id))
+    assert "track.error" not in events, "a re-parked job must not emit a terminal error"
+    reparked = events["track.review_required"]
+    assert reparked["review_id"] == review.id
+    assert [c["candidate_id"] for c in reparked["candidates"]] == ["rec-A", "rec-B"]
+    assert "beets organize blew up" in reparked["message"], "the owner must learn why the pick failed"
+    # The reason is ALSO persisted on the row (finding #2), so it survives a reconnect
+    # that never saw the live SSE `message`.
+    assert "beets organize blew up" in (store.get_review(review.id).last_error or "")
+
+
+def test_a_re_park_reason_surfaces_on_the_hydrated_row(tmp_path, monkeypatch):
+    # finding #2: a card that reconnects/reloads re-hydrates via GET /api/reviews/{id},
+    # which must carry the persisted reason — the live SSE `message` is long gone.
+    import beets.metadata_plugins as mp
+
+    monkeypatch.setattr(reviews_mod, "_hydration_cache", {})
+    monkeypatch.setattr(
+        mp, "track_for_id",
+        lambda mbid, src: type("TI", (), {"title": "S", "artist": "B"})(),
+    )
+    store = _store(tmp_path)
+    job, review, _ = _parked(store, tmp_path, candidate_ids=("rec-A",))
+    store.claim_review(review.id)
+
+    def boom(*a, **k):
+        raise RuntimeError("musicbrainz timed out")
+
+    _run_resolve(store, review, ResolveRequest("rec-A", recording_id="rec-A"), resolve_fn=boom)
+
+    hydrated = reviews_mod.hydrate_review(store, review.id)
+    assert hydrated is not None
+    assert "musicbrainz timed out" in (hydrated["last_error"] or "")
+
+
+# --- the last_error lifecycle: preserve on a bare release, clear on a fresh start -----
+# These three (T-029 findings #2, #3, #6) must be pinned together: the coherent rule is
+# "a bare release PRESERVES the stored reason; claim / crash-requeue CLEAR it". Pin all
+# of it so a future edit can't quietly collapse the three into one wrong rule.
+
+
+def test_a_bare_release_preserves_the_stored_reason(tmp_path):
+    # finding #2: the failed-hand-off requeue (routes/reviews.py) calls release_review
+    # with no reason. It must NOT erase a reason a prior re-park persisted — a bare
+    # release means "requeue", not "there was no failure". An explicit value still sets
+    # it; an explicit None still clears it.
+    store = _store(tmp_path)
+    _job, review, _ = _parked(store, tmp_path, candidate_ids=("rec-A",))
+
+    store.release_review(review.id, last_error="that match couldn't be applied")
+    store.release_review(review.id)  # bare — must leave the reason intact
+    assert store.get_review(review.id).last_error == "that match couldn't be applied"
+
+    store.release_review(review.id, last_error=None)  # explicit — must clear
+    assert store.get_review(review.id).last_error is None
+
+
+def test_claim_review_clears_a_stale_reason(tmp_path):
+    # finding #3: a fresh retry starts clean. A reason left from a PREVIOUS re-park must
+    # not be shown misattributed as the reason for THIS attempt.
+    store = _store(tmp_path)
+    _job, review, _ = _parked(store, tmp_path, candidate_ids=("rec-A",))
+    store.release_review(review.id, last_error="musicbrainz timed out")
+
+    store.claim_review(review.id)  # the owner retries
+    assert store.get_review(review.id).last_error is None
+
+
+def test_reset_resolving_reviews_clears_a_stale_reason(tmp_path):
+    # finding #3: a crash mid-resolve requeues the row on the next boot. That is not a
+    # failed pick, so a reason from a previous re-park must not be shown as why it is
+    # pending. (A row can be `resolving` with a reason if it was claimed under the old
+    # code; construct that state directly via update_review_status.)
+    store = _store(tmp_path)
+    _job, review, _ = _parked(store, tmp_path, candidate_ids=("rec-A",))
+    store.release_review(review.id, last_error="beets glitch")
+    store.update_review_status(review.id, "resolving")  # stranded mid-resolve, reason kept
+    assert store.get_review(review.id).last_error == "beets glitch"  # precondition
+
+    store.reset_resolving_reviews()
+    row = store.get_review(review.id)
+    assert row.status == "pending", "a stranded row returns to the queue"
+    assert row.last_error is None, "a crash-requeue is not a failed pick — clear the reason"
+
+
+def test_release_review_returns_the_released_row(tmp_path):
+    # finding #6: release_review RETURNS the updated row so the re-park emit reuses it
+    # instead of paying for a second SELECT. The returned row must reflect the write.
+    store = _store(tmp_path)
+    _job, review, _ = _parked(store, tmp_path, candidate_ids=("rec-A",))
+
+    released = store.release_review(review.id, last_error="boom")
+    assert released.id == review.id
+    assert released.status == "pending"
+    assert released.last_error == "boom"
+    assert list(released.candidate_ids) == ["rec-A"]
 
 
 def test_a_scan_failure_after_landing_does_not_requeue_the_committed_resolve(tmp_path):
@@ -454,6 +570,37 @@ def test_a_post_commit_error_that_isnt_a_scan_error_still_keeps_the_resolve(tmp_
         "a post-commit failure must not re-queue a landing that already committed"
     )
     assert not staging_dir.exists(), "the song landed — its staging is spent, not retained"
+
+
+def test_an_unexpected_pre_commit_fault_errors_terminally_it_does_not_loop(tmp_path):
+    # finding #5: a `_StageFailure` is anticipated/transient (MusicBrainz down, a beets
+    # glitch) and re-parks. An ARBITRARY pre-commit exception is unclassified and most
+    # likely deterministic — re-parking it hands the owner the panel forever, re-picking
+    # into the same fault with no error ever surfaced. It must be terminal: the row is
+    # discarded so its state and the job's `error` AGREE (not the pending/error orphan
+    # T-029 removed), and it does NOT re-emit review_required. The fault is injected at
+    # the last pre-commit publish (`track.tagging`), where `committed` is still False.
+    store = _store(tmp_path)
+    job, review, _ = _parked(store, tmp_path, candidate_ids=("rec-A",))
+    store.claim_review(review.id)
+    bus = _BusRaisingOn("track.tagging")
+
+    state = run_resolve(
+        job.id, review.id, ResolveRequest("rec-A", recording_id="rec-A"),
+        store=store, registry=JobRegistry(), bus=bus, lib=_FakeLib([]),
+        resolve_fn=lambda *a, **k: [
+            Outcome("landed", 0.0, 0.0, track_id="rec-A", chosen={}, tags={},
+                    landed_path="/lib/x.mp3")
+        ],
+        scan_fn=lambda **k: True,
+    )
+    assert state.status == "error", "an unclassified pre-commit fault must be terminal, not a re-park"
+    assert store.get_review(review.id).status == "rejected", (
+        "the dead row is discarded so it agrees with the job's error (no orphan)"
+    )
+    assert "track.review_required" not in dict(_events(bus, job.id)), (
+        "a terminal fault must not re-park the review"
+    )
 
 
 def test_a_library_open_failure_degrades_the_duplicate_row_not_the_whole_queue(
@@ -521,27 +668,70 @@ def test_a_vanished_review_row_still_closes_the_stream(tmp_path):
     assert "track.error" in frames, "the torn-row path must emit a terminal event and close"
 
 
-def test_a_vanished_staging_file_names_the_cause(tmp_path):
+def test_a_re_park_that_hits_a_locked_db_errors_the_job_it_does_not_hang(tmp_path):
+    # finding #1: _repark_after_release runs INSIDE run_resolve's except handler. A
+    # SECONDARY failure there (a locked DB on the release UPDATE) must not escape
+    # run_resolve — whose contract is "never raises" — or the job is stranded `running`
+    # with its reopened SSE stream open, pinging forever: the exact orphan T-029 removes,
+    # one layer down. The re-park's own guard must catch it, settle the job to `error`,
+    # and close the stream. Draining under a timeout is the closure assertion: a regressed
+    # escape times out here instead of hanging the whole suite.
+    import sqlite3
+
+    store = _store(tmp_path)
+    job, review, _ = _parked(store, tmp_path, candidate_ids=("rec-A",))
+    store.claim_review(review.id)
+
+    def locked(*a, **k):
+        raise sqlite3.OperationalError("database is locked")
+
+    store.release_review = locked  # the secondary failure, mid re-park
+
+    def boom(*a, **k):  # reach the releasable re-park path in the first place
+        raise RuntimeError("beets organize blew up")
+
+    state, bus = _run_resolve(
+        store, review, ResolveRequest("rec-A", recording_id="rec-A"), resolve_fn=boom
+    )
+    assert state.status == "error", "a locked DB during the re-park must error, not escape"
+
+    async def drain():
+        return "".join([f async for f in bus.stream(job.id)])
+
+    frames = asyncio.run(asyncio.wait_for(drain(), timeout=2.0))
+    assert "track.error" in frames, "the failed re-park must still emit a terminal event and close"
+
+
+def test_a_vanished_staging_file_terminates_not_loops(tmp_path):
     # Staging lives under the system temp dir; an OS sweep can take it while the row
-    # survives. The error must say so rather than surface a beets "no such file".
+    # survives. This is TERMINAL (T-029, finding #3): no candidate the owner picks can
+    # ever land the missing file, so re-parking would only loop. The job ends `error`
+    # with the cause named, and the dead row is discarded (rejected) so it leaves the
+    # queue rather than nagging — the two agree; the owner re-downloads.
     store = _store(tmp_path)
     job, review, staging_dir = _parked(store, tmp_path)
     import shutil
 
     shutil.rmtree(staging_dir)
-    state, _ = _run_resolve(store, review, ResolveRequest("rec-A", recording_id="rec-A"))
+    state, bus = _run_resolve(store, review, ResolveRequest("rec-A", recording_id="rec-A"))
     assert state.status == "error"
-    assert "staging copy for this review is gone" in state.error
+    assert "staging copy for this review is gone" in (state.error or "")
+    assert store.get_review(review.id).status == "rejected", "an unwinnable review is discarded"
+    assert dict(_events(bus, job.id))["track.error"]["stage"] == "land"
 
 
-def test_a_resolve_that_lands_nothing_is_an_error_not_a_false_done(tmp_path):
+def test_a_resolve_that_lands_nothing_is_not_a_false_done(tmp_path):
+    # Landing nothing must never read as "done". Pre-T-029 it settled to `error`; now it
+    # re-parks (releasable pre-commit failure) so the song stays resolvable — either way,
+    # not a false success.
     store = _store(tmp_path)
     job, review, _ = _parked(store, tmp_path)
     state, _ = _run_resolve(
         store, review, ResolveRequest("rec-A", recording_id="rec-A"),
         resolve_fn=lambda *a, **k: [],
     )
-    assert state.status == "error"
+    assert state.status == "review"
+    assert store.get_review(review.id).status == "pending"
 
 
 def test_staging_outside_a_cleanmuzik_dir_is_not_rmtreed(tmp_path):
@@ -649,14 +839,17 @@ def test_replace_refuses_when_two_library_files_share_the_recording_id(tmp_path)
     kept_both = [_FakeItem(1, a, title="Song"), _FakeItem(2, b, title="Song (Remaster)")]
     landed = []
 
-    state, _ = _run_resolve(
+    state, bus = _run_resolve(
         store, review, ResolveRequest("replace", recording_id="rec-E"),
         lib=_FakeLib(kept_both),
         resolve_fn=lambda *a, **k: landed.append(1) or [Outcome("landed", 0.0, 0.0)],
     )
 
-    assert state.status == "error"
-    assert "share this recording id" in state.error
+    # T-029: a refused replace is a releasable pre-commit failure, so it re-parks — which
+    # is exactly right here: the owner is handed the panel back with the reason, to choose
+    # a valid action (keep_both / keep_existing) instead of hitting a dead "error".
+    assert state.status == "review"
+    assert "share this recording id" in dict(_events(bus, job.id))["track.review_required"]["message"]
     assert not landed, "it must refuse BEFORE the import lands anything to unwind"
     assert not any(i.removed for i in kept_both), "neither copy may be deleted"
     assert a.exists() and b.exists()
@@ -737,7 +930,7 @@ def test_get_reviews_lists_a_parked_song_with_its_shape(client, monkeypatch):
     body = client.get("/api/reviews").json()
     assert len(body) == 1
     row = body[0]
-    assert set(row) == {"review_id", "job_id", "query", "rec", "candidates"}
+    assert set(row) == {"review_id", "job_id", "query", "rec", "candidates", "last_error"}
     assert row["rec"] == "medium"
     assert row["query"] == "artist title"
     assert row["candidates"][0]["candidate_id"] == "rec-A"
@@ -754,7 +947,7 @@ def test_get_single_review_returns_its_hydrated_shape(client, monkeypatch):
         mp, "track_for_id", lambda mbid, src: type("TI", (), {"title": "S", "artist": "B"})()
     )
     row = client.get(f"/api/reviews/{review.id}").json()
-    assert set(row) == {"review_id", "job_id", "query", "rec", "candidates"}
+    assert set(row) == {"review_id", "job_id", "query", "rec", "candidates", "last_error"}
     assert row["review_id"] == review.id
     assert row["rec"] == "medium"
     assert row["candidates"][0]["candidate_id"] == "rec-A"

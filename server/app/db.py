@@ -62,7 +62,8 @@ CREATE TABLE IF NOT EXISTS reviews (
     candidate_ids_json    TEXT NOT NULL,
     candidate_scores_json TEXT,
     rec                   TEXT NOT NULL,
-    status                TEXT NOT NULL
+    status                TEXT NOT NULL,
+    last_error            TEXT
 );
 """
 
@@ -73,7 +74,16 @@ CREATE TABLE IF NOT EXISTS reviews (
 # so an old row reads as "unknown", which is what it is.
 _ADDED_COLUMNS = [
     ("reviews", "candidate_scores_json", "TEXT"),  # T-028
+    ("reviews", "last_error", "TEXT"),  # T-029 — reason a resolve last failed (re-park)
 ]
+
+# Sentinel default for `release_review(last_error=...)`. It distinguishes "the caller
+# named no reason, so leave the stored one alone" from an explicit `None` ("clear it").
+# A plain `None` default cannot tell those apart, and conflating them let a bare
+# `release_review(id)` (the failed-hand-off requeue in routes/reviews.py) overwrite a
+# persisted re-park reason with NULL — T-029, finding #2. Clearing a reason is now the
+# job of `claim_review` / `reset_resolving_reviews` (finding #3), not of a bare release.
+_KEEP_LAST_ERROR: str | None = object()  # type: ignore[assignment]
 
 
 def _migrate(conn: sqlite3.Connection) -> None:
@@ -123,6 +133,10 @@ class Review:
     rec: str  # the beets `task.rec` recommendation, recorded as text
     status: str  # "pending" | "resolving" | "resolved" | "rejected" (see STATUS_* below)
     candidate_scores: dict[str, float] = field(default_factory=dict)
+    # Why the last resolve attempt failed, if it re-parked this row (T-029). NULL on a
+    # first park; set by `release_review`. Persisted so the reason survives a reconnect
+    # or reload — the SSE `message` alone is lost the moment the stream is (finding #2).
+    last_error: str | None = None
 
 
 # Review lifecycle (T-014). `pending` is what the queue lists and what a resolve
@@ -321,7 +335,11 @@ class Store:
         SQL means exactly one caller sees rowcount 1 and the loser gets a clean 409.
 
         Returns the row as it was *before* the claim (still carrying `pending`), which
-        is what the caller validates against — `status` is the only field that changed.
+        is what the caller validates against — `status` is the only field the resolve
+        reads. `last_error` is cleared too (T-029, finding #3): a fresh retry starts
+        clean, so a reason left over from a *previous* re-park is not shown misattributed
+        as the reason for this attempt. The pre-claim row still carries the old value,
+        which is harmless — nothing downstream reads `last_error` off the claimed row.
         """
         with self._connect() as conn:
             row = conn.execute(
@@ -330,21 +348,46 @@ class Store:
             if row is None:
                 return None
             cur = conn.execute(
-                "UPDATE reviews SET status = ? WHERE id = ? AND status = ?",
+                "UPDATE reviews SET status = ?, last_error = NULL WHERE id = ? AND status = ?",
                 (REVIEW_RESOLVING, review_id, REVIEW_PENDING),
             )
             if cur.rowcount == 0:
                 return None
         return _review_from_row(row)
 
-    def release_review(self, review_id: str) -> None:
+    def release_review(
+        self, review_id: str, last_error: str | None = _KEEP_LAST_ERROR
+    ) -> Review:
         """Hand a claimed review back to `pending` so a failed resolve is retryable.
 
         The counterpart to `claim_review`: a resolve that errors (the staging copy
         won't import, MusicBrainz is down) must leave the song in the queue rather
         than strand it in `resolving`, where nothing lists it and nothing can claim it.
+
+        `last_error` records *why* it re-parked, persisted so the reason survives a
+        reconnect/reload (T-029, finding #2) — the SSE `message` alone dies with the
+        stream. Omit it (the sentinel default) and the stored reason is left untouched:
+        the failed-hand-off requeue (routes/reviews.py) passes no reason and must not
+        erase a reason a prior re-park persisted. Pass an explicit value to set it, or
+        an explicit `None` to clear it.
+
+        Returns the released row (via `RETURNING`), so the re-park path can re-emit its
+        `review_required` from the fresh row without a second SELECT — T-029, finding #6.
         """
-        self.update_review_status(review_id, REVIEW_PENDING)
+        with self._connect() as conn:
+            if last_error is _KEEP_LAST_ERROR:
+                row = conn.execute(
+                    "UPDATE reviews SET status = ? WHERE id = ? RETURNING *",
+                    (REVIEW_PENDING, review_id),
+                ).fetchone()
+            else:
+                row = conn.execute(
+                    "UPDATE reviews SET status = ?, last_error = ? WHERE id = ? RETURNING *",
+                    (REVIEW_PENDING, last_error, review_id),
+                ).fetchone()
+            if row is None:
+                raise KeyError(f"no review with id {review_id!r}")
+        return _review_from_row(row)
 
     def reset_resolving_reviews(self) -> int:
         """Return every review stranded mid-resolve by a crash/shutdown to `pending`.
@@ -353,10 +396,14 @@ class Store:
         is in-memory, so a row left `resolving` at boot has no worker coming for it and
         would sit invisible to the queue forever. Called once on worker startup.
         Returns how many rows were reconciled.
+
+        `last_error` is cleared (T-029, finding #3): a crash mid-resolve is not a failed
+        pick, so a reason left over from a *previous* re-park must not be shown as the
+        reason this row is back in the queue after a restart.
         """
         with self._connect() as conn:
             cur = conn.execute(
-                "UPDATE reviews SET status = ? WHERE status = ?",
+                "UPDATE reviews SET status = ?, last_error = NULL WHERE status = ?",
                 (REVIEW_PENDING, REVIEW_RESOLVING),
             )
             return cur.rowcount
@@ -385,6 +432,7 @@ def _review_from_row(row: sqlite3.Row) -> Review:
         # returned for every row before T-028 existed. Degrade, never raise: a queue
         # that 500s is a queue the owner can't empty (`_hydrate`'s rule).
         candidate_scores=json.loads(row["candidate_scores_json"] or "{}"),
+        last_error=row["last_error"],  # T-029; NULL on a first park or a pre-migration row
     )
 
 

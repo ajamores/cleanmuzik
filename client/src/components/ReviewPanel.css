@@ -197,6 +197,15 @@
   margin: 0 0 12px;
 }
 
+/* A resume that failed and re-parked this review (T-029): say why, above the panel. */
+.review__reparked {
+  font-size: 13px;
+  color: var(--warn);
+  border-left: 2px solid var(--warn);
+  padding: 6px 0 6px 10px;
+  margin: 0 0 12px;
+}
+
 /* --- actions ------------------------------------------------------------- */
 
 .review__actions {

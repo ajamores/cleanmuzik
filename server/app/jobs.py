@@ -53,6 +53,7 @@ from app.config import Settings, get_settings
 from app.db import (
     REVIEW_REJECTED,
     REVIEW_RESOLVED,
+    Review,
     Store,
 )
 from app.download import download_song
@@ -175,12 +176,19 @@ class JobRegistry:
 class _StageFailure(Exception):
     """Internal: a stage failed. Carries which stage so run_pipeline's single
     handler can record it (spec §7 forced-failure names the stage) without a tower
-    of nested try/except around each step."""
+    of nested try/except around each step.
 
-    def __init__(self, stage: str, message: str) -> None:
+    `terminal` marks a resolve failure that re-trying cannot fix — the staging copy is
+    gone, so no candidate the owner picks will ever land (T-029, finding #3). Such a
+    failure ends the job as `error` rather than re-parking it into an unwinnable retry
+    loop. Default False: an ordinary failure (MusicBrainz briefly down, a refused
+    `replace`) IS retryable and re-parks."""
+
+    def __init__(self, stage: str, message: str, *, terminal: bool = False) -> None:
         super().__init__(f"{stage}: {message}")
         self.stage = stage
         self.message = message
+        self.terminal = terminal
 
 
 def _read_normalized_query(mp3_path: Path) -> str:
@@ -304,13 +312,11 @@ def run_pipeline(
                 # in-memory Outcome, never the row). Recover what the durable row does
                 # keep — the candidate MBIDs — as id-only rows so the event is honest
                 # about what's known rather than empty. T-014 re-hydrates the rest.
-                bus.publish(job_id, "track.review_required", {
-                    "job_id": job_id,
-                    "review_id": parked.id,
-                    "rec": parked.rec,
-                    "query": query,
-                    "candidates": _id_only_candidates(parked.candidate_ids),
-                })
+                _emit_review_required(
+                    bus, job_id,
+                    review_id=parked.id, rec=parked.rec, query=query,
+                    candidates=_id_only_candidates(parked.candidate_ids),
+                )
                 return _finish(
                     store, registry, job_id, bus=bus,
                     status=STATUS_REVIEW, review_id=parked.id,
@@ -324,13 +330,11 @@ def run_pipeline(
         parked = next((o for o in outcomes if o.action == "parked"), None)
         if parked is not None:
             retain_staging = True
-            bus.publish(job_id, "track.review_required", {
-                "job_id": job_id,
-                "review_id": parked.review_id,
-                "rec": parked.rec,
-                "query": query,
-                "candidates": parked.candidates or [],
-            })
+            _emit_review_required(
+                bus, job_id,
+                review_id=parked.review_id, rec=parked.rec, query=query,
+                candidates=parked.candidates or [],
+            )
             return _finish(
                 store, registry, job_id, bus=bus,
                 status=STATUS_REVIEW, review_id=parked.review_id,
@@ -476,12 +480,16 @@ def run_resolve(
 
         if not staging_path.is_file():
             # Staging lives under the system temp dir, so an OS sweep can take the
-            # file while the SQLite row survives. Fail with the cause named rather
-            # than let beets report a confusing "no such file".
+            # file while the SQLite row survives. This is TERMINAL (T-029, finding #3):
+            # the copy the review exists to land is gone, so no candidate the owner
+            # picks can ever succeed — re-parking would only loop. End the job as
+            # `error` with the cause named, rather than let beets report a confusing
+            # "no such file" or re-park an unwinnable review.
             raise _StageFailure(
                 STAGE_LAND,
                 f"the staging copy for this review is gone ({staging_path}) — "
                 f"nothing to land; discard the review and re-download the song",
+                terminal=True,
             )
 
         lib = lib if lib is not None else get_library(s)
@@ -582,19 +590,41 @@ def run_resolve(
         # guard is kept anyway so the invariant "never release a committed resolve"
         # holds by construction, not by the reader tracing every raise site.
         logger.warning("resolve %s failed at %s: %s", review_id, failure.stage, failure.message)
-        if not committed:
-            _release(store, review_id)
+        if not committed and not failure.terminal:
+            # Releasable AND retryable: the row goes back to `pending`, so the JOB must
+            # agree — settle it to `review`, not `error` (T-029). Reporting `error` here
+            # while the row is pending orphans the review: the card follows the job to a
+            # dead `error` and there is no queue view to reach the still-pending row from.
+            return _repark_after_release(
+                store, registry, job_id, review_id,
+                bus=bus, stage=failure.stage, error=failure.message,
+            )
+        if not committed and failure.terminal:
+            # Unwinnable (staging gone): don't re-park a review no retry can resolve.
+            # Discard the dead row so it leaves the queue, and end the job as `error`
+            # with the cause — the two agree, and the owner re-downloads (finding #3).
+            _reject(store, review_id)
         return _finish(
             store, registry, job_id, bus=bus,
             status=STATUS_ERROR, stage=failure.stage, error=failure.message,
         )
     except Exception as exc:  # noqa: BLE001 — never let the worker thread die
-        # A post-commit exception (set_stage, a non-JellyfinScanError scan failure, the
-        # `track.done` publish) lands here with the song already filed. Reporting a job
-        # error is right; releasing the row is not — hence the guard.
+        # Post-commit (set_stage, a non-JellyfinScanError scan failure, the `track.done`
+        # publish): the song is already filed. Report a job error but leave the row
+        # RESOLVED — releasing it would re-queue an import that already landed.
+        #
+        # Pre-commit: unlike a `_StageFailure` — an *anticipated*, likely-transient
+        # failure worth re-parking (MusicBrainz down, a beets apply glitch) — an
+        # arbitrary exception is unclassified and most likely deterministic. Re-parking
+        # it hands the owner the panel again with no error ever surfaced, and re-picking
+        # hits the same fault forever: a silent loop with no terminal state (T-029, #5).
+        # So treat it as terminal — discard the row so its state and the job's `error`
+        # AGREE (not the pending/error orphan T-029 removed), and name the cause. This
+        # mirrors the terminal `_StageFailure` branch above; only a `_StageFailure` is
+        # retryable, everything else errors.
         logger.exception("resolve %s failed unexpectedly", review_id)
         if not committed:
-            _release(store, review_id)
+            _reject(store, review_id)
         return _finish(store, registry, job_id, bus=bus, status=STATUS_ERROR, error=str(exc))
 
 
@@ -653,12 +683,101 @@ def _replace_existing(lib, recording_id: str, before_ids: set, landed) -> str | 
     return os.fsdecode(new_item.path) if new_item.path else None
 
 
-def _release(store: Store, review_id: str) -> None:
-    """Return a failed resolve's review to the queue so the owner can retry it."""
+def _release(store: Store, review_id: str, last_error: str) -> Review | None:
+    """Return a failed resolve's review to the queue so the owner can retry it.
+
+    `last_error` is persisted on the row (T-029) so the reason survives a reconnect —
+    the SSE `message` alone would be lost with the stream (finding #2). Returns the
+    released row (reused by the re-park emit, finding #6), or `None` if the row vanished
+    before it could be released — the torn/vanished case the caller reports as an error.
+    A locked-DB / unexpected failure is *not* swallowed here: it propagates so the
+    re-park's own guard settles the job to `error` rather than letting it escape."""
     try:
-        store.release_review(review_id)
+        return store.release_review(review_id, last_error=last_error)
     except KeyError:
         logger.error("review %s vanished before it could be released", review_id)
+        return None
+
+
+def _reject(store: Store, review_id: str) -> None:
+    """Discard a review the system cannot resolve (T-029 terminal path, finding #3).
+
+    Used when the staging copy is gone: no retry can land it, so the row leaves the
+    queue rather than re-parking into an unwinnable loop. Tolerates a vanished row."""
+    try:
+        store.update_review_status(review_id, REVIEW_REJECTED)
+    except KeyError:
+        logger.error("review %s vanished before it could be discarded", review_id)
+
+
+def _repark_after_release(
+    store: Store,
+    registry: JobRegistry,
+    job_id: str,
+    review_id: str,
+    *,
+    bus: EventBus,
+    stage: str | None,
+    error: str,
+) -> JobState:
+    """Return a pre-commit resolve failure to the queue AND settle the job to `review`.
+
+    T-029. A releasable resolve failure sends the row back to `pending` so the song
+    stays resolvable — but the job was being settled to `error`, and the two must agree
+    or the review is orphaned (the card follows the job to a dead `error`, and there is
+    no standalone queue view to reach the still-pending row from). So on this path:
+
+    - release the row (`pending`), then re-emit `track.review_required` — a *live* card
+      re-renders the resolve panel with no new client machinery, and a card that lost the
+      stream re-hydrates via `GET /api/jobs/{id}` → `review` → `GET /api/reviews/{id}`,
+      exactly the restart path T-017 already handles;
+    - carry the reason in the event's `message` so the owner learns the pick failed
+      rather than being silently re-parked (do not lose the reason);
+    - settle the job to `STATUS_REVIEW` (not `error`) so the durable snapshot matches the
+      row — the same terminal shape `run_pipeline` uses when it first parks.
+
+    If the row is gone (a torn/vanished review — `_release` could not release it), there
+    is nothing to re-park: report the error, as before.
+
+    Every step past the release is wrapped: a *secondary* failure here (a locked DB on
+    the release UPDATE, an emit or finish that raises) must never escape run_resolve,
+    whose contract is "never raises". An escape would strand the job `running` with its
+    SSE stream open and the card hanging forever — the exact orphan T-029 removes, one
+    layer down (finding #1). On any such secondary failure we fall through to a terminal
+    `error`; the worker-loop backstop is the outer net if even that `_finish` raises.
+    """
+    message = f"That match couldn't be applied — {error}"
+    try:
+        # Persist the reason on the row (finding #2) and reuse the returned row for the
+        # emit — one UPDATE ... RETURNING, no second SELECT (finding #6). The SSE
+        # `message` below is the live path; the row is the durable one the client
+        # re-hydrates from. `None` means the row was torn/vanished — nothing to re-park.
+        review = _release(store, review_id, last_error=message)
+        if review is None:
+            return _finish(
+                store, registry, job_id, bus=bus,
+                status=STATUS_ERROR, stage=stage, error=error,
+            )
+        # id-only candidates: the rich display fields ride the in-memory Outcome, gone
+        # once the resolve failed. The durable row keeps the MBIDs; on the client a
+        # re-park re-hydrates the rich rows via GET /api/reviews/{id}, the same recovery
+        # the post-park land failure and the restart path use.
+        _emit_review_required(
+            bus, job_id,
+            review_id=review_id, rec=review.rec, query=review.query,
+            candidates=_id_only_candidates(review.candidate_ids),
+            message=message,
+        )
+        return _finish(
+            store, registry, job_id, bus=bus,
+            status=STATUS_REVIEW, review_id=review_id,
+        )
+    except Exception:  # noqa: BLE001 — finding #1: a re-park must never escape run_resolve
+        logger.exception("re-park of review %s failed; settling the job to error", review_id)
+        return _finish(
+            store, registry, job_id, bus=bus,
+            status=STATUS_ERROR, stage=stage, error=error,
+        )
 
 
 def _remove_staging(staging_path: Path) -> None:
@@ -728,6 +847,33 @@ def _id_only_candidates(candidate_ids: list[str]) -> list[dict]:
     when the rich rows were lost (the seam raised after parking). Only `candidate_id`
     is known; the display fields degrade to null and T-014 re-hydrates them."""
     return [candidate_row(cid) for cid in candidate_ids]
+
+
+def _emit_review_required(
+    bus: EventBus,
+    job_id: str,
+    *,
+    review_id: str,
+    rec: str | None,
+    query: str,
+    candidates: list[dict],
+    message: str | None = None,
+) -> None:
+    """Publish the spec §6 `track.review_required` event — the one emit shape, in one
+    place (T-029, finding #4). Three paths park a job: `run_pipeline`'s rich park and its
+    post-park recovery, plus `run_resolve`'s re-park. They differ only in `candidates`
+    (rich vs id-only) and whether a re-park `message` rides along; sharing this stops a
+    future contract change (as `message` just was) from being applied to two of three."""
+    payload = {
+        "job_id": job_id,
+        "review_id": review_id,
+        "rec": rec,
+        "query": query,
+        "candidates": candidates,
+    }
+    if message is not None:
+        payload["message"] = message
+    bus.publish(job_id, "track.review_required", payload)
 
 
 def _set_status(store: Store, job_id: str, status: str) -> None:
@@ -903,5 +1049,22 @@ class JobWorker:
                     logger.error("worker got an unknown work item: %r", item)
             except Exception:  # noqa: BLE001 — the loop must survive any item
                 logger.exception("worker loop caught an unexpected error")
+                # Both runners are contracted never to raise; if one does anyway (a
+                # secondary failure escaping run_resolve's re-park — T-029 #1), its job is
+                # stranded `running` with an open SSE channel and the card hangs forever.
+                # Backstop it: close the stream, then settle the job to `error`. Close
+                # FIRST and independently, so the card is unhung even if the durable write
+                # fails too (e.g. the same locked DB that caused the escape). Each step is
+                # guarded so the backstop itself can never kill the worker thread.
+                job_id = getattr(item, "job_id", None)
+                if job_id is not None:
+                    try:
+                        self.bus.close(job_id)
+                    except Exception:  # noqa: BLE001
+                        logger.exception("backstop: could not close the stream for %s", job_id)
+                    try:
+                        _set_status(self._store, job_id, STATUS_ERROR)
+                    except Exception:  # noqa: BLE001
+                        logger.exception("backstop: could not error-set job %s", job_id)
             finally:
                 self._queue.task_done()

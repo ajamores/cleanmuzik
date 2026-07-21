@@ -24,6 +24,10 @@ interface ReviewPanelProps {
   /** Called after a resolve is accepted by the server. The card re-subscribes on
    *  this; the panel then unmounts as the job leaves `review_required`. */
   onResolved: () => void
+  /** Set only when the previous resolve attempt failed and re-parked this review
+   *  (T-029). Shown so the owner learns why the pick didn't apply rather than being
+   *  silently handed the panel again. Absent on a first park. */
+  message?: string | null
 }
 
 /**
@@ -44,6 +48,7 @@ export function ReviewPanel({
   query,
   candidates,
   onResolved,
+  message,
 }: ReviewPanelProps) {
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -65,6 +70,11 @@ export function ReviewPanel({
 
   return (
     <section className="review" aria-label="Review this track">
+      {message && (
+        <p className="review__reparked" role="alert">
+          {message}
+        </p>
+      )}
       {rec === 'duplicate' ? (
         <DuplicatePanel
           reviewId={reviewId}

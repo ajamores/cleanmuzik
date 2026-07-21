@@ -190,6 +190,42 @@ describe('weak match — "which of these is it?"', () => {
   })
 })
 
+describe('re-parked after a failed resume (T-029)', () => {
+  it('shows the reason the previous pick failed, above the still-usable panel', () => {
+    mockBackend({})
+    render(
+      <ReviewPanel
+        reviewId="rev-1"
+        rec="low"
+        query="q"
+        candidates={CANDIDATES}
+        onResolved={() => {}}
+        message="That match couldn't be applied — the chosen recording no longer resolves."
+      />,
+    )
+    expect(screen.getByRole('alert')).toHaveTextContent(/no longer resolves/i)
+    // The panel is re-usable, not dead: accept and reject are both live so the owner
+    // can pick again. (The remount that clears a latched `submitting` is TrackCard's
+    // job, via the review key/epoch.)
+    expect(screen.getByRole('button', { name: /accept/i })).toBeEnabled()
+    expect(screen.getByRole('button', { name: /^reject$/i })).toBeEnabled()
+  })
+
+  it('shows no re-park notice on a first park', () => {
+    mockBackend({})
+    render(
+      <ReviewPanel
+        reviewId="rev-1"
+        rec="low"
+        query="q"
+        candidates={CANDIDATES}
+        onResolved={() => {}}
+      />,
+    )
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+})
+
 const DUPLICATE_ROW = {
   review_id: 'rev-dup',
   job_id: 'job-1',

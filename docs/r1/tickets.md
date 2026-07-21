@@ -722,9 +722,57 @@ deliberately retains staging.
   2026-07-19: localhost sockets are *not* blocked).
 
 ### T-029 — A failed resume orphans the review: job goes `error` while the row is `pending`
-- **Status:** todo — **carved out of T-017's code review (2026-07-19, finding 2).** Not a T-017
-  regression; the inconsistency predates it (T-014), but T-017 is what made it *visible* — the
-  per-card panel is the only resolve UI, so a review that leaves the card has nowhere to go.
+- **Status:** **on `main` (2026-07-21)** — code done, both suites green (server **331**, client **26**),
+  acceptance check passed, **two** `/code-review` (high) passes run + all findings fixed, `/verify` 7/7.
+  **Remaining before fully closed:** two browser-only checks deferred to the next session — the real
+  `EventSource` reconnect *timing* (#4) and the visual re-park frame (#7); the logic of both is unit-covered.
+- **`/code-review` (high, 2026-07-20) — 4 findings, all fixed.** (1) the re-park re-emitted *id-only*
+  candidates, so a weak-match retry showed blank rows → client now re-hydrates rich rows via
+  `GET /api/reviews/{id}` on a re-park; (2) the failure reason rode only the live SSE frame → now
+  **persisted** as `reviews.last_error` (migration, T-028-style) and surfaced on the hydrated row, so
+  it survives a reconnect/reload; (3) a *vanished-staging* resolve re-parked into an unwinnable loop →
+  now **terminal** (`_StageFailure(terminal=True)` → job `error`, row discarded); (4) the
+  `track.review_required` emit was copy-pasted in 3 places → extracted `_emit_review_required`.
+- **`/code-review` (high, 2026-07-21) — second pass on the enlarged diff, 7 findings, all fixed**, with
+  **8 regression tests** (each verified red-before-fix / green-after). (1) `_repark_after_release` could
+  itself raise (a locked DB on the release UPDATE) and escape `run_resolve`'s never-raises contract →
+  job stranded `running`, SSE hangs forever → wrapped in a guard that settles to `error`, **plus** a
+  worker-loop backstop that closes the stream even if the durable write fails too; (2) a bare
+  `release_review()` unconditionally nulled `last_error`, erasing the persisted re-park reason (the
+  failed-hand-off requeue passes no reason) → **sentinel default** preserves it, clearing moved to
+  claim/reset; (3) `claim_review` / `reset_resolving_reviews` never cleared `last_error` → a stale reason
+  was shown misattributed after a retry or crash-requeue → both now clear it (the coherent lifecycle:
+  bare release *preserves*, claim/reset *clear*); (4) the reconnect-**fallback** re-park
+  (`checkOnce`→`hydrateReview`) never bumped `reviewEpoch` → the `submitting` latch stayed set and the
+  buttons were dead → now remounts on that path; (5) an unexpected **pre-commit** exception re-parked
+  forever with no terminal state (a deterministic bug looped) → now **terminal** (row discarded, job
+  `error`); only a `_StageFailure` is retryable, everything else errors; (6) `_repark` did
+  UPDATE-then-SELECT → `release_review` now `RETURNING`s the row, one round-trip; (7) a live re-park
+  flashed id-only blank rows → **keeps the prior on-screen candidates** until hydrate refreshes them —
+  chosen over blanking to `[]`, which would flash a misleading "no candidates, reject it" empty state and
+  persist it if the hydrate is slow/failing.
+- **`/verify` PASS (2026-07-20, `scratchpad/verify_t029.py`)** — 7/7 over the real ASGI stack + real
+  MusicBrainz, isolated temp DB + patched library (`:8137` untouched): re-park → job `review` / row
+  `pending` / `review_id` in snapshot / reason on the SSE event **and** persisted on the hydrated row;
+  vanished-staging → job `error` + row `rejected`.
+- **Design decision settled (the ticket's open point).** The "tell the owner the pick failed"
+  signal **rides on an added optional `message` on the re-emitted `track.review_required`**, not a
+  dedicated event — additive, and the client already consumes `review_required`, so no new machinery.
+  The card shows it as a `.review__reparked` notice above the (re-usable) panel.
+- **Implementation notes (what landed):**
+  - Server (`jobs.py`): `run_resolve`'s two *not-committed* handlers (releasable `_StageFailure`
+    **and** pre-commit unexpected `Exception`) route through a new `_repark_after_release` — it
+    releases the row, re-emits `track.review_required` (id-only candidates + `rec` + `query` +
+    `message`), and settles the job `STATUS_REVIEW`. A torn/vanished row (release fails, `get_review`
+    None) still reports `error`. The committed branch is untouched. This also fixed a **latent same
+    orphan** on the refuse-two-copies / lands-nothing / staging-gone paths (all releasable) — they
+    now re-park with a guiding message instead of dead-ending on `error`.
+  - Client: `TrackCard` folds a new `reviewEpoch` into the `ReviewPanel` `key` so a **same-id**
+    re-park **remounts** the panel — else `submitting` stays latched true and the re-shown panel has
+    dead buttons. `ReviewPanel` gains a `message` prop → `.review__reparked` alert.
+- Carved out of T-017's code review (2026-07-19, finding 2). Not a T-017 regression; the
+  inconsistency predates it (T-014), but T-017 is what made it *visible* — the per-card panel is the
+  only resolve UI, so a review that leaves the card has nowhere to go.
 - **Depends on:** T-014, T-017 (T-017 built the reconcile-re-hydration + `GET /api/reviews/{id}`
   this fix rides on)
 - **Agent:** back-end (a server status change; the client half may need nothing)

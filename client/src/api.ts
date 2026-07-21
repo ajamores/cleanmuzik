@@ -106,6 +106,10 @@ export interface ReviewRow {
   rec: string
   candidates: ReviewCandidate[]
   duplicate?: DuplicateDetail
+  /** Why the last resolve attempt re-parked this row (T-029), or null on a first
+   *  park. Persisted server-side so it survives the reconnect/reload this endpoint
+   *  recovers from — the live SSE `message` is gone by then. */
+  last_error?: string | null
 }
 
 /**

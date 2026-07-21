@@ -135,6 +135,10 @@ interface ReviewInfo {
   rec: string | null
   query: string
   candidates: ReviewCandidate[]
+  /** Set only when a resume FAILED and re-parked this same review (T-029): the reason
+   *  the previous pick couldn't be applied, so the owner isn't silently sent back to
+   *  the panel. Absent on a first park. */
+  message?: string | null
 }
 
 interface TrackCardProps {
@@ -174,6 +178,12 @@ export function TrackCard({ jobId, url }: TrackCardProps) {
   const [reachedStep, setReachedStep] = useState(-1)
   // The `track.review_required` payload, captured so the panel can render it.
   const [review, setReview] = useState<ReviewInfo | null>(null)
+  // Bumped every time a fresh `track.review_required` is captured, and folded into the
+  // panel's `key`. A T-029 re-park re-emits the SAME review_id, so keying on the id
+  // alone would REUSE the panel instance — whose `submitting` latched true on the pick
+  // that just failed — leaving the owner a re-shown panel with dead buttons. Bumping
+  // this remounts it, resetting the latch, exactly as a brand-new review would.
+  const [reviewEpoch, setReviewEpoch] = useState(0)
   // Bumped when the owner resolves a review: it re-runs the effect below, opening a
   // FRESH EventSource for the resume episode (T-016 closed the old stream on
   // `review_required`; T-014 re-opens the channel server-side before the resolve
@@ -263,15 +273,34 @@ export function TrackCard({ jobId, url }: TrackCardProps) {
     on('track.identifying')
     on('track.review_required', (data) => {
       // Capture the payload T-017's panel renders from. `rec` picks the question
-      // (weak match vs duplicate); the candidates ride inline so a weak match needs
-      // no re-hydration round-trip. STREAM_TERMINAL still closes the stream here —
-      // the panel re-subscribes via `episode` once the owner resolves.
-      setReview({
-        reviewId: asString(data.review_id) ?? '',
+      // (weak match vs duplicate); on a FIRST park the candidates ride inline (rich),
+      // so a weak match needs no re-hydration round-trip. STREAM_TERMINAL still closes
+      // the stream here — the panel re-subscribes via `episode` once the owner resolves.
+      const reviewId = asString(data.review_id) ?? ''
+      // Present only on a T-029 re-park (a resume that failed on the releasable path).
+      const message = asString(data.message)
+      setReview((prev) => ({
+        reviewId,
         rec: asString(data.rec),
         query: asString(data.query) ?? '',
-        candidates: asCandidates(data.candidates),
-      })
+        // A re-park re-offers the SAME recording, but its inline candidates are id-only
+        // (the rich rows died with the failed resolve). Keep the rich rows already on
+        // screen from the first park until hydrateReview refreshes them (finding #7),
+        // rather than flashing "Unknown title" rows — or, if the hydrate is slow/failing,
+        // showing them until it lands. A first park (or a re-park of a *different* review
+        // than the panel is showing) has no prior rich rows to keep, so it uses its own
+        // inline candidates — which on a first park are already rich.
+        candidates:
+          message && prev?.reviewId === reviewId
+            ? prev.candidates
+            : asCandidates(data.candidates),
+        message,
+      }))
+      setReviewEpoch((n) => n + 1)
+      // A re-park's inline candidates are id-only (the rich rows died with the failed
+      // resolve's in-memory result), so upgrade them from the durable row (finding #1).
+      // Only on a re-park — a first park is already rich and needs no round-trip.
+      if (message && reviewId) void hydrateReview(reviewId)
     })
     // A keepalive with an empty payload — registered only so the catalogue here
     // is complete and it's clear it's known and deliberately inert.
@@ -318,15 +347,27 @@ export function TrackCard({ jobId, url }: TrackCardProps) {
      * effort: on failure the card keeps the "parked" note and a later reconcile can
      * try again — never worse than the null-`review` state this replaces.
      */
-    async function hydrateReview(reviewId: string) {
+    async function hydrateReview(reviewId: string, remount = false) {
       try {
         const row = await getReview(reviewId)
         if (unmounted) return
+        // `remount` controls the epoch bump. The live re-park path (review_required
+        // handler) already bumped, so it passes false — bumping again would remount a
+        // second time and drop an in-progress selection. The reconnect FALLBACK path
+        // (checkOnce → here) never bumped, so it passes true: without a remount, a panel
+        // whose `submitting` latched on the failed pick is reused with its buttons dead,
+        // and the closed stream can never re-enable them (finding #4). Bumping when the
+        // panel was null (a fresh restart mount) is harmless — there is nothing to lose.
+        if (remount) setReviewEpoch((n) => n + 1)
         setReview({
           reviewId: row.review_id,
           rec: row.rec,
           query: row.query,
           candidates: row.candidates,
+          // The reason a re-park happened is persisted on the row (T-029, finding #2),
+          // so it survives the reconnect/reload this path recovers from — the live SSE
+          // `message` is already gone by the time we're here.
+          message: row.last_error,
         })
       } catch {
         // 404 (resolved/gone) or a transient failure: leave the note, allow a retry
@@ -355,7 +396,10 @@ export function TrackCard({ jobId, url }: TrackCardProps) {
           // merely lost the stream after review_required arrived).
           if (snap.review_id && !hydratedReview) {
             hydratedReview = true
-            void hydrateReview(snap.review_id)
+            // remount: this fallback may be recovering a panel left mid-submit by a
+            // failed pick; a remount clears its `submitting` latch so the buttons live
+            // again (finding #4). Harmless on the fresh-restart mount (review was null).
+            void hydrateReview(snap.review_id, true)
           }
         } else if (snap.status === 'error') {
           es.close()
@@ -457,14 +501,16 @@ export function TrackCard({ jobId, url }: TrackCardProps) {
       {stage === 'review_required' &&
         (review ? (
           <ReviewPanel
-            // Key by review identity: if the resume re-parks the job as a NEW review,
-            // this remounts the panel rather than reusing an instance whose
-            // `submitting` is still latched true (T-017 review, finding 4).
-            key={review.reviewId}
+            // Key by review identity AND epoch: a re-park (T-017 finding 4, or a T-029
+            // resume that failed and re-parked the SAME id) must remount the panel
+            // rather than reuse an instance whose `submitting` latched true on the pick
+            // that just failed — otherwise the re-shown panel has dead buttons.
+            key={`${review.reviewId}:${reviewEpoch}`}
             reviewId={review.reviewId}
             rec={review.rec}
             query={review.query}
             candidates={review.candidates}
+            message={review.message}
             // Re-subscribe for the resume episode. The panel stays mounted (and its
             // buttons disabled) until this moves the stage off `review_required`.
             onResolved={() => setEpisode((e) => e + 1)}

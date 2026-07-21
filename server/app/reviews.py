@@ -308,6 +308,10 @@ def _hydrate(review: Review, lib=None) -> dict:
         "query": review.query,
         "rec": review.rec,
         "candidates": [],
+        # Why this row last failed a resolve, if it re-parked (T-029). Carried on the
+        # hydrated shape so a card that reconnects/reloads recovers the reason the live
+        # SSE `message` would otherwise have lost (finding #2).
+        "last_error": review.last_error,
     }
     try:
         if review.rec == DUPLICATE_REC:
