@@ -11,6 +11,7 @@ import pytest
 
 from app.download import (
     PlaylistURLError,
+    curated_list_kind,
     is_playlist_url,
     normalize_url,
     reject_playlist_url,
@@ -105,6 +106,45 @@ def test_reject_playlist_url_passes_a_song() -> None:
 def test_playlist_error_is_a_valueerror() -> None:
     # T-012 relies on the typed exception; keep the ValueError lineage stable.
     assert issubclass(PlaylistURLError, ValueError)
+
+
+# --- T-026: the "your link was part of an album/playlist" note signal --------
+# (url, expected_kind) — a kind is returned ONLY when the URL names ONE song AND
+# rides an allowlisted curated id: `PL…` → "playlist", `OLAK5uy_…` → "album".
+# Everything else is None: a bare song, a playlist-only URL (nothing to single out),
+# and every auto-appended `list=` the owner didn't curate (`RD…` radio, `LL` Liked,
+# `WL` Watch-Later, `UU` uploads, `FL` favourites).
+_LIST_KIND_CASES = [
+    # `PL…` user/creator playlist carrying a named song → "playlist".
+    ("https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=PL123", "playlist"),
+    ("https://www.youtube.com/watch?list=PL123&v=dQw4w9WgXcQ", "playlist"),  # order-independent
+    ("https://youtu.be/dQw4w9WgXcQ?list=PLmonthlyJuly", "playlist"),  # song id in the path
+    ("www.youtube.com/watch?v=dQw4w9WgXcQ&list=PL123", "playlist"),  # scheme-less paste
+    # `OLAK5uy_…` album playlist → "album".
+    ("https://music.youtube.com/watch?v=TRACK1&list=OLAK5uy_album", "album"),
+    # Auto-appended contexts the owner didn't curate → None (finding: no nag).
+    ("https://music.youtube.com/watch?v=dQw4w9WgXcQ&list=RDAMVM123", None),  # radio
+    ("https://www.youtube.com/watch?v=Gkr8WH5cAtg&list=RDGkr8WH5cAtg&start_radio=1", None),
+    ("https://www.youtube.com/watch?v=abc&list=RDCLAK5uy_albumradio", None),  # album *radio* is RD*
+    ("https://www.youtube.com/watch?v=abc&list=LLliked", None),  # Liked videos
+    ("https://www.youtube.com/watch?v=abc&list=WL", None),  # Watch Later
+    ("https://www.youtube.com/watch?v=abc&list=UUchannelUploads", None),  # channel uploads
+    ("https://www.youtube.com/watch?v=abc&list=FLfavourites", None),  # favourites
+    # No `list=` → bare song.
+    ("https://www.youtube.com/watch?v=dQw4w9WgXcQ", None),
+    ("https://youtu.be/dQw4w9WgXcQ", None),
+    # Empty `list=` (no id) → None.
+    ("https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=", None),
+    # Playlist-only URL (no song singled out) → refused upstream, no note here.
+    ("https://www.youtube.com/watch?list=PL123", None),
+    ("https://www.youtube.com/playlist?list=PL123", None),
+    ("https://music.youtube.com/playlist?list=OLAK5uy_abc", None),
+]
+
+
+@pytest.mark.parametrize("url, expected", _LIST_KIND_CASES)
+def test_curated_list_kind(url: str, expected: str | None) -> None:
+    assert curated_list_kind(url) == expected
 
 
 # --- Scheme-less pastes reach yt-dlp intact (re-review, 2026-07-19) ----------

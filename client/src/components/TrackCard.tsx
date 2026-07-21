@@ -164,6 +164,12 @@ interface TrackCardProps {
  */
 export function TrackCard({ jobId, url }: TrackCardProps) {
   const [stage, setStage] = useState<Stage>('queued')
+  // T-026: the pasted URL named one song but carried a curated album/playlist, so the
+  // other tracks were not taken. A property of the URL, not a stage — shown under the
+  // URL through the whole run. The server rides `list_kind` on every `job.queued`
+  // (acquire AND resolve-reopen), so a reload rebuilds it; the set-once-if-present here
+  // is belt-and-braces against any future job.queued that omits it.
+  const [listKind, setListKind] = useState<'album' | 'playlist' | null>(null)
   // Set by `track.tagging` ONLY. The done payload is not written through to it:
   // one display concern, one writer. `displayMatch` below derives the rest.
   const [tagged, setTagged] = useState<Match | null>(null)
@@ -267,7 +273,11 @@ export function TrackCard({ jobId, url }: TrackCardProps) {
       })
     }
 
-    on('job.queued')
+    on('job.queued', (data) => {
+      if (data.list_kind === 'album' || data.list_kind === 'playlist') {
+        setListKind(data.list_kind)
+      }
+    })
     on('track.downloading')
     on('track.transcoding')
     on('track.identifying')
@@ -471,6 +481,14 @@ export function TrackCard({ jobId, url }: TrackCardProps) {
       <p className="track-card__url" title={url}>
         {url}
       </p>
+
+      {listKind && (
+        <p className="track-card__playlist-note" role="note">
+          {listKind === 'album'
+            ? 'This link was part of an album — only the named song was taken. Downloading whole albums is coming later.'
+            : 'This link was part of a playlist — only the named song was taken. Downloading whole playlists is coming later.'}
+        </p>
+      )}
 
       <ol className="track-card__rail" aria-hidden="true">
         {RAIL.map((step, i) => (

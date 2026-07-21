@@ -140,6 +140,47 @@ def is_playlist_url(url: str) -> bool:
     return not _names_one_song(parts, query)
 
 
+# The two list-id prefixes worth a note — an **allowlist**, deliberately, not an
+# "everything but `RD`" denylist. YouTube auto-appends a `list=` for many playback
+# contexts the owner did not curate: `RD…` radio/mix seeds, `LL` (Liked), `WL` (Watch
+# Later), `UU`/`UC…` (a channel's uploads), `FL` (favourites). Noting any of those
+# nags on routine playback. Only two ids mean "the owner opened a real collection":
+# `PL…`, a user/creator playlist (his monthly lists), and `OLAK5uy_…`, YouTube's
+# auto-generated *album*. Album is checked first — an `OLAK5uy_…` never starts `PL`,
+# so the order is for clarity, not correctness.
+_ALBUM_LIST_PREFIX = "OLAK5uy_"
+_PLAYLIST_LIST_PREFIX = "PL"
+
+
+def curated_list_kind(url: str) -> str | None:
+    """Which kind of curated list a song URL rode in on, for T-026's note.
+
+    - ``"album"``    — the song carried an `OLAK5uy_…` album playlist.
+    - ``"playlist"`` — the song carried a `PL…` user/creator playlist.
+    - ``None``       — everything else: a bare song, a playlist-only URL (no song to
+      single out — refused upstream anyway), or a `list=` the owner did not curate
+      (`RD…` radio, `LL`/`WL`/`UU`/`FL` auto-collections). Flagging those would nag on
+      routine playback and break the owner's primary flow.
+
+    The signal is *which word the card shows*: the pasted link named one song but also
+    referenced a whole album/playlist, and only the one track was taken. Pure and
+    network-free, like `is_playlist_url`. A wrong guess is only ever a cosmetic
+    mis/absent note — never a blocked download — which is why an id-prefix check is
+    safe here where a *refusal* on it would not be (T-026 decision).
+    """
+    parts = _parse(url)
+    query = parse_qs(parts.query)
+    list_ids = query.get("list")
+    if not list_ids or not _names_one_song(parts, query):
+        return None
+    list_id = list_ids[0]
+    if list_id.startswith(_ALBUM_LIST_PREFIX):
+        return "album"
+    if list_id.startswith(_PLAYLIST_LIST_PREFIX):
+        return "playlist"
+    return None
+
+
 def reject_playlist_url(url: str) -> None:
     """Raise `PlaylistURLError` if `url` is a playlist; return None otherwise.
 

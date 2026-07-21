@@ -211,6 +211,14 @@
   color: var(--warn);
 }
 
+/* Informational, not a warning: the app did the expected thing (took the one
+   named song) and is just disclosing it — muted like __detached, NOT --warn. */
+.track-card__playlist-note {
+  margin-top: 8px;
+  font-size: 13px;
+  color: var(--text);
+}
+
 /* The stream detached but the job is fine — muted, deliberately NOT --danger.
    Reading as an error is what makes the owner re-paste and duplicate the job. */
 .track-card__detached {

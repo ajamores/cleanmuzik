@@ -56,7 +56,7 @@ from app.db import (
     Review,
     Store,
 )
-from app.download import download_song
+from app.download import curated_list_kind, download_song
 from app.events import EventBus, candidate_row
 from app.import_seam import (
     ResolveError,
@@ -251,7 +251,16 @@ def run_pipeline(
     """
     s = settings or get_settings()
     bus = bus or EventBus()  # no subscribers ⇒ emission just buffers into a discarded bus
-    bus.publish(job_id, "job.queued", {"job_id": job_id, "url": url})
+    # `list_kind` rides the opening event (T-026): "album" / "playlist" / None, so the
+    # card can tell the owner the other tracks weren't taken. Computed from the URL, so
+    # it must ride EVERY `job.queued` — the resolve-reopen one too (see `submit_resolve`)
+    # — because `reopen()` clears the replay buffer, and a browser that reloads after a
+    # review resolve rebuilds the card from the resume episode's buffer alone.
+    bus.publish(job_id, "job.queued", {
+        "job_id": job_id,
+        "url": url,
+        "list_kind": curated_list_kind(url),
+    })
     registry.start(job_id)  # constructs the state at stage "download"
     # pct is omitted, not invented: the download stage doesn't report progress (spec §6
     # marks pct optional). The event still fires so the card leaves "queued".
@@ -994,8 +1003,14 @@ class JobWorker:
         prior_status = job.status if job else None
         self.bus.reopen(job_id)
         try:
+            # `list_kind` rides this reopen too (T-026, review finding): `reopen()` just
+            # cleared the replay buffer, so a card that reloads after the resolve rebuilds
+            # from this episode alone — omit it here and the playlist/album note is lost
+            # for good on a genuinely curated URL.
             self.bus.publish(job_id, "job.queued", {
-                "job_id": job_id, "url": job.url if job else "",
+                "job_id": job_id,
+                "url": job.url if job else "",
+                "list_kind": curated_list_kind(job.url) if job else None,
             })
             _set_status(self._store, job_id, STATUS_RUNNING)
             self._queue.put(_ResolveWork(job_id, review_id, request))

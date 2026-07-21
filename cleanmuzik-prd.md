@@ -36,6 +36,15 @@ Jellyfin is the **central hub** — library, storage, streaming, and (for now) p
   with a **review queue** for ambiguous matches as the centrepiece
 - Migrate and clean the existing library with the same engine
 
+**Primary acquire workflow (the owner's — this is the concrete requirement R2's playlist
+expansion must serve).** He finds songs on YouTube and, when not lazy, saves them into *curated*
+playlists grouped by month/year — e.g. a "July 2026" `PL…` playlist of everything he listened to
+that month. The intended flow: paste that monthly playlist → download **all** its tracks in one
+batch. Downloading a whole album (`OLAK5uy_…`) is wanted too, secondarily. This is deliberate
+curation, and is distinct from YouTube's auto-generated `RD…` radio/mix seeds, which should never
+be expanded. R1 does not expand playlists (see `docs/r1/spec.md` §3 → R2); this workflow is why
+the R2 playlist feature exists and what it must get right.
+
 ## 4. Non-goals (v1)
 
 - No multi-user, no accounts, no auth (single trusted user; access secured at the network layer)

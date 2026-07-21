@@ -53,6 +53,41 @@ describe('the harness can drive the real card', () => {
   })
 })
 
+describe('T-026 album/playlist note', () => {
+  const PLAYLIST = /part of a playlist/i
+  const ALBUM = /part of an album/i
+
+  it('shows the playlist note when job.queued carries list_kind=playlist', async () => {
+    const es = renderCard()
+    es.emit('job.queued', { job_id: 'job-1', url: 'x', list_kind: 'playlist' })
+    await waitFor(() => expect(screen.getByText(PLAYLIST)).toBeInTheDocument())
+  })
+
+  it('shows the album note when list_kind=album', async () => {
+    const es = renderCard()
+    es.emit('job.queued', { job_id: 'job-1', url: 'x', list_kind: 'album' })
+    await waitFor(() => expect(screen.getByText(ALBUM)).toBeInTheDocument())
+  })
+
+  it('stays silent for a bare song (list_kind null)', () => {
+    const es = renderCard()
+    es.emit('job.queued', { job_id: 'job-1', url: 'x', list_kind: null })
+    es.emit('track.downloading', {})
+    expect(screen.queryByText(PLAYLIST)).not.toBeInTheDocument()
+    expect(screen.queryByText(ALBUM)).not.toBeInTheDocument()
+  })
+
+  it('holds the note across a resume job.queued that omits the flag (monotonic)', async () => {
+    const es = renderCard()
+    es.emit('job.queued', { job_id: 'job-1', url: 'x', list_kind: 'playlist' })
+    await waitFor(() => expect(screen.getByText(PLAYLIST)).toBeInTheDocument())
+    // Belt-and-braces: the server now rides list_kind on the resume-reopen too, but a
+    // frame that somehow omits it must not clear an already-shown note.
+    es.emit('job.queued', { job_id: 'job-1', url: 'x' })
+    expect(screen.getByText(PLAYLIST)).toBeInTheDocument()
+  })
+})
+
 describe('stream lifecycle T-017 must not break', () => {
   it('closes the stream on track.review_required', async () => {
     const es = renderCard()

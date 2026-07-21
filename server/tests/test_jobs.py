@@ -303,6 +303,17 @@ def test_sse_parked_emits_review_required_with_candidates(tmp_path):
     assert set(rr["candidates"][0]) == {"candidate_id", "title", "artist", "score"}
 
 
+def test_sse_job_queued_carries_list_kind(tmp_path):
+    # T-026: the opening event tells the card the URL rode a curated playlist/album.
+    _, curated = _events_after_run(
+        tmp_path, url="https://www.youtube.com/watch?v=abc&list=PL123"
+    )
+    assert dict(curated)["job.queued"]["list_kind"] == "playlist"
+    # A bare song (the default url) carries a null kind — no note.
+    _, bare = _events_after_run(tmp_path)
+    assert dict(bare)["job.queued"]["list_kind"] is None
+
+
 def test_sse_error_names_the_failing_stage(tmp_path):
     state, events = _events_after_run(tmp_path, transcode_fn=_boom)
     assert state.status == "error"
@@ -400,6 +411,29 @@ def test_submit_resolve_rolls_back_its_own_state_if_the_enqueue_fails(tmp_path):
     assert store.get_job(job.id).status == "review", (
         "a failed enqueue must restore the prior status, not strand the job at `running`"
     )
+
+
+def test_submit_resolve_reopen_carries_list_kind(tmp_path):
+    # T-026 review finding: `reopen()` empties the replay buffer, so a card that reloads
+    # AFTER a review resolve rebuilds from the resume episode alone. If this reopened
+    # `job.queued` dropped `list_kind`, the album/playlist note would be lost for good on
+    # a genuinely curated URL — so it must ride the reopen, computed from the job's URL.
+    store = _store(tmp_path)
+    job = store.create_job("https://www.youtube.com/watch?v=abc&list=PL_monthly")
+    store.update_job_status(job.id, "review")  # parked, as a resume finds it
+    worker = JobWorker(store)  # not started — drive submit_resolve directly
+
+    worker.submit_resolve(job.id, "rev-1", ResolveRequest("reject"))
+    # The worker isn't started, so nothing will process the enqueued resume and close
+    # the channel; close it here so the drain replays the buffer and returns (as
+    # `_events_after_run` does), rather than blocking on a live stream.
+    worker.bus.close(job.id)
+
+    async def drain():
+        return "".join([f async for f in worker.bus.stream(job.id)])
+
+    payloads = dict(parse_sse(asyncio.run(drain())))
+    assert payloads["job.queued"]["list_kind"] == "playlist"
 
 
 # --- routes -----------------------------------------------------------------

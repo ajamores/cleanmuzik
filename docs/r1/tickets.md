@@ -629,7 +629,7 @@ deliberately retains staging.
   the measured cost and the ticket closed won't-fix.
 
 ### T-026 — A deliberately-pasted playlist now lands one track with no signal
-- **Status:** todo — **needs an owner decision before any code.**
+- **Status:** in progress — **decision made 2026-07-21: (c). Building.**
 - **Depends on:** nothing
 - **Agent:** back-end
 - **What:** Narrowing the playlist classifier (2026-07-19) fixed the false rejection of
@@ -650,8 +650,38 @@ deliberately retains staging.
   only; (c) accept, but have the UI *say* "this URL was part of a playlist — only the named song
   was taken", which keeps the owner's flow and restores the signal. **(c) looks strongest** — it
   is additive, refuses nothing, and needs no id-prefix taxonomy to be correct.
-- **Done when:** a decision is recorded here with its reason, and if (b) or (c), the behaviour is
-  observed in a browser against a real album URL.
+- **Decision (2026-07-21, owner): (c).** Reasons: (a) leaves the owner blind to dropped tracks; (b)
+  is a *dead end* — it would refuse the curated `PL…` playlists that R2's playlist-download feature
+  (PRD §3, spec §3 → R2) is being built to expand, so we'd only rip it out. (c) is additive, refuses
+  nothing, and points *toward* the workflow the owner actually wants (paste a monthly `PL…` playlist,
+  get every track — R2) rather than fighting it. The owner's acquire workflow is now recorded in
+  PRD §3.
+- **Build (2026-07-21).** `curated_list_kind(url)` in `download.py` returns `"album"` /
+  `"playlist"` / `None`; it rides `list_kind` on the `job.queued` SSE event; `TrackCard` shows the
+  matching note under the URL. Two refinements past the naïve (c), both from the owner + the review:
+  - **Album vs playlist wording.** The owner curates `PL…` monthly playlists *and* wants albums, so
+    the note says the right word: `OLAK5uy_…` → "album", `PL…` → "playlist".
+  - **Allowlist, not an RD-denylist (review finding #1).** Only `PL…` and `OLAK5uy_…` fire. An
+    earlier cut suppressed only `RD…`, which still nagged on `LL` (Liked), `WL` (Watch-Later),
+    `UU` (uploads), `FL` — auto-appended contexts the owner didn't curate. The allowlist is safe
+    where a *refusal* (option b) was not: a wrong guess is only ever a cosmetic mis/absent note.
+  - **`list_kind` rides the resolve-reopen too (review finding #0, CONFIRMED bug).** `reopen()`
+    empties the replay buffer, so a browser reload *after* a review resolve rebuilds the card from
+    the resume episode alone — omit `list_kind` there and the note is lost for good on a curated
+    URL. Now emitted at both `job.queued` sites. Regression: `test_submit_resolve_reopen_carries_list_kind`.
+- **Done when:** a decision is recorded here with its reason ✓; suites green (server 351, client 30)
+  ✓; and the behaviour is observed in a **browser** ✓ (2026-07-21, isolated `:8100` + Playwright).
+  Browser receipts:
+  - Note reads **"album"** for `…&list=OLAK5uy_…`, **"playlist"** for `…&list=PL…`, and is
+    **absent** for `…&list=RD…`. All three confirmed in one view.
+  - The note **persists through to "Done"**, and **survives a within-session review resolve**
+    (park → Accept → the resume episode's fresh EventSource → Done, note intact).
+  - **Reload-after-resolve (finding #0) is NOT browser-reachable in R1**: `App.tsx` holds the job
+    list in component state and does not restore it across a reload, so a reload discards *every*
+    card — no `TrackCard` remounts for an existing job, which is the only way the note could be
+    lost. The server-side fix (emit `list_kind` on the reopen) is correct and defends the mechanism
+    for **when job-restore-on-reload lands** (a separate future capability); it is proven by
+    `test_submit_resolve_reopen_carries_list_kind`, not by the browser.
 
 ### T-027 — `download_song` has no guard for a playlist-shaped `extract_info` result
 - **Status:** todo — **deferred deliberately: this is a failure path this sandbox cannot produce.**
