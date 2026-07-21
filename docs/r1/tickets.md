@@ -629,7 +629,10 @@ deliberately retains staging.
   the measured cost and the ticket closed won't-fix.
 
 ### T-026 — A deliberately-pasted playlist now lands one track with no signal
-- **Status:** in progress — **decision made 2026-07-21: (c). Building.**
+- **Status:** DONE (2026-07-21) — decision (c), built, browser-verified, landed on `main`.
+  **One follow-up queued: a `/code-review` of the post-review delta** (album/playlist split +
+  allowlist + reopen fix), deferred to next session by the owner — the delta is covered by tests +
+  browser but hasn't had its own review pass.
 - **Depends on:** nothing
 - **Agent:** back-end
 - **What:** Narrowing the playlist classifier (2026-07-19) fixed the false rejection of
