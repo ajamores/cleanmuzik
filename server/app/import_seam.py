@@ -1105,8 +1105,7 @@ class ResolveSession(FingerprintTrustSession):
         match = self._forced_match(task)
         if match is None:
             raise ResolveError(
-                f"recording {self.recording_id} no longer resolves at MusicBrainz "
-                f"— cannot apply it to {self.staging_path}"
+                f"recording {self.recording_id} no longer resolves at MusicBrainz"
             )
         if self.suffix:
             match = _with_title_suffix(match, self.suffix)
