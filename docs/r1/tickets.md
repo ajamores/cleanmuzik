@@ -712,7 +712,42 @@ deliberately retains staging.
     `test_submit_resolve_reopen_carries_list_kind`, not by the browser.
 
 ### T-027 — `download_song` has no guard for a playlist-shaped `extract_info` result
-- **Status:** todo — **deferred deliberately: this is a failure path this sandbox cannot produce.**
+- **Status:** **DONE (2026-07-21).** The reproduce widened the ticket: the playlist shape is **not**
+  reachable via a YouTube `list=` URL (as the ticket assumed), but it **is** reachable via a
+  **channel/`@handle`** URL — and that path is worse than mis-attribution (a channel
+  `extract_info(download=True)` downloads the *whole channel*). Fixed both ends, owner-approved as
+  **C + A** (2026-07-21):
+  - **Reproduce (`scratchpad/t027_repro.py` + probes, live YouTube).** (1) Every admitted YouTube
+    `list=` URL returns `_type='video'` under `noplaylist=True` — the shape the ticket feared is
+    **unreachable there** (the real `watch?v=…&list=RD…` download yielded `requested_downloads`, one
+    file). (2) But `is_playlist_url("youtube.com/@YouTube")` = False → **admitted**, and
+    `extract_info` returns `_type='playlist'` + `entries`, no `requested_downloads`; the old fallback
+    `prepare_filename(info)` gave `YouTube [@YouTube].NA`, a path to a file never written. (3) A
+    **capped** `download=True` (`playlistend=1`) on the channel downloaded a file — proving uncapped
+    production would pull the entire channel *before* any post-extract guard runs.
+  - **(A) download-stage guard** (`download.py`): after `extract_info`, raise `PlaylistURLError` on a
+    playlist-shaped result (`_type=="playlist"` or `entries` present) → the pipeline attributes it to
+    the **download** stage (`jobs.py:282-283`), honest instead of a two-stages-late transcode
+    `FileNotFoundError`. Backstops the residual `names_one_song` still admits (a non-YouTube `?v=`).
+  - **(C) front-door reject** (`routes/jobs.py`): new `names_one_song(url)` — the positive complement
+    to `is_playlist_url` — gates `create_job`; a channel/`@handle`/search/bare URL gets a 422
+    ("doesn't point to a single song") and **never starts a job**, so the runaway download can't
+    happen. Admits every single-song shape the owner pastes (same `_names_one_song` predicate the
+    playlist gate already trusts).
+  - **`/code-review` (high, workflow, 2026-07-21) — 3 findings survived (3 refuted), all resolved.**
+    (1) CONFIRMED: `names_one_song` narrowed admission — adjudicated *intended* (R1 is YouTube-only),
+    and hardened into it: `names_one_song` now requires a **YouTube host** (`_is_youtube_host`), so
+    every non-YouTube URL is refused at the door. (2) PLAUSIBLE: the guard tested `"entries" in info`
+    by **key presence** → a single video carrying an empty/None `entries` would be falsely failed;
+    fixed to truthiness (`info.get("entries")`) + `multi_video`. (3) PLAUSIBLE: the guard runs after
+    `download=True`, so it couldn't protect the non-YouTube `?v=` residual — **finding (1)'s host gate
+    closes that residual entirely** (such URLs never reach `download_song`), leaving A as pure
+    belt-and-braces behind a shut door.
+  - **Tests:** suite **375** green (was 353). A: `_rejects_a_playlist_shaped_result` +
+    `_returns_path_for_a_single_video` + `_allows_single_video_with_empty_entries` (guard truthiness).
+    C: 20 `test_names_one_song` cases (incl. non-YouTube + look-alike hosts) +
+    `test_post_channel_url_rejected_422`. A/C route+guard tests verified red-before-fix. Learning
+    filed (`learnings.md` 2026-07-21: guard-before-the-expensive-step; allowlist > denylist).
 - **Depends on:** T-019 (needs a live browser / real yt-dlp failure to drive)
 - **Agent:** back-end
 - **What:** With `list=` URLs now admitted, `extract_info` can return a playlist-shaped dict. That

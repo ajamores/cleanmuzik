@@ -7,12 +7,16 @@ URL; it is verified by hand at integration, not in this suite.
 Run from the `server/` directory: `./.venv/bin/pytest tests/test_download.py -v`
 """
 
+from pathlib import Path
+
 import pytest
 
 from app.download import (
     PlaylistURLError,
     curated_list_kind,
+    download_song,
     is_playlist_url,
+    names_one_song,
     normalize_url,
     reject_playlist_url,
 )
@@ -169,6 +173,126 @@ NORMALIZE_CASES = [
 @pytest.mark.parametrize("raw,expected", NORMALIZE_CASES)
 def test_normalize_url(raw: str, expected: str) -> None:
     assert normalize_url(raw) == expected
+
+
+# --- T-027 (C): the front-door gate — a URL must name exactly one song --------
+# `names_one_song` is the positive complement to `is_playlist_url`; the route
+# rejects `not names_one_song(url)` so a channel/@handle/search URL never starts a
+# job (else download_song would expand + download the whole collection). Every
+# shape the owner actually pastes names one song; the non-single shapes do not.
+_NAMES_ONE_SONG_CASES = [
+    # Single-song shapes the owner pastes — all True (admitted).
+    ("https://www.youtube.com/watch?v=dQw4w9WgXcQ", True),
+    ("https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=PL123", True),
+    ("https://youtu.be/dQw4w9WgXcQ", True),
+    ("https://youtu.be/dQw4w9WgXcQ?list=RDx", True),
+    ("https://music.youtube.com/watch?v=dQw4w9WgXcQ", True),
+    ("https://www.youtube.com/shorts/dQw4w9WgXcQ", True),
+    ("https://www.youtube.com/embed/dQw4w9WgXcQ", True),
+    ("www.youtube.com/watch?v=dQw4w9WgXcQ", True),  # scheme-less paste
+    # Not one song — the new hole T-027 (C) closes. All False (refused).
+    ("https://www.youtube.com/@someartist", False),  # channel handle
+    ("https://www.youtube.com/channel/UCabcdefghijklmnopqrstuv", False),
+    ("https://www.youtube.com/c/SomeArtist", False),
+    ("https://www.youtube.com/user/SomeArtist", False),
+    ("https://www.youtube.com/results?search_query=nines", False),
+    ("https://www.youtube.com/", False),  # bare domain
+    # Playlist-shaped too (is_playlist_url already refuses these, belt-and-braces).
+    ("https://www.youtube.com/playlist?list=PL123", False),
+    ("https://youtu.be/videoseries?list=PL123", False),
+    # Non-YouTube hosts are refused outright — R1 is YouTube-only. This also closes
+    # the `?v=`-on-any-host hole: a non-YouTube `?v=` reads as one song by shape but
+    # could expand to a collection inside yt-dlp, so it must not be admitted.
+    ("https://vimeo.com/watch?v=12345", False),
+    ("https://soundcloud.com/artist/some-track", False),
+    ("https://example.com/gallery?v=abc", False),
+    # A look-alike host must NOT be mistaken for YouTube (the char before `youtube`
+    # is `-`, not `.`, so it fails the `.youtube.com` suffix test).
+    ("https://evil-youtube.com/watch?v=dQw4w9WgXcQ", False),
+]
+
+
+@pytest.mark.parametrize("url, expected", _NAMES_ONE_SONG_CASES)
+def test_names_one_song(url: str, expected: bool) -> None:
+    assert names_one_song(url) is expected
+
+
+# --- T-027: download_song guards a playlist-shaped extract_info result --------
+# `reject_playlist_url` + `noplaylist=True` make the shape unreachable for every
+# YouTube `list=` URL (proven live, 2026-07-21). But a channel/`@handle` URL
+# carries no `list=` and names no single video, so the classifier admits it and
+# `extract_info` returns `_type: "playlist"` with `entries` and no
+# `requested_downloads`. Without the guard, download_song falls to
+# `prepare_filename(info)` — a path for a file never written — and the failure
+# surfaces two stages later as a mis-attributed transcode `FileNotFoundError`.
+
+
+class _FakeYDL:
+    """Stands in for `YoutubeDL` so download_song's post-extract branch is testable
+    without the network. Returns whatever `info` the test seeds."""
+
+    _info: dict = {}
+
+    def __init__(self, opts):  # opts unused; download_song builds them
+        pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def extract_info(self, url, download):
+        return self._info
+
+    def prepare_filename(self, info):
+        # The bogus fallback path the old code would have returned for a playlist.
+        return f"{info.get('id', 'NA')}.NA"
+
+
+def _fake_ydl_returning(info: dict):
+    return type("_Seeded", (_FakeYDL,), {"_info": info})
+
+
+def test_download_song_rejects_a_playlist_shaped_result(tmp_path, monkeypatch) -> None:
+    # A channel URL is admitted by the classifier (no list=, no /playlist path)…
+    channel = "https://www.youtube.com/@someartist"
+    assert is_playlist_url(channel) is False
+    # …and extract_info comes back playlist-shaped. Guard raises on DOWNLOAD.
+    playlist_info = {"_type": "playlist", "id": "chan", "entries": [{"id": "a"}, {"id": "b"}]}
+    monkeypatch.setattr("app.download.YoutubeDL", _fake_ydl_returning(playlist_info))
+    with pytest.raises(PlaylistURLError):
+        download_song(channel, tmp_path)
+
+
+def test_download_song_allows_single_video_with_empty_entries(tmp_path, monkeypatch) -> None:
+    # Review finding (T-027): the guard tests `entries` by TRUTHINESS, not key
+    # presence — a real single video can carry an empty/None `entries` and must not
+    # be failed as a collection.
+    dest = tmp_path / "vid.webm"
+    video_info = {
+        "_type": "video",
+        "id": "vid",
+        "entries": None,  # present-but-empty — must NOT trip the collection guard
+        "requested_downloads": [{"filepath": str(dest)}],
+    }
+    monkeypatch.setattr("app.download.YoutubeDL", _fake_ydl_returning(video_info))
+    out = download_song("https://www.youtube.com/watch?v=dQw4w9WgXcQ", tmp_path)
+    assert out == Path(dest)
+
+
+def test_download_song_returns_path_for_a_single_video(tmp_path, monkeypatch) -> None:
+    # The happy path must be untouched: a real single-video result still returns
+    # its `requested_downloads` filepath, no raise.
+    dest = tmp_path / "vid.webm"
+    video_info = {
+        "_type": "video",
+        "id": "vid",
+        "requested_downloads": [{"filepath": str(dest)}],
+    }
+    monkeypatch.setattr("app.download.YoutubeDL", _fake_ydl_returning(video_info))
+    out = download_song("https://www.youtube.com/watch?v=dQw4w9WgXcQ", tmp_path)
+    assert out == Path(dest)
 
 
 def _claiming_extractors(url: str) -> list[str]:

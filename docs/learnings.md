@@ -13,6 +13,27 @@ Format: `- <date> — what went wrong → the correction / rule now in place`
 
 ---
 
+- 2026-07-21 — (T-027) **A URL-shape validator that enumerates the *bad* shapes leaks the ones it
+  didn't think of; gate on the *good* shape instead.** `is_playlist_url` refused the playlist
+  shapes it knew — a `/playlist` path, a `list=` with no song — and admitted everything else. A
+  YouTube **channel / `@handle`** URL is neither of those, so it sailed through as if it were a
+  song. Worse than a bad tag: `download_song` calls `extract_info(url, download=True)`, and on a
+  collection-shaped result yt-dlp **downloads every entry** before returning — a mistyped channel
+  URL would have pulled the whole channel into staging before any post-extract guard could fire
+  (`noplaylist=True` can't help; it only picks the single video out of a `watch?v=…&list=…`, and a
+  channel names no single video). Two fixes, owner-approved as "C + A": **(C)** reject at the route
+  on the *positive* predicate `names_one_song(url)` — the complement that admits exactly the
+  single-song shapes and refuses channels/searches/bare domains *before* a job starts; **(A)** a
+  belt-and-braces guard in `download_song` that raises on a playlist-shaped `extract_info` result
+  (`_type=="playlist"` / `entries`) so anything that still reaches the downloader (e.g. a non-YouTube
+  `?v=` set, which `names_one_song` still admits) fails honestly on the **download** stage instead
+  of handing back a bogus `prepare_filename` path that mis-attributes as a transcode
+  `FileNotFoundError` two stages later. Rules: **when a guard runs *after* an expensive/irreversible
+  step, the guard is in the wrong place — move the check before the step;** and **prefer a positive
+  allowlist of valid shapes over a denylist of invalid ones** (the same "breadth in a validator is
+  not safety" family as T-026, seen from the other side: there over-*rejection* was the risk, here
+  it was silent over-*admission*). Reproduce-first paid off: the channel-download behaviour was only
+  visible by actually running `download=True` (capped to one item for safety), not by reading code.
 - 2026-07-21 — (T-029 browser verify, nearly reported a phantom bug) **A long-lived Vite dev
   server on this repo serves STALE JavaScript — WSL2's inotify does not fire on the `/mnt/c`
   Windows mount, so Vite never HMRs a source change and a page reload re-serves the cached

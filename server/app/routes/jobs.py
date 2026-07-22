@@ -53,7 +53,7 @@ def create_job(payload: dict, request: Request) -> dict[str, str]:
     # Imported here, not at module top: download.py pulls yt-dlp, which we keep off
     # the import path of the app (T-001 lazy-engine). is_playlist_url itself is a
     # pure, network-free shape check (T-004).
-    from app.download import is_playlist_url, normalize_url
+    from app.download import is_playlist_url, names_one_song, normalize_url
 
     # Normalise before classifying, storing, or submitting: a scheme-less paste
     # (`youtu.be/<id>` from a text message) classifies fine but never matches
@@ -64,6 +64,16 @@ def create_job(payload: dict, request: Request) -> dict[str, str]:
         raise HTTPException(
             status_code=422,
             detail="Playlist URLs aren't supported — paste one song URL (R1).",
+        )
+
+    # A channel/`@handle`/search URL is not a playlist by shape (no `list=`, no
+    # `/playlist`), so is_playlist_url misses it — but it names no single song, and
+    # admitting it lets download_song expand and download the whole collection
+    # before the download-stage guard fires (T-027, C + A). Refuse it at the door.
+    if not names_one_song(url):
+        raise HTTPException(
+            status_code=422,
+            detail="That URL doesn't point to a single song — paste one song's URL (R1).",
         )
 
     job = get_store().create_job(url)

@@ -38,10 +38,16 @@ from yt_dlp import YoutubeDL
 
 
 class PlaylistURLError(ValueError):
-    """Raised when a playlist URL reaches a stage that only accepts one song.
+    """Raised when a playlist/collection reaches a stage that accepts one song.
 
     Typed so callers can distinguish "this is a playlist, refuse it" from any
-    other bad input. T-012 catches this and returns HTTP 422 (spec §6/§7).
+    other bad input. Two detection points raise it:
+    - `reject_playlist_url` — pre-network, from the URL's *shape* (a `list=` with
+      no song, a `/playlist` path). At the route, T-012 catches this and returns
+      HTTP 422 (spec §6/§7).
+    - `download_song` — post-resolution, belt-and-braces: if `extract_info` ever
+      comes back *playlist-shaped* despite the route's `names_one_song` gate, this
+      becomes an honest **download**-stage failure rather than a bogus path (T-027).
     """
 
 
@@ -181,6 +187,41 @@ def curated_list_kind(url: str) -> str | None:
     return None
 
 
+# The hosts CleanMuzik accepts — a YouTube-only tool (PRD "YouTube → Jellyfin").
+# `endswith(".youtube.com")` covers www./m./music. and any subdomain without
+# matching a look-alike like `evil-youtube.com` (the char before `youtube` there is
+# `-`, not `.`); the bare apex and `youtu.be` are listed explicitly.
+def _is_youtube_host(hostname: str | None) -> bool:
+    host = (hostname or "").lower()
+    return host in ("youtube.com", "youtu.be") or host.endswith(".youtube.com")
+
+
+def names_one_song(url: str) -> bool:
+    """True when `url` is a YouTube link naming exactly one song — the only shape
+    the pipeline takes.
+
+    The positive complement to `is_playlist_url`, and the route's admission gate:
+    `create_job` rejects `not names_one_song(url)` with 422 so a non-song never
+    starts a job. Two ways a URL fails it:
+
+    - **Not YouTube.** R1 is a YouTube tool (PRD "YouTube → Jellyfin"), so a
+      non-YouTube host is refused outright. This also closes the one hole a
+      shape-only check left: a non-YouTube `?v=` URL reads as "one song" by shape
+      but could expand to a collection inside yt-dlp — rejecting the host stops it
+      at the door rather than after `extract_info(download=True)` has already pulled
+      the whole thing (T-027).
+    - **YouTube, but not one song.** A channel, an `@handle`, a search or a bare
+      domain names no single video and carries no `list=`/`/playlist` for
+      `is_playlist_url` to catch, so this is what refuses it.
+
+    Network-free — decided from the URL's shape alone, like `is_playlist_url`.
+    """
+    parts = _parse(url)
+    if not _is_youtube_host(parts.hostname):
+        return False
+    return _names_one_song(parts, parse_qs(parts.query))
+
+
 def reject_playlist_url(url: str) -> None:
     """Raise `PlaylistURLError` if `url` is a playlist; return None otherwise.
 
@@ -252,6 +293,21 @@ def download_song(url: str, staging_dir: Path | None = None) -> Path:
 
     with YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(url, download=True)
+
+    # Belt-and-braces: a URL that resolves to a *collection* comes back
+    # playlist-shaped — `_type` "playlist"/"multi_video", or a non-empty `entries` —
+    # and carries no top-level `requested_downloads`. The route's `names_one_song`
+    # gate now refuses every non-YouTube host and every non-single-song YouTube
+    # shape, so nothing collection-shaped *should* reach here (T-027, C). If one
+    # ever does, fail on the DOWNLOAD stage with a clear reason rather than fall
+    # through to `prepare_filename` below, which returns a path for a file that was
+    # never written and would surface two stages later as a mis-attributed transcode
+    # `FileNotFoundError`. Test `entries` by truthiness, not key presence: a single
+    # video can carry an empty `entries` and must not be mistaken for a collection.
+    if info.get("_type") in ("playlist", "multi_video") or info.get("entries"):
+        raise PlaylistURLError(
+            f"URL resolved to a collection of tracks, not one song: {url}"
+        )
 
     # After postprocessing, the authoritative final path is on each entry of
     # `requested_downloads`; `prepare_filename` is only the pre-postprocess guess.

@@ -472,6 +472,17 @@ def test_post_playlist_url_rejected_422(client):
     assert "playlist" in resp.json()["detail"].lower()
 
 
+def test_post_channel_url_rejected_422(client):
+    # T-027 (C): a channel/@handle URL is not a playlist by shape, so the playlist
+    # gate misses it — but it names no single song, and admitting it would let
+    # download_song expand and download the whole channel. Refused at the door.
+    resp = client.post("/api/jobs", json={"url": "https://www.youtube.com/@someartist"})
+    assert resp.status_code == 422
+    assert "single song" in resp.json()["detail"].lower()
+    # Nothing was queued or handed to the worker.
+    assert client.worker.submitted == []
+
+
 def test_post_missing_url_rejected_422(client):
     assert client.post("/api/jobs", json={}).status_code == 422
 
