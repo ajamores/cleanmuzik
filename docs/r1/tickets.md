@@ -477,7 +477,9 @@ reboot). **Not** folded into T-029, whose scope is the job/row status disagreeme
 deliberately retains staging.
 
 ### T-020 — Track card: stream reattach + the snapshot payload gap
-- **Status:** **done (2026-07-21)** — the last R1 ticket. Spec §6 amended first (ADR-010): the
+- **Status:** **BUILT + MERGED, review pending (2026-07-21)** — landed `0007c3c`, but **`/code-review`
+  (DoD step 1) has not run** (owner-run; deferred to next session). NOT "done" until it passes; R1
+  cannot ship before then. The last R1 ticket. Spec §6 amended first (ADR-010): the
   snapshot now carries a durable landing receipt (`path` + `tags`), backed by two new `jobs`
   columns (`landed_path`, `landed_tags_json`) written on `track.done`, so `GET /api/jobs/{id}`
   answers *where the song went* after the SSE channel is gone (restart / buffer eviction). Client

@@ -22,15 +22,18 @@ are in `CLAUDE.md`; scope in `cleanmuzik-prd.md`. Not restated here.
 ## Current State (2026-07-21)
 
 - **On `main`, clean tree.** Suites green: **server 379, client 33**, lint + tsc clean.
-- **R1's BUILD IS COMPLETE — every R1 ticket is done.** T-020, the last one, landed (`0007c3c`).
-- **Owner decision pending:** `docs/roadmap.md` still says R1 `in-build`. Flipping R1 →
-  `shipped` and moving R2 (`backlog`: playlists, migrate + clean) to `specing` is a release
-  milestone — the owner's call, not auto. R2 pulls backlog tickets in only when it's specced.
+- **T-020 (the last R1 ticket) is BUILT + MERGED, but NOT done** — `/code-review` (DoD step 1) has
+  not run. It's **owner-run** (disabled for model invocation), deferred to next session by owner's
+  call. Landed `0007c3c` so the code is in the tree, but the review gate is open.
+- **⟹ NEXT ACTION (next session): run `/code-review` on the T-020 diff** (`git show 0007c3c`, or
+  the working diff before this session's commits). Only after it passes is T-020 done and every R1
+  ticket closed.
+- **Then — owner decision:** flip `docs/roadmap.md` R1 `in-build` → `shipped` and move R2
+  (`backlog`: playlists, migrate + clean) to `specing`. R1 **cannot ship until the review passes.**
 
 T-020 receipt (durable landing receipt + 4 T-016 nits + a reconnect latch fix) is in the commit
 body of `0007c3c` and the `tickets.md` T-020 block; two corrections are in `learnings.md`
 (the Vite-proxy `onerror` masking; `unicode-bidi:plaintext` hiding the filename). Not restated here.
-`/code-review` on the diff is still owed — it's **owner-run** (disabled for model invocation).
 
 ## Candidate backlog item (not filed yet)
 
@@ -49,9 +52,10 @@ body of `0007c3c` and the `tickets.md` T-020 block; two corrections are in `lear
 
 ## Recent sessions (rolling — last 2–3)
 
-### 2026-07-21 — T-020 done (last R1 ticket); R1 build complete
-- Durable receipt + 4 nits + latch fix, `/code-review` is owner-run (disabled for model). Browser
-  verify surfaced the Vite-proxy `onerror` masking + the `unicode-bidi` bug (both → learnings).
+### 2026-07-21 — T-020 built + merged (last R1 ticket); review gate still open
+- Durable receipt + 4 nits + latch fix landed `0007c3c`. `/code-review` NOT run (owner-run, disabled
+  for model) — deferred to next session; T-020 not "done" until it passes. Browser verify surfaced
+  the Vite-proxy `onerror` masking + the `unicode-bidi` bug (both → learnings).
 
 ### 2026-07-21 — T-027 done (channel-URL guard + front-door reject)
 - Reproduce-first found the real hole (channel/@handle downloads whole channel). C+A fix, landed `704da64`.
