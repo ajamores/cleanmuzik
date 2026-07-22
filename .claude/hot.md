@@ -21,44 +21,51 @@ are in `CLAUDE.md`; scope in `cleanmuzik-prd.md`. Not restated here.
 
 ## Current State (2026-07-21)
 
-- **On `main`, clean tree.** T-022 and T-027 both landed + suite green on `main` (375 tests).
-- **R1 has ONE ticket left: T-020** (front-end). Everything else in the R1 set is done.
-- **T-027 done** (`704da64`): reproduce showed the playlist-shape hole was a **channel/@handle** URL
-  (not a `list=` URL — `noplaylist=True` collapses those). Fix C+A: `create_job` rejects
-  `not names_one_song(url)` (now YouTube-host-only) with 422 so a channel never starts a job +
-  downloads the whole channel; belt-and-braces guard in `download_song` fails honestly on the
-  download stage. `/code-review` (high): 3 findings, all resolved.
+- **On `main`, clean tree.** Suites green: **server 379, client 33**, lint + tsc clean.
+- **R1's BUILD IS COMPLETE — every R1 ticket is done.** T-020, the last one, landed (`0007c3c`).
+- **Owner decision pending:** `docs/roadmap.md` still says R1 `in-build`. Flipping R1 →
+  `shipped` and moving R2 (`backlog`: playlists, migrate + clean) to `specing` is a release
+  milestone — the owner's call, not auto. R2 pulls backlog tickets in only when it's specced.
 
-## Next session — T-020 (the last R1 ticket)
+## T-020 — done (`0007c3c`)
 
-- **T-020** (front-end): amend spec §6 to add `path`+`tags` to the `GET /api/jobs/{id}` snapshot,
-  build the stream-reattach story, verify stream-offline (Playwright MCP can emulate offline).
-  Then R1 is complete → T-019's close (its only open gate was the tag-quality defects, now landed).
+- **Payload gap (ADR-010, spec-first):** durable landing receipt — new `jobs.landed_path` +
+  `landed_tags_json`, written on `track.done`, returned by `GET /api/jobs/{id}`, recovered client-
+  side in `checkOnce`. So a card reconnecting to a dead SSE channel still shows *where the song went*.
+- **4 carried-over T-016 nits fixed:** `review_required`→Identify step; `ERROR_STEP` derived from
+  `RAIL`; `key`-as-reset contract documented; **`unicode-bidi:plaintext` dropped** (browser proved
+  it hid the filename).
+- **Reconnect latch fix:** `outageChecked` now latches only on an *answered* check (a failed check
+  froze the card on a restart). No give-up policy — owner's call, platform retry stands.
+- **Browser-verified** (isolated fake-pipeline harness, torn down): happy path + receipt render +
+  truncation fix; graceful-restart no-detach. **Caveat filed to learnings:** a *hard* backend kill
+  through the **Vite dev proxy** never fires `onerror`, so the card freezes — a dev-proxy artifact,
+  not an app bug, unfixable without the forbidden give-up policy; production nginx surfaces the drop
+  and the latch fix recovers.
 
-## Notes for later (not blocking)
+## Candidate backlog item (not filed yet)
 
-- **Reload loses all cards.** `App.tsx` holds the job list in component state and doesn't restore
-  it across a browser reload, so any "survives reload" work is latent until a *job-restore-on-reload*
-  capability exists (server fixes + unit tests already cover the mechanisms).
+- **Reload loses all cards.** `App.tsx` holds the job list in component state; a browser reload
+  drops it. Latent until a job-restore-on-reload story exists — likely an R2/UI backlog ticket.
 
 ## Verifying
 
 - Owner's real servers: `:8137` (uvicorn `--reload`, real library — **do NOT POST jobs to it**) +
-  `:5173`. `--reload` re-runs the lifespan on any edit to a startup-state module (`db.py`); pure
-  request-path edits (download.py, routes) are safe.
-- Browser `/verify` works here (Playwright MCP over an isolated backend). Rebuild the throwaway
-  harness from the T-026/T-029 notes if needed. Hazard: WSL `/mnt/c` Vite serves a **stale bundle** —
-  start with `--force` (`learnings.md` 2026-07-21).
+  `:5173`. Editing a startup-state module (`db.py`) re-runs the lifespan on the live DB; the T-020
+  column migration already ran there (idempotent, nullable — harmless).
+- Browser `/verify` needs an **isolated** stack (temp DB + monkeypatched `LIBRARY_DIRECTORY`, spare
+  ports) — `LIBRARY_DIRECTORY` is a hardcoded constant, not env-configurable. Rebuild the harness
+  from this session's notes if needed; start Vite with `--force` (WSL stale-bundle hazard). Know the
+  Vite proxy masks a hard backend kill from `EventSource` (learnings 2026-07-21).
 
 ## Recent sessions (rolling — last 2–3)
 
-### 2026-07-21 — T-027 done (channel-URL guard + front-door reject)
-- Reproduce-first found the real hole (channel/@handle downloads whole channel). C+A fix,
-  `/code-review` high (3 findings resolved incl. YouTube-host tightening), suite 375, landed `704da64`.
+### 2026-07-21 — T-020 done (last R1 ticket); R1 build complete
+- Durable receipt + 4 nits + latch fix, `/code-review` is owner-run (disabled for model). Browser
+  verify surfaced the Vite-proxy `onerror` masking + the `unicode-bidi` bug (both → learnings).
 
-### 2026-07-21 — T-022 closed won't-change (measurement)
-- Measured audio inventory JSless vs node across 3 tracks: identical. No code change; ticket records
-  the finding + a one-line re-enable path.
+### 2026-07-21 — T-027 done (channel-URL guard + front-door reject)
+- Reproduce-first found the real hole (channel/@handle downloads whole channel). C+A fix, landed `704da64`.
 
 ## Where the rest of the context lives
 
