@@ -529,7 +529,32 @@ deliberately retains staging.
   YouTube category, confirmed on disk and in Jellyfin's genre list.
 
 ### T-022 — No JavaScript runtime for yt-dlp: formats may be silently missing
-- **Status:** todo — **found in the first browser session (2026-07-18).**
+- **Status:** **DONE (2026-07-21) — closed won't-change, on measurement.** The warning is a false
+  alarm for an audio-only tool. Recorded below; no code change.
+- **What the warning actually means (read from yt-dlp source, not guessed).** Without a JS runtime,
+  yt-dlp uses `_DEFAULT_JSLESS_CLIENTS = ('android_vr',)` instead of
+  `_DEFAULT_CLIENTS = ('android_vr', 'web_safari')` (`youtube/_video.py:142-143`, emit at
+  `:2983-2988`). "Some formats may be missing" = whatever the dropped **`web_safari`** client
+  surfaces that `android_vr` does not — `web_safari` needs nsig/JS deciphering, hence the runtime.
+- **Measurement (2026-07-21, `scratchpad/t022_measure.py`, live YouTube).** For 3 tracks
+  (`nInBDfbZBbo` Jay-Z, `dQw4w9WgXcQ` Rick Astley, `HyHNuVaZJ-k` Gorillaz) ran
+  `extract_info(download=False)` twice — JSless (default) vs `js_runtimes={"node":{}}` (node
+  v24.16.0 present, a supported runtime ≥ 22.0.0). **The audio-format inventory was byte-for-byte
+  identical** in both paths (same 4 audio itags: 140 m4a ~129k, 251 opus ~106–129k, 249, 139; same
+  abr, same filesize), and `bestaudio` picked the **same** stream (itag 251 opus) every time. The
+  `web_safari` formats it adds are **video-only**; it contributes no audio itag `android_vr` lacks.
+  Since R1 grabs bestaudio and transcodes to MP3 320, the JSless path loses nothing.
+- **Why not enable node anyway (the deprecation is real but not worth pre-paying).** yt-dlp calls
+  JSless extraction "deprecated" — it *could* break later. But enabling `web_safari` means node
+  solves an nsig challenge on **every** download (added per-track latency in a sequential pipeline)
+  for zero measured audio gain today. The warning is also already muted in the real path
+  (`download.py:250` `no_warnings: True`); it only surfaced in the verbose 2026-07-18 browser
+  session. Owner decision (2026-07-21): close won't-change, don't pay for capability that measures
+  as zero.
+- **The one-line re-enable, for the day YouTube actually drops JSless audio formats:** add
+  `"js_runtimes": {"deno": {}, "node": {}}` to `ydl_opts` in `download.py` (deno preferred if
+  installed, node the fallback; node is already on the current machine). Re-run
+  `scratchpad/t022_measure.py` to confirm the audio set actually widened before accepting the cost.
 - **Depends on:** nothing
 - **Agent:** back-end
 - **What:** yt-dlp warns on every run: *"No supported JavaScript runtime could be found… YouTube
