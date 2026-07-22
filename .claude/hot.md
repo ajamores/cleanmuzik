@@ -44,10 +44,9 @@ the `tickets.md` T-020 block; corrections in `learnings.md`. Not restated here.
 - Owner's real servers: `:8137` (uvicorn `--reload`, real library — **do NOT POST jobs to it**) +
   `:5173`. Editing a startup-state module (`db.py`) re-runs the lifespan on the live DB; the T-020
   column migration already ran there (idempotent, nullable — harmless).
-- Browser `/verify` needs an **isolated** stack (temp DB + monkeypatched `LIBRARY_DIRECTORY`, spare
-  ports) — `LIBRARY_DIRECTORY` is a hardcoded constant, not env-configurable. Rebuild the harness
-  from this session's notes if needed; start Vite with `--force` (WSL stale-bundle hazard). Know the
-  Vite proxy masks a hard backend kill from `EventSource` (learnings 2026-07-21).
+- Browser `/verify` needs an **isolated** stack (temp DB + monkeypatched `LIBRARY_DIRECTORY` — a
+  hardcoded constant, not env-configurable — on spare ports); start Vite with `--force` (WSL stale
+  bundle). The Vite proxy masks a hard backend kill from `EventSource` (learnings 2026-07-21).
 
 ## Recent sessions (rolling — last 2–3)
 
