@@ -181,7 +181,7 @@ some of it is tempting to fold in now.
 |---|---|---|---|
 | `POST` | `/api/jobs` | `{ "url": "<one youtube song url>" }` | `{ "job_id": "<id>" }`. Rejects playlist URLs with 422. |
 | `GET` | `/api/jobs/{job_id}/events` | — | **SSE stream** (see below) for that job. |
-| `GET` | `/api/jobs/{job_id}` | — | Job status snapshot (for reconnect / SSE fallback). |
+| `GET` | `/api/jobs/{job_id}` | — | Job status snapshot (for reconnect / SSE fallback): `{ job_id, url, status, created_at }` plus, when the worker still has it in flight, `stage` / `review_id` / `error`; and for a **landed** job, the durable `path` + `tags` (same shape as `track.done`). The landing receipt is persisted on the row, so the snapshot answers *where the song went* even after the SSE channel is gone — a stream that dropped after landing (buffer evicted, or a restart killed the channel) can recover the receipt this event-less way (T-020). `404` if unknown. |
 | `GET` | `/api/reviews` | — | Parked reviews: `[{ review_id, job_id, query, rec, candidates[] }]` (a `duplicate` row also carries `duplicate`). |
 | `GET` | `/api/reviews/{review_id}` | — | One hydrated pending review (same row shape); `404` if gone/resolved. The card re-hydrates a lost panel from this after a stream drop/restart; the duplicate panel reads its one row without re-hydrating the whole queue (T-017). |
 | `POST` | `/api/reviews/{review_id}/resolve` | see the two body shapes below | `{ "ok": true }`; resumes the import. |
@@ -265,7 +265,10 @@ truly album-less song lands under `singleton`. beets creates missing directories
 
 ### Persistence (SQLite)
 
-- `jobs(id, url, status, created_at)`
+- `jobs(id, url, status, created_at, landed_path, landed_tags_json)` — `landed_path` +
+  `landed_tags_json` are the durable landing receipt (the `track.done` payload), written when a song
+  lands and `NULL` until then. They exist so `GET /api/jobs/{id}` can answer *where the song went*
+  after the SSE channel is gone; nothing else reads them (T-020).
 - `reviews(id, job_id, staging_path, query, candidate_ids_json, rec, status)` — store MusicBrainz
   candidate **IDs**, not the rich candidate objects; re-match on resume.
 

@@ -13,6 +13,44 @@ Format: `- <date> — what went wrong → the correction / rule now in place`
 
 ---
 
+- 2026-07-21 — (T-020 browser verify) **The Vite dev proxy MASKS a hard backend death from the
+  browser `EventSource` — `onerror` never fires, so no reconnect/fallback logic can run.** Driving
+  the real card at `:5174` (Vite proxy → isolated backend `:8140`) and `kill -9`-ing the backend
+  mid-job, the card froze on its last stage. An `EventSource` instrument (patched via
+  `navigate_page`'s `initScript` before app JS) proved why: `construct → open`, then **no `error`
+  event at all** across a 15s outage. Vite's proxy holds the client-side SSE connection open while
+  the upstream socket is gone, so the browser never learns the stream dropped. Consequences: (1) a
+  browser drop-recovery test *through the Vite proxy* cannot exercise the `onerror` path — use the
+  `FakeEventSource` unit tests for that logic (they model the real `onerror` sequence faithfully),
+  or test against a non-proxied / nginx transport; (2) this is a **dev-proxy artifact**, not an app
+  bug, and NOT fixable in the app (no signal to react to) — a heartbeat-timeout would just be the
+  give-up policy killed three times, so don't add one. A *graceful* restart (SIGTERM / real
+  `uvicorn --reload`) is different: the in-flight job finishes and its `track.done` flows through the
+  held-open connection, so the card completes normally with no false detach.
+- 2026-07-21 — (T-020) **`unicode-bidi: plaintext` DEFEATS a `direction: rtl` start-truncation —
+  it re-bases the line LTR and moves the ellipsis back to the end, hiding the filename it was meant
+  to keep.** `.track-card__path` wanted start-truncation (a path's tail — the filename — is the only
+  distinguishing part; every track shares the library prefix). A real-browser check showed the
+  shipped `direction: rtl; unicode-bidi: plaintext` rendered `/mnt/c/Users/aj_am/Music/CleanMuzik/…`
+  — prefix shown, filename gone — identical to plain LTR. `text-overflow: ellipsis` clips at the END
+  of the line's *base direction*, and `plaintext` sets that base from the content's first strong
+  char (LTR for a path), so the ellipsis lands on the right. Fix: drop `plaintext`, keep
+  `direction: rtl`. The comment claimed `plaintext` was needed so the path stays copyable, but
+  copy/selection uses DOM *logical* order regardless of visual bidi reordering — the only cost of
+  rtl-only is the leading `/` rendering at the far right, purely cosmetic. Rule: **verify bidi/
+  truncation CSS in a real rendering engine; `caretRangeFromPoint` offsets are unreliable under
+  bidi — screenshot instead.**
+- 2026-07-21 — (T-020) **A "one snapshot per outage" latch must count only an ANSWERED check, not a
+  failed one.** `TrackCard`'s reconnect fallback latched `outageChecked=true` on the first `onerror`
+  and called `checkOnce`; if that check ran while the backend was still down (fetch rejects, no
+  answer), the latch was never cleared, and when the backend returned with the job already terminal
+  (empty replay, no event to clear the latch via `on()`), the recovery snapshot never fired and the
+  card froze. Fix: on a *transient* (non-404, no-answer) failure, reset `outageChecked=false` so the
+  next `onerror` retries once the backend is back; a definitive answer (terminal / still-running /
+  404) stays latched. Cost: ~1 snapshot per EventSource-retry during a *total* outage — bounded, and
+  never against a healthy stream (ADR-005 holds). Note: proven by unit test + reasoning, NOT by the
+  browser — the Vite proxy (entry above) prevents `onerror` from firing, so this path is only
+  reachable on a transport that surfaces the drop (production nginx, a real network blip).
 - 2026-07-21 — (T-027) **A URL-shape validator that enumerates the *bad* shapes leaks the ones it
   didn't think of; gate on the *good* shape instead.** `is_playlist_url` refused the playlist
   shapes it knew — a `/playlist` path, a `list=` with no song — and admitted everything else. A

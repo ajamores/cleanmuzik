@@ -365,6 +365,12 @@ def run_pipeline(
                 scan_fn(settings=s)
             except JellyfinScanError as exc:
                 raise _StageFailure(STAGE_SCAN, str(exc)) from exc
+            # Persist the landing receipt BEFORE the event that announces it (T-020):
+            # `track.done` rides the SSE channel, which a restart or a buffer eviction
+            # wipes, leaving `GET /api/jobs/{id}` the only way to recover *where the
+            # song went*. Durable-first means a card that reconnects to a dead channel
+            # can still read the path off the snapshot. Same field shape as the event.
+            store.set_job_landing(job_id, landed.landed_path, landed.tags)
             bus.publish(job_id, "track.done", {
                 "job_id": job_id, "path": landed.landed_path, "tags": landed.tags or {},
             })

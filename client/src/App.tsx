@@ -80,6 +80,12 @@ function App() {
           <p className="app__empty">No tracks yet.</p>
         ) : (
           jobs.map((job) => (
+            // key IS load-bearing, not just React hygiene: TrackCard's stream effect
+            // re-subscribes on a jobId change but does NOT reset the card's own state
+            // (stage, landed, error, rail high-water), so a reused instance would show
+            // the previous job's progress under a new id. Keying by jobId guarantees a
+            // fresh mount per job, which is that reset. jobId is immutable per job, so
+            // this never remounts a live card. (T-020, carried from a T-016 review.)
             <TrackCard key={job.jobId} jobId={job.jobId} url={job.url} />
           ))
         )}

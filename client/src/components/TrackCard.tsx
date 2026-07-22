@@ -87,19 +87,26 @@ const STAGE_STEP: Record<Stage, number> = {
   downloading: 0,
   transcoding: 1,
   identifying: 2,
-  review_required: 3,
+  // A weak-match park is an UNFINISHED identify awaiting the owner's pick — the review
+  // IS the identify decision (which MusicBrainz match), not a tagging one. So it sits on
+  // Identify (2), not Tag (3): parking on Tag lit Identify as complete on a track that
+  // never got a confident match, and pre-lit Tag before any tagging happened (T-020,
+  // carried from a T-016 review). Tagging only fires after the owner resolves.
+  review_required: 2,
   tagging: 3,
   done: RAIL.length,
   error: -1,
 }
 
+/** Which rail step an error stage lights up — derived from RAIL so the two can't
+ *  drift when a step is added or reordered (T-020, carried from a T-016 review; it
+ *  was a hand-kept copy of RAIL's indices). `scan` has no rail step of its own — it
+ *  shares Land, both being "getting it into the library" — so it maps to Land's index. */
 const ERROR_STEP: Record<ErrorStage, number> = {
-  download: 0,
-  transcode: 1,
-  identify: 2,
-  tag: 3,
-  land: 4,
-  scan: 4,
+  ...(Object.fromEntries(
+    RAIL.map((step, i) => [step.key, i]),
+  ) as Record<ErrorStage, number>),
+  scan: RAIL.findIndex((s) => s.key === 'land'),
 }
 
 /** `track.tagging.chosen` / the display subset of `track.done.tags`. Every field
@@ -203,6 +210,11 @@ export function TrackCard({ jobId, url }: TrackCardProps) {
   // could repaint an already-completed step as fresh.
   const reachedRef = useRef(-1)
 
+  // Subscribes to the job's SSE stream. `jobId` is in the dep array because the effect
+  // reads it, but it never actually changes for a mounted card: App.tsx keys each card
+  // by jobId, so a new job is a new instance with fresh state, not a jobId swap on this
+  // one (which would re-subscribe but leave the previous job's stage/landed/rail behind).
+  // `episode` is the real re-run trigger — a resolved review re-opens the stream.
   useEffect(() => {
     const es = new EventSource(`/api/jobs/${jobId}/events`)
     // Guards a `setState` from a snapshot that resolves after unmount, and stops
@@ -213,7 +225,7 @@ export function TrackCard({ jobId, url }: TrackCardProps) {
     // At-most-once guard for the review re-hydration below: a snapshot that finds the
     // job parked fetches the panel's row once, not on every retry's snapshot.
     let hydratedReview = false
-    // One snapshot per outage — NOT a retry budget.
+    // One ANSWERED snapshot per outage — NOT a retry budget.
     //
     // T-016 originally bounded the reattaching with a consecutive-failure counter
     // and gave up permanently when it ran out. Two review passes killed three
@@ -227,10 +239,14 @@ export function TrackCard({ jobId, url }: TrackCardProps) {
     // on its own, and the server replays its buffer to every new subscriber, so
     // recovery is the platform's job and it does it losslessly. This flag exists
     // only to make sure the ONE thing the stream structurally cannot report — a
-    // job that finished with no §6 event (the duplicate skip, `jobs.py:368`) — is
-    // asked about exactly once per outage rather than on every retry. That single
-    // ask is the ADR-005 boundary: one snapshot per outage is a fallback, one per
-    // retry would be polling.
+    // job that finished with no §6 event (the duplicate skip, `jobs.py:368`, or a
+    // restart's empty replay) — is asked about once per outage rather than on every
+    // retry. The nuance the browser taught us (T-020): the "one" is one *answered*
+    // check. A check that gets NO answer (backend still down) doesn't count — it
+    // clears the latch (see checkOnce's transient catch) so the next retry asks again
+    // once the backend returns. Latching a no-answer check is what froze the card on a
+    // restart. One *answered* snapshot per outage is the ADR-005 boundary; one per
+    // retry against a live server would be polling.
     let outageChecked = false
 
     /**
@@ -396,6 +412,15 @@ export function TrackCard({ jobId, url }: TrackCardProps) {
         if (snap.status === 'done') {
           es.close()
           setStage('done')
+          // Recover the landing receipt the dead stream never delivered (T-020). The
+          // durable snapshot carries `path` + `tags` for a landed job, so a card that
+          // reconnected after `track.done` was lost still shows *where the song went*
+          // instead of a bare "Done". Absent for a duplicate-skip "done" (nothing
+          // landed) — `asString`/`asDoneTags` narrow that to null, and `displayMatch`
+          // keeps whatever `track.tagging` already showed. Off-the-wire, so narrowed.
+          if (snap.path || snap.tags) {
+            setLanded({ path: asString(snap.path), tags: asDoneTags(snap.tags) })
+          }
         } else if (snap.status === 'review') {
           es.close()
           setStage('review_required')
@@ -426,19 +451,33 @@ export function TrackCard({ jobId, url }: TrackCardProps) {
         // A 404 is the one error worth reporting: the backend answered and does not
         // have this job (reset DB, stale id), so no amount of retrying will help and
         // the card would otherwise sit on "Queued" forever with no explanation.
-        // Every other failure is treated as transient — including a dead backend,
-        // which is usually `uvicorn --reload` and back in a second.
         if (err instanceof ApiError && err.status === 404) {
           es.close()
           setStreamLost('This job no longer exists on the server.')
+          return
         }
+        // Anything else is transient — a dead backend mid-`uvicorn --reload`, or a
+        // restart that outlasts this attempt. Crucially we got NO answer, so this is
+        // NOT the outage's one allowed check: clear the latch so the next `onerror`
+        // (EventSource keeps retrying) asks again once the backend is back. Without
+        // this, a restart that lands/errors the job while the stream is down freezes
+        // the card on its last stage forever — the first check fails during downtime,
+        // latches, and the terminal job then replays an empty buffer and closes with
+        // no event to clear the latch, so the recovery snapshot never fires (T-020,
+        // observed in a browser: a hard restart mid-job left the card stuck at
+        // "Identifying" while the server said `error`).
+        outageChecked = false
       }
     }
 
     es.onerror = () => {
-      // Fires on every failed retry, so guard the fallback rather than the stream:
-      // one snapshot per outage, cleared by the next delivered event. EventSource
-      // handles the reconnecting; this only asks the question it can't.
+      // Fires on every failed retry. `outageChecked` makes this one snapshot per
+      // outage, not one per retry (ADR-005): it's set true up-front (before the await,
+      // so concurrent onerrors can't launch parallel checks) and cleared by the next
+      // delivered event OR by a check that got no answer (checkOnce's transient catch).
+      // A check that DID get an answer stays latched — a still-running job shouldn't be
+      // re-polled until an event moves it. EventSource owns the reconnecting; this only
+      // asks the question the stream can't: did the job finish while we were away?
       if (unmounted || sawTerminalEvent || outageChecked) return
       outageChecked = true
       void checkOnce()

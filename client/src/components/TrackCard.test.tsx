@@ -132,6 +132,83 @@ describe('stream lifecycle T-017 must not break', () => {
     expect(screen.getByRole('button', { name: /accept/i })).toBeInTheDocument()
   })
 
+  it('recovers the landing receipt from the snapshot when track.done was lost (T-020)', async () => {
+    // The song landed while the stream was down and the SSE channel is gone, so
+    // track.done never arrives. The durable snapshot carries path + tags; the card
+    // must show *where the song went*, not a bare "Done".
+    vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
+      const url = String(input)
+      if (url.includes('/api/jobs/'))
+        return Promise.resolve(
+          jsonResponse({
+            job_id: 'job-1',
+            status: 'done',
+            path: '/mnt/c/Users/aj_am/Music/CleanMuzik/Band/Song.mp3',
+            tags: { title: 'Song', artist: 'Band', genre: 'Rock', has_art: true },
+          }),
+        )
+      throw new Error(`unexpected fetch: ${url}`)
+    })
+
+    const es = renderCard()
+    es.fail() // stream drops after the song landed, with no track.done delivered
+    await waitFor(() =>
+      expect(
+        screen.getByText('/mnt/c/Users/aj_am/Music/CleanMuzik/Band/Song.mp3'),
+      ).toBeInTheDocument(),
+    )
+    expect(screen.getByText('Rock')).toBeInTheDocument()
+    expect(screen.getByText('Art')).toBeInTheDocument()
+  })
+
+  it('recovers when a restart outlasts the first reconnect check (T-020)', async () => {
+    // The failure a browser surfaced: the stream drops, the first snapshot check runs
+    // while the backend is still down (no answer), then the backend returns with the
+    // job already terminal (empty replay, no event). A latch that counted the failed
+    // check would freeze the card on its last stage forever; the answered-only latch
+    // must let a later retry recover.
+    let jobCalls = 0
+    vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
+      const url = String(input)
+      if (url.includes('/api/jobs/')) {
+        jobCalls += 1
+        // First check: backend is down — fetch rejects (→ ApiError status 0, transient).
+        if (jobCalls === 1) return Promise.reject(new TypeError('backend down'))
+        // Backend back: the orphaned job was reconciled to `error`.
+        return Promise.resolve(jsonResponse({ job_id: 'job-1', status: 'error' }))
+      }
+      throw new Error(`unexpected fetch: ${url}`)
+    })
+
+    const es = renderCard()
+    es.emit('track.identifying', {}) // card is mid-job when the stream drops
+    es.fail() // outage begins; the one check runs while the backend is down
+    await waitFor(() => expect(jobCalls).toBe(1))
+    await Promise.resolve() // let checkOnce's transient catch clear the latch
+    es.fail() // EventSource's next retry — backend is back now
+    await waitFor(() =>
+      expect(screen.getByRole('alert')).toHaveTextContent(/failed/i),
+    )
+    // Recovered honestly, not frozen on "Identifying" and not falsely "detached".
+    expect(screen.queryByText(/no longer exists/i)).not.toBeInTheDocument()
+  })
+
+  it('shows a bare Done with no receipt on an event-less duplicate-skip finish (T-020)', async () => {
+    // A duplicate skip finishes "done" with nothing landed: the snapshot omits
+    // path/tags, and the card must not invent a blank landing line.
+    vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
+      const url = String(input)
+      if (url.includes('/api/jobs/'))
+        return Promise.resolve(jsonResponse({ job_id: 'job-1', status: 'done' }))
+      throw new Error(`unexpected fetch: ${url}`)
+    })
+
+    const es = renderCard()
+    es.fail()
+    await waitFor(() => expect(screen.getByText('Done')).toBeInTheDocument())
+    expect(screen.queryByTitle(/\.mp3$/)).not.toBeInTheDocument()
+  })
+
   it('re-subscribes on resolve with a fresh stream that keeps the reconcile fallback', async () => {
     // POST /resolve → ok; the resume then settles via the snapshot (a reject-style
     // branch emits no terminal event, so stream-close + GET /api/jobs is the signal).

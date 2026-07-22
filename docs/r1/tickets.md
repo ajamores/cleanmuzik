@@ -477,7 +477,33 @@ reboot). **Not** folded into T-029, whose scope is the job/row status disagreeme
 deliberately retains staging.
 
 ### T-020 — Track card: stream reattach + the snapshot payload gap
-- **Status:** todo — **carved out of T-016 on 2026-07-18 because it could not be verified.**
+- **Status:** **done (2026-07-21)** — the last R1 ticket. Spec §6 amended first (ADR-010): the
+  snapshot now carries a durable landing receipt (`path` + `tags`), backed by two new `jobs`
+  columns (`landed_path`, `landed_tags_json`) written on `track.done`, so `GET /api/jobs/{id}`
+  answers *where the song went* after the SSE channel is gone (restart / buffer eviction). Client
+  recovers it in `checkOnce`. The four carried-over T-016 nits all fixed: `review_required` sits on
+  Identify (2) not Tag (3); `ERROR_STEP` derived from `RAIL`; the `key`-as-state-reset contract
+  documented at both sites; and the `unicode-bidi: plaintext` path bug — **confirmed in a real
+  browser to hide the filename** — fixed by dropping it (→ learnings). Per the owner's call, **no
+  fourth give-up policy** (three died blind); the platform's retry stands. Browser verify surfaced a
+  real latch bug: `outageChecked` counted a *failed* check, freezing the card if a restart outlasted
+  the first reconnect attempt — fixed so only an *answered* check latches (→ learnings, unit-proven).
+  Suites green: **server 379, client 33**, lint + tsc clean.
+- **Acceptance receipt — driven in a real browser** (Chrome + Firefox via MCP) against an isolated
+  fake-pipeline harness (temp DB, no real download/library, slow stages to catch mid-flight):
+  - **Happy path + receipt render** — pasted URL → rail animated download→…→land → **Done** with
+    match, tags (Synth-pop/Art/Lyrics), and the path showing the **filename** (truncation fix), the
+    full path on `title`. Exercised the real routes + worker + SSE + store + the new `set_job_landing`.
+  - **Graceful restart (`--reload` class, SIGTERM)** — card completed to Done through the held-open
+    connection, **no false "detached"** note.
+  - **Hard kill (`kill -9`) mid-job** — revealed a **Vite dev-proxy artifact**: an `EventSource`
+    instrument proved `onerror` never fires through the proxy on an upstream death, so the card
+    freezes with no signal to react to (dev-only, not an app bug, not fixable without a give-up
+    policy — → learnings). The `onerror`-path recovery (latch fix) is proven by the `FakeEventSource`
+    unit test, which models that sequence faithfully.
+  - Snapshot durability across a restart verified at the HTTP level (stable-DB harness): the
+    receipt survives on the row and the snapshot returns it with a cold registry.
+- ~~**Status:** todo — carved out of T-016 on 2026-07-18 because it could not be verified.~~
 - **Depends on:** T-016, T-019 (needs a live browser; that's the whole point)
 - **Agent:** front-end
 - **What:** Give the track card a real recovery story for a stream that stays broken. T-016 ships

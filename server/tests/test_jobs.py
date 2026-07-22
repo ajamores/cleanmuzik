@@ -100,6 +100,34 @@ def test_landed_status_is_durable(tmp_path):
     assert rec["store"].get_job(rec["job_id"]).status == "done"
 
 
+def test_landed_receipt_is_durable(tmp_path):
+    # A landed song persists its path + tags on the row (T-020), so the snapshot can
+    # recover *where the song went* after the SSE channel that carried `track.done` is
+    # gone. Read back through a FRESH Store to prove it survives a process restart.
+    tags = {"title": "Song", "artist": "Band", "album": "Album", "year": 2001,
+            "genre": "Rock", "has_art": True, "has_lyrics": True}
+    _, rec = _run(
+        tmp_path,
+        import_fn=lambda *a, **k: [
+            Outcome("landed", 0.95, 0.5, track_id="rec-A",
+                    landed_path="/lib/Band/Song.mp3", tags=tags)
+        ],
+    )
+    reread = Store(rec["store"]._db_path).get_job(rec["job_id"])
+    assert reread.landed_path == "/lib/Band/Song.mp3"
+    assert reread.landed_tags == tags
+
+
+def test_no_receipt_when_nothing_landed(tmp_path):
+    # A duplicate-skip "done" landed no file, so there is no receipt to record — the
+    # row's landed_path stays NULL and the snapshot omits path/tags (not "" or {}).
+    _, rec = _run(tmp_path, import_fn=lambda *a, **k: [Outcome("skipped", 0.0, 0.0)])
+    job = rec["store"].get_job(rec["job_id"])
+    assert job.status == "done"
+    assert job.landed_path is None
+    assert job.landed_tags is None
+
+
 def test_scan_degraded_is_not_a_failure(tmp_path):
     # trigger_scan returns False when the Jellyfin config is absent — the track
     # still landed, so the job is done, not errored (T-010 contract).
@@ -551,6 +579,32 @@ def test_get_review_id_recovered_after_cold_registry(client):
     body = client.get(f"/api/jobs/{job.id}").json()
     assert body["status"] == "review"
     assert body["review_id"] == review.id
+
+
+def test_get_job_returns_landing_receipt(client):
+    # T-020: a landed job's snapshot carries the durable path + tags even with a cold
+    # registry (a restart), so a card that lost the `track.done` event recovers it.
+    job = client.store.create_job("https://youtu.be/x")
+    tags = {"title": "Song", "artist": "Band", "genre": "Rock", "has_art": True}
+    client.store.update_job_status(job.id, "done")
+    client.store.set_job_landing(job.id, "/lib/Band/Song.mp3", tags)
+
+    body = client.get(f"/api/jobs/{job.id}").json()  # registry is cold for this job
+    assert body["status"] == "done"
+    assert body["path"] == "/lib/Band/Song.mp3"
+    assert body["tags"] == tags
+
+
+def test_get_job_omits_receipt_when_nothing_landed(client):
+    # A duplicate-skip "done" recorded no receipt: the snapshot omits path/tags rather
+    # than emitting empty strings the card would render as a blank landing.
+    job = client.store.create_job("https://youtu.be/x")
+    client.store.update_job_status(job.id, "done")
+
+    body = client.get(f"/api/jobs/{job.id}").json()
+    assert body["status"] == "done"
+    assert "path" not in body
+    assert "tags" not in body
 
 
 # --- the /events route: early-connect replay, headers, 404 ------------------

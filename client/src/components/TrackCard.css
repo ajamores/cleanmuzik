@@ -235,15 +235,17 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  /* Truncate from the START, so a long path keeps its filename visible. `direction:
-     rtl` moves the ellipsis, but on its own it also re-orders bidi-neutral
-     characters: the leading "/" of "/mnt/c/…/Take On Me.mp3" is neutral at the
-     paragraph boundary, takes the RTL direction, and renders at the far right —
-     the owner is shown a path they can't copy. `plaintext` keeps each line's own
-     direction (LTR, from its first strong character) while the rtl box still
-     truncates on the left. */
+  /* Truncate from the START, so a long path keeps its filename visible — the whole
+     point, since every track shares the same library prefix and the tail is the only
+     distinguishing part. `text-overflow: ellipsis` clips at the END of the line's base
+     direction, so `direction: rtl` is what puts the ellipsis on the LEFT.
+     `unicode-bidi: plaintext` was here to stop the leading "/" reordering, but a browser
+     check (T-020) showed it re-bases the whole line LTR and moves the ellipsis back to
+     the right — hiding the filename, the exact failure it was meant to avoid. Dropped.
+     The lone cost of rtl is the neutral leading "/" rendering at the far right; it is
+     purely visual (selection/copy use DOM logical order), so the filename stays readable
+     and the value stays copyable. The full path is on the element's `title` besides. */
   direction: rtl;
-  unicode-bidi: plaintext;
   text-align: left;
 }
 

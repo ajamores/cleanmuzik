@@ -42,6 +42,23 @@ export interface JobSnapshot {
   stage?: string
   review_id?: string
   error?: string
+  /**
+   * Landed only (T-020): the durable landing receipt — where the song went and its
+   * tags, the same shape as the `track.done` event. Written when a song lands and
+   * carried on the durable row, so a card that reconnected to a dead SSE channel
+   * (restart / buffer eviction) can still show the receipt. Absent until a song
+   * lands, and on a job where nothing landed (the duplicate skip).
+   */
+  path?: string
+  tags?: {
+    title?: string | null
+    artist?: string | null
+    album?: string | null
+    year?: number | null
+    genre?: string | null
+    has_art?: boolean | null
+    has_lyrics?: boolean | null
+  }
 }
 
 /**

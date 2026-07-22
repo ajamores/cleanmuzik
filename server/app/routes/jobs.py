@@ -130,6 +130,14 @@ def get_job(job_id: str, request: Request) -> dict:
         "created_at": job.created_at,
     }
 
+    # The durable landing receipt (T-020): present only on a landed job, and the whole
+    # reason this route can answer "where did the song go?" after the SSE channel that
+    # carried `track.done` is gone (restart / buffer eviction). Same shape as the event
+    # (`tags` defaults to `{}` there, so mirror that rather than emit a null).
+    if job.landed_path is not None:
+        snapshot["path"] = job.landed_path
+        snapshot["tags"] = job.landed_tags or {}
+
     live = request.app.state.worker.registry.get(job_id)
     if live is not None:
         if live.stage is not None:

@@ -75,6 +75,8 @@ CREATE TABLE IF NOT EXISTS reviews (
 _ADDED_COLUMNS = [
     ("reviews", "candidate_scores_json", "TEXT"),  # T-028
     ("reviews", "last_error", "TEXT"),  # T-029 — reason a resolve last failed (re-park)
+    ("jobs", "landed_path", "TEXT"),  # T-020 — durable landing receipt (where the song went)
+    ("jobs", "landed_tags_json", "TEXT"),  # T-020 — the track.done `tags` dict, JSON
 ]
 
 # Sentinel default for `release_review(last_error=...)`. It distinguishes "the caller
@@ -108,6 +110,13 @@ class Job:
     url: str
     status: str  # e.g. "queued" | "running" | "review" | "done" | "error"
     created_at: str  # ISO-8601 UTC
+    # The durable landing receipt (T-020). Written only when the song lands; `None`
+    # until then and on any row from before this column existed. `landed_tags` is the
+    # decoded `track.done` `tags` dict — kept so `GET /api/jobs/{id}` can answer *where
+    # the song went* after the SSE channel that carried `track.done` is gone (restart /
+    # buffer eviction). Nothing else reads them.
+    landed_path: str | None = None
+    landed_tags: dict | None = None
 
 
 @dataclass(frozen=True)
@@ -220,6 +229,24 @@ class Store:
             # A zero-row update means the id doesn't exist — raise rather than
             # report a phantom success that leaves a job silently stuck (a wrong
             # or stale id otherwise looks identical to a real transition).
+            if cur.rowcount == 0:
+                raise KeyError(f"no job with id {job_id!r}")
+
+    def set_job_landing(
+        self, job_id: str, path: str | None, tags: dict | None
+    ) -> None:
+        """Persist the landing receipt (T-020) so the snapshot can recover it.
+
+        Called once, when a song lands (`track.done`). `tags` is stored as JSON —
+        `None` serialises to a JSON `null`, distinct from a row where the column was
+        never written (SQL NULL → "never landed"). Raises on an unknown id for the
+        same reason `update_job_status` does: a phantom success hides a lost receipt.
+        """
+        with self._connect() as conn:
+            cur = conn.execute(
+                "UPDATE jobs SET landed_path = ?, landed_tags_json = ? WHERE id = ?",
+                (path, json.dumps(tags), job_id),
+            )
             if cur.rowcount == 0:
                 raise KeyError(f"no job with id {job_id!r}")
 
@@ -410,11 +437,19 @@ class Store:
 
 
 def _job_from_row(row: sqlite3.Row) -> Job:
+    # `landed_*` are absent on a DB whose ALTER hasn't run and NULL until the song
+    # lands. `sqlite3.Row` has no `.get`, so probe the key set rather than assume the
+    # column exists — a pre-migration read must degrade to "no receipt", never raise.
+    keys = row.keys()
+    landed_tags_json = row["landed_tags_json"] if "landed_tags_json" in keys else None
     return Job(
         id=row["id"],
         url=row["url"],
         status=row["status"],
         created_at=row["created_at"],
+        landed_path=row["landed_path"] if "landed_path" in keys else None,
+        # NULL (never landed / pre-migration) → None; a stored JSON `null` also → None.
+        landed_tags=json.loads(landed_tags_json) if landed_tags_json else None,
     )
 
 
