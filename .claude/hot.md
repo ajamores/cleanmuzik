@@ -27,21 +27,10 @@ are in `CLAUDE.md`; scope in `cleanmuzik-prd.md`. Not restated here.
   `shipped` and moving R2 (`backlog`: playlists, migrate + clean) to `specing` is a release
   milestone — the owner's call, not auto. R2 pulls backlog tickets in only when it's specced.
 
-## T-020 — done (`0007c3c`)
-
-- **Payload gap (ADR-010, spec-first):** durable landing receipt — new `jobs.landed_path` +
-  `landed_tags_json`, written on `track.done`, returned by `GET /api/jobs/{id}`, recovered client-
-  side in `checkOnce`. So a card reconnecting to a dead SSE channel still shows *where the song went*.
-- **4 carried-over T-016 nits fixed:** `review_required`→Identify step; `ERROR_STEP` derived from
-  `RAIL`; `key`-as-reset contract documented; **`unicode-bidi:plaintext` dropped** (browser proved
-  it hid the filename).
-- **Reconnect latch fix:** `outageChecked` now latches only on an *answered* check (a failed check
-  froze the card on a restart). No give-up policy — owner's call, platform retry stands.
-- **Browser-verified** (isolated fake-pipeline harness, torn down): happy path + receipt render +
-  truncation fix; graceful-restart no-detach. **Caveat filed to learnings:** a *hard* backend kill
-  through the **Vite dev proxy** never fires `onerror`, so the card freezes — a dev-proxy artifact,
-  not an app bug, unfixable without the forbidden give-up policy; production nginx surfaces the drop
-  and the latch fix recovers.
+T-020 receipt (durable landing receipt + 4 T-016 nits + a reconnect latch fix) is in the commit
+body of `0007c3c` and the `tickets.md` T-020 block; two corrections are in `learnings.md`
+(the Vite-proxy `onerror` masking; `unicode-bidi:plaintext` hiding the filename). Not restated here.
+`/code-review` on the diff is still owed — it's **owner-run** (disabled for model invocation).
 
 ## Candidate backlog item (not filed yet)
 
