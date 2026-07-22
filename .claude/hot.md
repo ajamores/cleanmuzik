@@ -31,9 +31,8 @@ are in `CLAUDE.md`; scope in `cleanmuzik-prd.md`. Not restated here.
 - **Then — owner decision:** flip `docs/roadmap.md` R1 `in-build` → `shipped` and move R2
   (`backlog`: playlists, migrate + clean) to `specing`. R1 **cannot ship until the review passes.**
 
-T-020 receipt (durable landing receipt + 4 T-016 nits + a reconnect latch fix) is in the commit
-body of `0007c3c` and the `tickets.md` T-020 block; two corrections are in `learnings.md`
-(the Vite-proxy `onerror` masking; `unicode-bidi:plaintext` hiding the filename). Not restated here.
+What T-020 changed (durable receipt + 4 T-016 nits + reconnect latch fix): commit `0007c3c` body +
+the `tickets.md` T-020 block; corrections in `learnings.md`. Not restated here.
 
 ## Candidate backlog item (not filed yet)
 
