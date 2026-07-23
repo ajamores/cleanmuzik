@@ -1,7 +1,7 @@
 ---
 type: meta
 title: "Hot — cleanmuzik"
-updated: 2026-07-21
+updated: 2026-07-23
 tags:
   - meta
   - hot-cache
@@ -19,48 +19,47 @@ status: evergreen
 CleanMuzik — personal YouTube → Jellyfin music tool. Purpose, stack, constraints and read-order
 are in `CLAUDE.md`; scope in `cleanmuzik-prd.md`. Not restated here.
 
-## Current State (2026-07-21)
+## Current State (2026-07-23)
 
-- **On `main`, clean tree.** Suites green: **server 379, client 33**, lint + tsc clean.
-- **T-020 (the last R1 ticket) is BUILT + MERGED, but NOT done** — `/code-review` (DoD step 1) has
-  not run. It's **owner-run** (disabled for model invocation), deferred to next session by owner's
-  call. Landed `0007c3c` so the code is in the tree, but the review gate is open.
-- **⟹ NEXT ACTION (next session): run `/code-review` on the T-020 diff** (`git show 0007c3c`, or
-  the working diff before this session's commits). Only after it passes is T-020 done and every R1
-  ticket closed.
-- **Then — owner decision:** flip `docs/roadmap.md` R1 `in-build` → `shipped` and move R2
-  (`backlog`: playlists, migrate + clean) to `specing`. R1 **cannot ship until the review passes.**
+- **On branch `t020-review-remediation` (off `main`).** Suites green: **server 380, client 35**,
+  lint + build clean. **Not yet committed / merged.**
+- **High-effort `/code-review` ran** over the T-020 descope + doc corrections. 5 findings:
+  - **#1, #3, #4 fixed** (all `TrackCard.tsx`): scan-error rail no longer paints Land failed while
+    showing the library path (`ERROR_STEP.scan → RAIL.length`); shared `LandingDetail` fragment kills
+    the done/error copy-paste (ADR-010) and the empty-`<ul>` chip case. Regression asserts added.
+    Lesson filed → `docs/learnings.md` (2026-07-23).
+  - **#2 skipped** — it *is* ADR-015 (restart loses best-effort path; owner accepted doc-only).
+  - **#5 skipped** — `_finish` `status` default; plausible cleanup, owner's call, not applied.
 
-What T-020 changed (durable receipt + 4 T-016 nits + reconnect latch fix): commit `0007c3c` body +
-the `tickets.md` T-020 block; corrections in `learnings.md`. Not restated here.
+## ⟹ NEXT ACTIONS (in order)
 
-## Candidate backlog item (not filed yet)
+1. **Fresh `/code-review` on the full branch** next session (covers the 3 fixes too) → then merge to
+   `main` green. That closes every R1 ticket. Owner then: flip `docs/roadmap.md` R1 → `shipped`,
+   R2 → `specing`.
+2. **Scoped architecture review of `TrackCard.tsx`** next session — is one component running the whole
+   job state machine doing too much; should the state machine leave the view. (Root of "every review
+   finds another corner": too many interacting states + branches in one render. Visual/UX review = not
+   needed; *architecture* review = yes.)
+3. Backlog when scheduled: **T-033** (boot-recon orphan, HIGH), T-032, T-030/031.
+4. Browser-only receipt still owed: watch the all-green rail + path + banner render on a real scan
+   failure (DOM render needs a browser — owner's to do).
 
-- **Reload loses all cards.** `App.tsx` holds the job list in component state; a browser reload
-  drops it. Latent until a job-restore-on-reload story exists — likely an R2/UI backlog ticket.
+## Uncommitted → two logical commits (about to land)
+
+1. **T-020 descope (ADR-015) + review fixes** — `server/app/{db,jobs,routes/jobs}.py`,
+   `client/src/{api.ts,components/TrackCard*.tsx}`, both server test files,
+   `docs/r1/{adr,spec,tickets}.md` + `docs/learnings.md`.
+2. **Backlog filing (unrelated)** — `docs/backlog/{T-032.md,T-033.md,README.md}` + this board.
 
 ## Verifying
 
 - Owner's real servers: `:8137` (uvicorn `--reload`, real library — **do NOT POST jobs to it**) +
-  `:5173`. Editing a startup-state module (`db.py`) re-runs the lifespan on the live DB; the T-020
-  column migration already ran there (idempotent, nullable — harmless).
-- Browser `/verify` needs an **isolated** stack (temp DB + monkeypatched `LIBRARY_DIRECTORY` — a
-  hardcoded constant, not env-configurable — on spare ports); start Vite with `--force` (WSL stale
-  bundle). The Vite proxy masks a hard backend kill from `EventSource` (learnings 2026-07-21).
-
-## Recent sessions (rolling — last 2–3)
-
-### 2026-07-21 — T-020 built + merged (last R1 ticket); review gate still open
-- Durable receipt + 4 nits + latch fix landed `0007c3c`. `/code-review` NOT run (owner-run, disabled
-  for model) — deferred to next session; T-020 not "done" until it passes. Browser verify surfaced
-  the Vite-proxy `onerror` masking + the `unicode-bidi` bug (both → learnings).
-
-### 2026-07-21 — T-027 done (channel-URL guard + front-door reject)
-- Reproduce-first found the real hole (channel/@handle downloads whole channel). C+A fix, landed `704da64`.
+  `:5173`. Editing a startup module (`db.py`) re-runs the lifespan on the live DB. Tests:
+  `./.venv/bin/pytest` from `server/`; `npm test` from `client/` (vitest workers flake on cold start
+  under load — re-run alone if they time out before running).
 
 ## Where the rest of the context lives
 
-- **Durable stores:** `docs/r1/adr.md` · `docs/learnings.md` · `docs/r1/tickets.md` ·
+- **Durable stores:** `docs/r1/adr.md` (ADR-015 newest) · `docs/learnings.md` · `docs/r1/tickets.md` ·
   `docs/backlog/` · `docs/r1/spec.md` · `docs/r1/architecture.md` · `cleanmuzik-prd.md` · git.
-  Read order in `CLAUDE.md`.
 - **Business/vault context** — the garden, via `/garden`.
