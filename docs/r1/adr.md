@@ -391,3 +391,26 @@ Format: `ADR-NNN — decision. Rationale. [date]`
   step-back review of whether T-020 was over-engineered: requirements, footprint, and simpler-design
   agents converged that the round-3/4 machinery exceeded the ticket's reconnect-scoped "Done when".)
   [2026-07-22]
+
+- **ADR-016 — UI tickets pass a design gate before code: owner-reviewed scenario screens.** A ticket
+  that introduces or changes a user-visible **flow or state** produces quick, flat HTML screens — one
+  per scenario, **including the failure and edge states** — published as an artifact, and the owner
+  signs off on the flow *before* component code is written. The gate runs ahead of the Definition of
+  Done, not inside it. **Scope:** flow/state changes only, **not** CSS/visual-only tweaks. The screens
+  stay flat HTML with **no live state** — the moment they try to *be* the app, the gate costs more than
+  it saves. **Does not replace `/verify`:** platform-behaviour bugs a static mockup cannot show
+  (EventSource held open by the Vite proxy, native `<input type=url>` rejecting a paste) still need a
+  real browser; the gate narrows what's left for the browser, it doesn't remove it. Rationale — R1's
+  UI defects clustered in a class **no diff-scoped gate can see**: contradictory or missing states (a
+  card reading *"landed"* and *"landing failed"* at once — the 2026-07-23 rail bug; "Unknown title"
+  painted over a correct match), and **scope larger than the need**. T-020 is the case: a durable
+  landing receipt that ran **four consecutive `/code-review` rounds** and **three step-back agents**,
+  resolved not by fixing the code but by *deleting the feature* (ADR-015). Those four rounds were a
+  **scoping conversation held in code review instead of in a design** — six flat screens up front
+  (running / landed / landed-but-scan-failed / stream-dropped / restart-empty-buffer) would have put
+  "the path is a nicety, don't build durable recovery for it" in front of the owner on day one, which
+  is exactly where ADR-015 landed four rounds later. Tests assert per-branch logic; `/code-review`
+  reads a diff; neither shows the owner the flow. A screen-per-scenario surfaces state contradictions
+  and over-scope while they are cheap. (Owner decision, 2026-07-23, out of the R1 front-end
+  retrospective. Pairs with the standing `TrackCard` architecture review — the gate catches flow
+  errors before build; the architecture review reduces how many corners exist to find.) [2026-07-23]

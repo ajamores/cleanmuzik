@@ -105,6 +105,19 @@ Two standing hazards when verifying:
 
 There is no root-level workspace tooling — packages are managed independently.
 
+## Design gate (UI tickets) — before code
+
+A ticket that introduces or changes a user-visible **flow or state** passes a design gate *before*
+component code is written: quick, flat HTML screens — **one per scenario, including the failure and
+edge states** — published as an artifact for the owner to review, and the flow is signed off before
+building. This gate runs *ahead of* the Definition of Done below, not inside it.
+
+Scope: flow/state changes only, **not** CSS/visual-only tweaks. Keep the screens flat HTML with no
+live state — the moment they try to *be* the app, the gate costs more than it saves. It does **not**
+replace `/verify`: platform-behaviour bugs (EventSource through the Vite proxy, native `<input>`
+validation) still need a real browser; the gate narrows what's left for the browser, it doesn't
+remove it. Rationale and the T-020 evidence live in **ADR-016** — its single home; don't restate here.
+
 ## Definition of Done (per ticket)
 
 A ticket is done when there's a receipt, not a claim:
