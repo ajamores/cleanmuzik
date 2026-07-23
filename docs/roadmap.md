@@ -17,19 +17,22 @@ mechanism now lives in `docs/r1/tickets.md` "How a ticket enters a release".)
 
 | Release | Status | One-line scope |
 |---|---|---|
-| **R1** | `in-build` | Single YouTube song → tagged MP3 320 in Jellyfin, end to end. Spec signed off; specced at 19 tickets, plus mid-build discoveries triaged into R1 or Backlog in `r1/tickets.md` (the status ledger — this table does not restate it). Phase A (engine spine) + Phase B (orchestration, SSE) done and verified live; Phase C (UI) in progress. |
-| R2 | `backlog` | Untouched until R1 ships. Candidate: playlists, migrate + clean existing library. |
+| **R1** | `shipped` | Single YouTube song → tagged MP3 320 in Jellyfin, end to end. Spec signed off; specced at 19 tickets, plus mid-build discoveries triaged into R1 or Backlog in `r1/tickets.md` (the status ledger — this table does not restate it). All build tickets on `main`; T-020 (last) merged with a clean high-effort review. |
+| R2 | `specing` | Playlists, migrate + clean existing library. Pull backlog items into `r2/spec.md` as it specs (`git mv` from `docs/backlog/`). |
 | R3+ | `backlog` | Untouched. Candidate: acoustic tier (BPM/key/energy), Tailscale/always-on host. |
 
 Status vocabulary: `backlog` → `specing` → `in-build` → `shipped`. **Flip the status when the
 state changes** — R1 sat at a `ticketed` value that isn't even in this vocabulary while 15 of its
 tickets were built, which silently voided the "blocked unless `in-build`" rule above.
 
-## Current release: R1
+## Current release: R2 (specing)
 
+R1 shipped 2026-07-23 — all build tickets on `main`, T-020 (last) merged with a clean high-effort
+review. R2 is now `specing`: playlists + migrate/clean the existing library. Next step is
+`docs/r2/spec.md`, pulling relevant `docs/backlog/` items in as it specs.
+
+### R1 (shipped) — closeout
 - [x] `spec.md` written and agreed
 - [x] `tickets.md` generated from spec
-- [ ] **Build — in progress.** Per-ticket status (and the R1-vs-Backlog split) lives in
-      `r1/tickets.md`; don't mirror it here. Remaining R1 work is the open tickets above the Backlog
-      line there.
-- [ ] Shipped — R1 acceptance checklist met (spec §7, swept by T-019)
+- [x] **Build complete** — per-ticket status and the R1-vs-Backlog split in `r1/tickets.md`.
+- [x] Shipped — R1 acceptance checklist met (spec §7, swept by T-019)
