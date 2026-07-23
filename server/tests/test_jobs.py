@@ -100,12 +100,11 @@ def test_landed_status_is_durable(tmp_path):
     assert rec["store"].get_job(rec["job_id"]).status == "done"
 
 
-def test_landed_receipt_is_durable(tmp_path):
-    # A landed song persists its path + tags on the row (T-020), so the snapshot can
-    # recover *where the song went* after the SSE channel that carried `track.done` is
-    # gone. Read back through a FRESH Store to prove it survives a process restart.
-    tags = {"title": "Song", "artist": "Band", "album": "Album", "year": 2001,
-            "genre": "Rock", "has_art": True, "has_lyrics": True}
+def test_status_is_the_only_durable_landing_state(tmp_path):
+    # ADR-015: the landing path/tags are NOT persisted — only the coarse `status` is
+    # durable. A landed song's row is a bare `done`; where it went rode the `track.done`
+    # event. Read back through a FRESH Store to prove nothing extra was written.
+    tags = {"title": "Song", "artist": "Band", "genre": "Rock", "has_art": True}
     _, rec = _run(
         tmp_path,
         import_fn=lambda *a, **k: [
@@ -114,18 +113,31 @@ def test_landed_receipt_is_durable(tmp_path):
         ],
     )
     reread = Store(rec["store"]._db_path).get_job(rec["job_id"])
-    assert reread.landed_path == "/lib/Band/Song.mp3"
-    assert reread.landed_tags == tags
+    assert reread.status == "done"
+    assert not hasattr(reread, "landed_path"), "no durable receipt lives on the row (ADR-015)"
 
 
-def test_no_receipt_when_nothing_landed(tmp_path):
-    # A duplicate-skip "done" landed no file, so there is no receipt to record — the
-    # row's landed_path stays NULL and the snapshot omits path/tags (not "" or {}).
-    _, rec = _run(tmp_path, import_fn=lambda *a, **k: [Outcome("skipped", 0.0, 0.0)])
-    job = rec["store"].get_job(rec["job_id"])
-    assert job.status == "done"
-    assert job.landed_path is None
-    assert job.landed_tags is None
+def test_finish_announces_a_landing_even_with_a_falsy_path(tmp_path):
+    # A REPLACE resolve whose moved item yields no path still landed — `landed=True` (not a
+    # non-None path) marks it, so `track.done` is announced with a null path rather than the
+    # landing silently vanishing (ADR-015). The detail rides the event, not the row.
+    store = _store(tmp_path)
+    job = store.create_job("https://youtu.be/x")
+    registry = JobRegistry()
+    registry.start(job.id)
+    bus = EventBus()
+    jobs._finish(
+        store, registry, job.id, bus=bus, landed=True,
+        landed_path=None, landed_tags={"artist": "Band"},
+    )
+    assert store.get_job(job.id).status == "done"
+
+    async def drain():
+        return "".join([f async for f in bus.stream(job.id)])
+
+    done = dict(parse_sse(asyncio.run(drain())))["track.done"]
+    assert done["path"] is None
+    assert done["tags"] == {"artist": "Band"}
 
 
 def test_scan_degraded_is_not_a_failure(tmp_path):
@@ -218,6 +230,31 @@ def test_scan_error_on_landed_names_scan_and_cleans(tmp_path):
     assert state.stage == "scan"
     # The file already landed in the library; only the staging copy is cleaned.
     assert not rec["staging_dir"].exists()
+
+
+def test_scan_error_on_landed_carries_the_path_on_the_error_event(tmp_path):
+    # The song reached disk but the Jellyfin scan then failed. The job is `error` (a
+    # present-but-failed scan config is a real error the owner must fix), yet the
+    # `track.error` event carries where the song went so the card can still show it is in
+    # the library (ADR-015). No durable receipt — the path rides the event.
+    tags = {"title": "Song", "artist": "Band", "has_art": True}
+
+    def scan_fails(**k):
+        raise JellyfinScanError("401 from a stale key")
+
+    state, events = _events_after_run(
+        tmp_path,
+        import_fn=lambda *a, **k: [
+            Outcome("landed", 0.95, 0.5, track_id="rec-A",
+                    landed_path="/lib/Band/Song.mp3", tags=tags)
+        ],
+        scan_fn=scan_fails,
+    )
+    assert state.status == "error"
+    err = dict(events)["track.error"]
+    assert err["stage"] == "scan"
+    assert err["path"] == "/lib/Band/Song.mp3"
+    assert err["tags"] == tags
 
 
 def test_empty_outcome_is_an_error_not_a_false_done(tmp_path):
@@ -581,23 +618,11 @@ def test_get_review_id_recovered_after_cold_registry(client):
     assert body["review_id"] == review.id
 
 
-def test_get_job_returns_landing_receipt(client):
-    # T-020: a landed job's snapshot carries the durable path + tags even with a cold
-    # registry (a restart), so a card that lost the `track.done` event recovers it.
-    job = client.store.create_job("https://youtu.be/x")
-    tags = {"title": "Song", "artist": "Band", "genre": "Rock", "has_art": True}
-    client.store.update_job_status(job.id, "done")
-    client.store.set_job_landing(job.id, "/lib/Band/Song.mp3", tags)
-
-    body = client.get(f"/api/jobs/{job.id}").json()  # registry is cold for this job
-    assert body["status"] == "done"
-    assert body["path"] == "/lib/Band/Song.mp3"
-    assert body["tags"] == tags
-
-
-def test_get_job_omits_receipt_when_nothing_landed(client):
-    # A duplicate-skip "done" recorded no receipt: the snapshot omits path/tags rather
-    # than emitting empty strings the card would render as a blank landing.
+def test_get_job_snapshot_carries_no_landing_receipt(client):
+    # ADR-015: the landing path/tags ride the terminal SSE event, not the durable row, so
+    # the reconnect snapshot never carries them. A card recovers the path from the replayed
+    # `track.done` / `track.error`; after a restart it shows a bare status (the file is at a
+    # deterministic library path regardless). This pins that the route grew no receipt back.
     job = client.store.create_job("https://youtu.be/x")
     client.store.update_job_status(job.id, "done")
 

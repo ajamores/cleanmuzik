@@ -382,6 +382,21 @@ def test_accepting_a_candidate_lands_scans_and_cleans_staging(tmp_path):
     assert [n for n, _ in _events(bus, job.id)] == ["track.tagging", "track.done"]
 
 
+def test_resolve_landing_announces_the_path_on_track_done(tmp_path):
+    # The review-resolve path announces where the song went on `track.done` (ADR-015): the
+    # path/tags ride the event, not a durable row. (This spine once published a bare
+    # `track.done` with no path — the "where did the song go?" gap on the main spine — and
+    # the fix is that the landing detail is on the event the card already consumes.)
+    store = _store(tmp_path)
+    job, review, _ = _parked(store, tmp_path)
+    state, bus = _run_resolve(store, review, ResolveRequest("rec-A", recording_id="rec-A"))
+    assert state.status == "done"
+
+    done = dict(_events(bus, job.id))["track.done"]
+    assert done["path"] == "/lib/Band/Song.mp3"
+    assert done["tags"] == {"title": "Song"}
+
+
 def test_keep_both_passes_the_suffix_to_the_import(tmp_path):
     store = _store(tmp_path)
     job, review, _ = _parked(store, tmp_path, rec="duplicate", candidate_ids=("rec-E",))
@@ -544,7 +559,12 @@ def test_a_scan_failure_after_landing_does_not_requeue_the_committed_resolve(tmp
         "a scan failure must not re-queue a landing that already committed"
     )
     assert not staging_dir.exists(), "the song landed — its staging is spent, not retained"
-    assert dict(_events(bus, job.id))["track.error"]["stage"] == "scan"
+    # The song is on disk; the `track.error` event carries where it went so a card can
+    # still show the path even though the terminal status is `error` (ADR-015).
+    err = dict(_events(bus, job.id))["track.error"]
+    assert err["stage"] == "scan"
+    assert err["path"] == "/lib/Band/Song.mp3"
+    assert err["tags"] == {"title": "Song"}
 
 
 def test_a_post_commit_error_that_isnt_a_scan_error_still_keeps_the_resolve(tmp_path):

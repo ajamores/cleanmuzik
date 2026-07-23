@@ -477,25 +477,70 @@ reboot). **Not** folded into T-029, whose scope is the job/row status disagreeme
 deliberately retains staging.
 
 ### T-020 — Track card: stream reattach + the snapshot payload gap
-- **Status:** **BUILT + MERGED, review pending (2026-07-21)** — landed `0007c3c`, but **`/code-review`
-  (DoD step 1) has not run** (owner-run; deferred to next session). NOT "done" until it passes; R1
-  cannot ship before then. The last R1 ticket. Spec §6 amended first (ADR-010): the
-  snapshot now carries a durable landing receipt (`path` + `tags`), backed by two new `jobs`
-  columns (`landed_path`, `landed_tags_json`) written on `track.done`, so `GET /api/jobs/{id}`
-  answers *where the song went* after the SSE channel is gone (restart / buffer eviction). Client
-  recovers it in `checkOnce`. The four carried-over T-016 nits all fixed: `review_required` sits on
-  Identify (2) not Tag (3); `ERROR_STEP` derived from `RAIL`; the `key`-as-state-reset contract
-  documented at both sites; and the `unicode-bidi: plaintext` path bug — **confirmed in a real
-  browser to hide the filename** — fixed by dropping it (→ learnings). Per the owner's call, **no
-  fourth give-up policy** (three died blind); the platform's retry stands. Browser verify surfaced a
-  real latch bug: `outageChecked` counted a *failed* check, freezing the card if a restart outlasted
-  the first reconnect attempt — fixed so only an *answered* check latches (→ learnings, unit-proven).
-  Suites green: **server 379, client 33**, lint + tsc clean.
+- **Status:** **BUILT — DESCOPED to in-event delivery (ADR-015) on `t020-review-remediation`; re-review + merge pending (2026-07-22)**.
+  **Round-4 pivot (2026-07-22):** a step-back review (requirements / footprint / simpler-design agents)
+  found the durable landing receipt was over-built for a single-user tool — five sync-sensitive code
+  paths and ~14 dedicated tests for a feature whose file is never lost (it sits at a deterministic
+  library path; a re-scan is the sanctioned recovery). The round-4 finding (the live `track.error`
+  path never recovered the receipt, only reconnect did) was the *design* telling us so, not a bug to
+  patch. **Owner decision → ADR-015:** deliver the landing `path`/`tags` on the terminal SSE event
+  (`track.done` already did; `track.error` now does on a post-landing scan failure) and **delete** the
+  durable receipt — the two `jobs` columns + migration, the atomic `finish_job_landed` write, the
+  snapshot receipt block, and the second client recovery path. This resolves all three round-4
+  `/code-review` findings *structurally*: the live-path gap dissolves (path rides the event the live
+  handler already consumes), the error render gains the genre/Art/Lyrics chips, and the two
+  scan-failure branches collapse into one `_finish_scan_failed` helper. Suites green after the descope:
+  **server 380, client 35**, lint + build clean. Everything below this line is the pre-pivot history.
+
+- **Pre-pivot history (superseded by ADR-015 above):** **BUILT — remediation on `t020-review-remediation`, review gate still OPEN (2026-07-22)**.
+  Original `0007c3c` is on `main`; then `/code-review` ran (owner-triggered). **Round 1 found 8
+  defects** — two defeated T-020's own purpose (a landed song shown as `error`: a receipt-write throw
+  caught by the broad `except`, and a crash window between the receipt and the `done` write), and the
+  **review-resolve spine never persisted the receipt at all**. Remediation built: the receipt +
+  `status='done'` are now **one atomic write** (`finish_job_landed`, replacing `set_job_landing`),
+  published only *after* the commit (durable-first), on **both** the acquire and review-resolve paths.
+  **Round 2 found 3 more, all in the remediation** — a latch-narrowing regression (**reverted**; the
+  original unconditional clear was correct — a proxied 5xx is a non-answer), the announce-before-commit
+  ordering (**fixed** — `_finish` now commits then announces), and a receipt dropped on a falsy REPLACE
+  path (**fixed** — the write is gated on *is-a-landing*, not on a non-None path). Both lessons → learnings.
+  **Round 3 (2026-07-22) found 2 more:** a correctness bug — the `GET /api/jobs/{id}` snapshot gated
+  *both* `path` and `tags` on `landed_path is not None`, so the null-path receipt round 2 just added
+  surfaced neither on reconnect, one layer downstream of its own fix (**fixed** — path/tags gated
+  independently, + a route-level test; the store-direct test had masked it → learnings); and a cleanup —
+  `_finish` carried the landing path/tags twice (as params *and* inside `done_payload`), a hand-synced
+  duplication that could re-open the announce/receipt divergence T-020 exists to prevent (**fixed** —
+  `_finish` now takes a plain `landed=True` flag, builds the `track.done` body from the same committed
+  values, and sets the terminal `done` in one place; this also closed round 1's latent `_finish`-status
+  cleanup).
+  **Round 4 (2026-07-22) `/code-review` (high) on the round-3 diff found 4 — 1 CONFIRMED + 3 PLAUSIBLE,
+  all one theme:** a song lands on disk but a failure on the *last* step (the Jellyfin scan) erases the
+  receipt on the FAILURE branch, re-opening the exact "where did the song go?" gap round 1 closed on the
+  success branch. Fixed: the receipt is decoupled from `done` — `finish_job_landed` takes a `status`,
+  both post-landing scan-failure paths (`run_pipeline`, `run_resolve`) write the receipt with
+  `status=error`, and the snapshot gates the receipt on the *column*, not `status=='done'` (findings
+  [1]/[2]). The client half — a server-only fix would have left the durable receipt invisible on the
+  card — `TrackCard`'s `error` branch now recovers the receipt and the error block renders the path
+  ("in the library, only the refresh failed"). Also restored `_job_from_row`'s pre-migration column
+  guard (finding [4]). One PLAUSIBLE **skipped** with reason: a vanished-row `track.done` publish
+  (finding [3]) — unreachable in the single-user app, and the vanish-tolerant swallow is by design.
+  Lesson → learnings (recorded ≠ shown; a UX guarantee needs both terminal branches AND the render).
+  Suites green: **server 388, client 35**, lint + tsc clean. **The round-4 diff has NOT passed
+  `/code-review`** (owner-run). NOT "done" until it passes AND the remediation
+  lands on `main`; R1 cannot ship before then. The last R1 ticket. Spec §6 amended first (ADR-010): the
+  snapshot carries a durable landing receipt (`path` + `tags`), backed by two `jobs` columns
+  (`landed_path`, `landed_tags_json`), so `GET /api/jobs/{id}` answers *where the song went* after the
+  SSE channel is gone (restart / buffer eviction). The four carried-over T-016 nits all fixed (in
+  `0007c3c`): `review_required` on Identify (2) not Tag (3); `ERROR_STEP` from `RAIL`; the
+  `key`-as-state-reset contract documented at both sites; and the `unicode-bidi: plaintext` path bug —
+  **confirmed in a real browser to hide the filename** — fixed by dropping it (→ learnings). Per the
+  owner's call, **no fourth give-up policy** (three died blind); the platform's retry stands.
 - **Acceptance receipt — driven in a real browser** (Chrome + Firefox via MCP) against an isolated
   fake-pipeline harness (temp DB, no real download/library, slow stages to catch mid-flight):
   - **Happy path + receipt render** — pasted URL → rail animated download→…→land → **Done** with
     match, tags (Synth-pop/Art/Lyrics), and the path showing the **filename** (truncation fix), the
-    full path on `title`. Exercised the real routes + worker + SSE + store + the new `set_job_landing`.
+    full path on `title`. Exercised the real routes + worker + SSE + store + the durable receipt write.
+    *(Driven against `0007c3c` pre-remediation; the receipt write is now the atomic `finish_job_landed` —
+    re-verify after the round-2 gate passes.)*
   - **Graceful restart (`--reload` class, SIGTERM)** — card completed to Done through the held-open
     connection, **no false "detached"** note.
   - **Hard kill (`kill -9`) mid-job** — revealed a **Vite dev-proxy artifact**: an `EventSource`
