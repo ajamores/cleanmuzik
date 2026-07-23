@@ -13,6 +13,72 @@ Format: `- <date> — what went wrong → the correction / rule now in place`
 
 ---
 
+- 2026-07-22 — (T-020, owner step-back after round-4 `/code-review`) **When a fix keeps generating
+  review rounds, the defect may be the design, not the code — step back and check the requirement
+  before patching again.** T-020's durable landing receipt (persist `path`/`tags` to the row, recover
+  on reconnect) survived four straight `/code-review` rounds, each fixing a real bug and each leaving a
+  new sync-sensitive seam: a landed song shown as `error`, an announce-before-commit window, a
+  null-path REPLACE dropped, a snapshot gate that hid it, and finally the *live* recovery path drifting
+  out of sync with the *reconnect* one. That last "bug" was the design talking: **five code paths held
+  one invariant by hand** for a payload that was already in scope at the moment of landing. Three
+  step-back agents (requirements / footprint / simpler-design) found the machinery exceeded the
+  ticket's own reconnect-scoped "Done when," and that for a single-user tool the file is never lost
+  (deterministic library path; re-scan is the sanctioned recovery). Fix → **ADR-015**: deliver the
+  path on the terminal SSE event (already in hand), delete the durable receipt entirely; all three
+  round-4 findings dissolved structurally rather than being patched. Rule: **count the review rounds.
+  Two+ on the same feature, each spawning the next, is a smell that the requirement is smaller than the
+  build — re-derive the minimum need (and, on a personal tool, ask "is the data ever actually lost?")
+  before writing the next fix.** (Cheaper to have asked at round 2 than round 4.)
+- 2026-07-22 — (T-020 remediation, caught by round-3 `/code-review`) **A song can land on disk yet a
+  failure on the *last* step erases the proof of delivery — and the reconnect fix has to reach the eye,
+  not just the row.** The review found the reconnect receipt was recovered on the *success* branch but
+  not the *failure* branch: a post-landing Jellyfin-scan failure ended the job `error` with **no
+  receipt** (`run_pipeline` re-raised `_StageFailure`; `run_resolve` finished `error` without
+  `landed=True`), so a reconnect showed a bare failure for a song sitting in the library. Correction:
+  decouple the receipt from `done` — `finish_job_landed` takes a `status`, both scan-failure paths
+  write the receipt with `status=error`, and the snapshot gates the receipt on the *column*, not
+  `status=='done'`. **But the server fix alone is not the ticket:** `TrackCard` recovered the receipt
+  only in its `done` branch and rendered the path only under `stage==='done'`, so the durable receipt
+  would have sat in the DB, invisible on the card — a fix that passes a server diff review and still
+  fails the owner. Correction: the client's `error` branch recovers the receipt too, and the error
+  block renders the path ("it's in the library, only the refresh failed"). Rule: **a receipt has to
+  survive on every terminal branch AND be rendered on each — "recorded" is not "shown", and a
+  server-only fix to a UX guarantee is half a fix.** (Same shape as T-016 and the route lesson below:
+  a payload correct one layer down, dropped by the layer that was only asking about the happy path.)
+- 2026-07-22 — (T-020 remediation, caught by round-3 `/code-review`) **A durable payload proven only
+  through the store it's written to can still be dropped by the route that serves it.** The atomic
+  receipt (`landed_path`, `landed_tags`) was written correctly and unit-tested by reading the row back
+  via `store.get_job` — green. But `GET /api/jobs/{id}` gated *both* fields on `landed_path is not
+  None`, so a REPLACE landing whose moved item yields no path (path NULL, tags populated) surfaced
+  **neither** on reconnect — a bare "Done", the exact T-020 gap, one layer downstream of the fix that
+  created the null-path receipt. The store-direct test couldn't see it: it never went through the
+  route. Correction: **gate `path` and `tags` independently** in the snapshot, and add a route-level
+  test that drives the null-path receipt through `GET /api/jobs/{id}`. Rule: **test a durable payload
+  through the route that serves it, not only the store that holds it** — a write-side assertion proves
+  the row, and says nothing about what the reader hands back. Same class as T-016 (a receipt correct
+  in storage, dropped one layer up, invisible to every test that wasn't asking the route).
+- 2026-07-22 — (T-020 remediation, caught by round-2 `/code-review`) **Narrowing a reconnect/retry
+  condition to "no answer = status 0 only" mis-models a proxied 5xx as an answer, and re-froze the
+  card.** Fixing round-1's "re-polls a live 500" finding, the outage latch was changed to clear only
+  on `status === 0`. But the browser reaches the backend through a proxy (the Vite dev proxy; a
+  phase-1 Tailscale reverse proxy), and a proxy answers a briefly-down upstream with **502/504 — a
+  non-zero `ApiError`**. Under the narrowed rule the latch stayed set, so a restart mid-job froze the
+  card on its last stage forever — the exact T-020 freeze. Correction: **reverted to the original
+  unconditional clear.** A 5xx is a *non-answer about the job*, not a responsive server; re-check
+  whenever the job's fate is genuinely unknown, and let only a definitive still-running `2xx` stay
+  latched (the try-block does that by changing nothing). Rule: **gate a retry on "did I get a
+  definitive answer about the thing I asked?", not on one status code** — an error response is a
+  shrug, not an answer. (The round-1 finding it "fixed" was itself over-stated: re-checking after a
+  5xx is EventSource-paced and harmless, and was declined.)
+- 2026-07-22 — (T-020 remediation, round-2 `/code-review`) **Announce a terminal state only AFTER
+  its durable write commits, never before.** The atomic done+receipt write was correct but sat
+  *after* `bus.publish("track.done")`. A crash in that window leaves the row un-`done` (reconciled
+  to `error` on restart) while the client has already rendered "landed" — so a watched-landed song
+  shows as `error` on reload, the very data-loss T-020 exists to prevent. Correction: `_finish` now
+  commits the atomic done+receipt, **then** publishes `track.done`, then closes — a client can never
+  observe the announcement ahead of the durable row. Rule: **durable-first means persist it *before*
+  you tell anyone** — the publish is the point of no return; put the commit ahead of it. (Marker of
+  the trap: the receipt and the announce were correct individually, only their *order* was wrong.)
 - 2026-07-21 — (T-020 browser verify) **The Vite dev proxy MASKS a hard backend death from the
   browser `EventSource` — `onerror` never fires, so no reconnect/fallback logic can run.** Driving
   the real card at `:5174` (Vite proxy → isolated backend `:8140`) and `kill -9`-ing the backend
@@ -546,3 +612,16 @@ Format: `- <date> — what went wrong → the correction / rule now in place`
   actually tag through beets against live MB — no stubbing required. Same rule as the socket entry:
   **an environment limit that routes work away from you is a claim; spend the one cheap probe before
   believing it.** (Found setting up T-017's verification.)
+- 2026-07-23 — (T-020 remediation, caught by a high-effort `/code-review`) **A new render branch that
+  asserts a fact must reconcile the *state model* rendered beside it — not just add markup.** ADR-015
+  moved the landed `path`/`tags` onto the `error` branch so a post-landing Jellyfin-scan failure shows
+  "it's in the library". But the rail's `ERROR_STEP.scan` still mapped to Land's index, so `stepState`
+  painted the Land dot **failed (red)** — the same card said *landed* and *landing failed* at once. The
+  markup was added; the rail model it sits next to was not. Rule: when a branch starts claiming a step
+  *succeeded*, walk every other view that reads the same stage (here the rail) and make it agree. Fix:
+  `ERROR_STEP.scan → RAIL.length` (scan runs *after* landing, so all rail steps completed), and a test
+  that asserts no rail dot is `failed` on a scan error. Corollary the same review surfaced: the fix's
+  path/chip block was **copy-pasted** into both `done` and `error` branches — the exact ADR-010 drift
+  the server's `_finish_scan_failed` helper exists to prevent, reintroduced in the render layer.
+  Extracting one `LandingDetail` fragment killed it. **Duplication caught on the server returns on the
+  client unless the same "one source" habit crosses the boundary.**

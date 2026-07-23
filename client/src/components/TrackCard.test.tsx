@@ -132,26 +132,17 @@ describe('stream lifecycle T-017 must not break', () => {
     expect(screen.getByRole('button', { name: /accept/i })).toBeInTheDocument()
   })
 
-  it('recovers the landing receipt from the snapshot when track.done was lost (T-020)', async () => {
-    // The song landed while the stream was down and the SSE channel is gone, so
-    // track.done never arrives. The durable snapshot carries path + tags; the card
-    // must show *where the song went*, not a bare "Done".
-    vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
-      const url = String(input)
-      if (url.includes('/api/jobs/'))
-        return Promise.resolve(
-          jsonResponse({
-            job_id: 'job-1',
-            status: 'done',
-            path: '/mnt/c/Users/aj_am/Music/CleanMuzik/Band/Song.mp3',
-            tags: { title: 'Song', artist: 'Band', genre: 'Rock', has_art: true },
-          }),
-        )
-      throw new Error(`unexpected fetch: ${url}`)
-    })
-
+  it('renders the landing path and tags from the track.done event (ADR-015)', async () => {
+    // Where the song went rides the track.done event, not the snapshot (ADR-015). The live
+    // handler — and an in-process reconnect's lossless replay of the same event — sets it,
+    // so the card shows the path and chips. A restart that loses the event shows a bare
+    // "Done" (the deliberate tradeoff, covered by the duplicate-skip test below).
     const es = renderCard()
-    es.fail() // stream drops after the song landed, with no track.done delivered
+    es.emit('track.done', {
+      job_id: 'job-1',
+      path: '/mnt/c/Users/aj_am/Music/CleanMuzik/Band/Song.mp3',
+      tags: { title: 'Song', artist: 'Band', genre: 'Rock', has_art: true },
+    })
     await waitFor(() =>
       expect(
         screen.getByText('/mnt/c/Users/aj_am/Music/CleanMuzik/Band/Song.mp3'),
@@ -159,6 +150,35 @@ describe('stream lifecycle T-017 must not break', () => {
     )
     expect(screen.getByText('Rock')).toBeInTheDocument()
     expect(screen.getByText('Art')).toBeInTheDocument()
+  })
+
+  it('shows where the song went on a post-landing scan failure (ADR-015)', async () => {
+    // The song landed on disk, then the Jellyfin scan failed: the row is `error` and the
+    // track.error event carries path + tags (ADR-015). The card must show BOTH the failure
+    // (so the owner knows to fix Jellyfin) AND the path (so they know the song is in the
+    // library, not lost) — a bare "Scan failed" would send them re-downloading a song
+    // that's already there.
+    const es = renderCard()
+    es.emit('track.error', {
+      job_id: 'job-1',
+      stage: 'scan',
+      message: 'Jellyfin scan failed',
+      path: '/mnt/c/Users/aj_am/Music/CleanMuzik/Band/Song.mp3',
+      tags: { title: 'Song', artist: 'Band' },
+    })
+    await waitFor(() =>
+      expect(
+        screen.getByText('/mnt/c/Users/aj_am/Music/CleanMuzik/Band/Song.mp3'),
+      ).toBeInTheDocument(),
+    )
+    expect(screen.getByRole('alert')).toHaveTextContent(/failed/i)
+    // The scan runs AFTER the file lands, so Land succeeded: no rail dot may read
+    // `failed` while the card is showing the library path. A red Land dot next to
+    // "it's in the library" is the self-contradiction a high-effort review caught.
+    expect(document.querySelector('.track-card__step[data-state="failed"]')).toBeNull()
+    // These landed tags name no genre/art/lyrics — the chip list must be omitted
+    // entirely, not rendered as an empty `<ul>`.
+    expect(document.querySelector('.track-card__tags')).toBeNull()
   })
 
   it('recovers when a restart outlasts the first reconnect check (T-020)', async () => {
@@ -191,6 +211,36 @@ describe('stream lifecycle T-017 must not break', () => {
     )
     // Recovered honestly, not frozen on "Identifying" and not falsely "detached".
     expect(screen.queryByText(/no longer exists/i)).not.toBeInTheDocument()
+  })
+
+  it('recovers when the outage check gets a 5xx during a restart (does not freeze)', async () => {
+    // A proxy (the Vite dev proxy, or a phase-1 Tailscale reverse proxy) can answer a
+    // briefly-down backend with a 502/504 rather than resetting the socket — an ApiError
+    // with a NON-zero status. That is not an answer about the job, so the latch must clear
+    // and a later retry must recover. A status-0-only clear would freeze the card here —
+    // the regression the re-review caught; this test locks the recovery in. (The recovered
+    // snapshot carries only the status, not the path — ADR-015 — so the assertion is that
+    // the card reaches "Done", i.e. the latch cleared and the status was recovered.)
+    let jobCalls = 0
+    vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
+      const url = String(input)
+      if (url.includes('/api/jobs/')) {
+        jobCalls += 1
+        // First check: the backend is down and a proxy answers 502 (a non-zero status).
+        if (jobCalls === 1) return Promise.resolve(jsonResponse({ detail: 'bad gateway' }, 502))
+        // Backend back: the job finished while the stream was down.
+        return Promise.resolve(jsonResponse({ job_id: 'job-1', status: 'done' }))
+      }
+      throw new Error(`unexpected fetch: ${url}`)
+    })
+
+    const es = renderCard()
+    es.emit('track.identifying', {}) // mid-job when the stream drops
+    es.fail() // outage: the one check runs and gets a 502 (a non-answer)
+    await waitFor(() => expect(jobCalls).toBe(1))
+    await Promise.resolve() // let the transient catch clear the latch
+    es.fail() // next retry — backend is back now
+    await waitFor(() => expect(screen.getByText('Done')).toBeInTheDocument())
   })
 
   it('shows a bare Done with no receipt on an event-less duplicate-skip finish (T-020)', async () => {

@@ -356,3 +356,38 @@ Format: `ADR-NNN — decision. Rationale. [date]`
   owner accepted this over a blank year, on the evidence that it is net better than blank-or-junk and
   strictly better than the status quo. (Owner decision, 2026-07-19, after being shown the proxy's
   limits.) [2026-07-19]
+
+- **ADR-015 — The landing detail (where the song went + its tags) is delivered on the terminal SSE
+  event, NOT persisted to a durable row. Reverses T-020's spec §6 "durable receipt" amendment.**
+  T-020 added two `jobs` columns (`landed_path`, `landed_tags_json`) and surfaced them on the
+  `GET /api/jobs/{id}` snapshot, so a card that lost `track.done` could recover *where the song
+  went* after a restart. That durable receipt then generated **four consecutive `/code-review`
+  rounds of defects** (a landed song shown as `error`; an announce-before-commit window; a receipt
+  dropped on a null-path REPLACE; a snapshot gate that hid it; and finally the live vs reconnect
+  recovery paths drifting out of sync) — all symptoms of one cause: the path was written to a
+  column, threaded through an atomic status-coupled write, re-read on a snapshot, and recovered on
+  *two* client paths, when it was **already in hand at the moment of landing**. Decision: put
+  `path`/`tags` directly into the terminal event — `track.done` already carried them; `track.error`
+  now does too, on a post-landing scan failure — and the client sets them from that one event. The
+  durable receipt, its migration, the snapshot block, and the second client recovery path are
+  deleted. Rationale — this is a **single-user localhost tool** and the song is **never lost**: on
+  any scan failure the file is at its deterministic beets library path (`<Artist>/<Title>.mp3`), and
+  a manual re-scan is already a sanctioned recovery (spec §6, T-030). The one thing durability bought
+  — recovering the exact path after a *restart between the terminal event and the owner reconnecting*
+  — is a rare intersection for a locally-run tool, and even inside it the file is safe at a known
+  location. **Accepted cost — the path is best-effort live delivery, not a guarantee.** The card
+  shows it whenever the terminal event is delivered live (the common case). Whenever the event is
+  *not* delivered live — a stream drop that overlaps completion, or a restart with an empty replay
+  buffer — the card settles to a bare status (`done`/`error`) with no path, because the reconnect
+  handler (`checkOnce`) settles from the status snapshot and does not wait for the buffered event to
+  replay. That is fine and deliberate: the file is at its deterministic library path regardless, a
+  re-scan surfaces it in Jellyfin, and the path on the card is a nicety, never the only record of
+  where the song went. (An earlier draft of this ADR claimed in-process reconnect was "unaffected /
+  lossless" — corrected 2026-07-23: `checkOnce` closing the stream can pre-empt the replay, so the
+  honest statement is best-effort. Owner's call: accept the wider gap over adding recovery code —
+  simplicity and basic functionality over the path display.) Also collapses T-020's two hand-mirrored
+  scan-failure branches into one `_finish_scan_failed` helper (the drift risk `/code-review` round 4 flagged). Supersedes the spec
+  §6 snapshot amendment and the `jobs.landed_*` columns. (Owner decision, 2026-07-22, after a
+  step-back review of whether T-020 was over-engineered: requirements, footprint, and simpler-design
+  agents converged that the round-3/4 machinery exceeded the ticket's reconnect-scoped "Done when".)
+  [2026-07-22]

@@ -364,17 +364,24 @@ def run_pipeline(
             try:
                 scan_fn(settings=s)
             except JellyfinScanError as exc:
-                raise _StageFailure(STAGE_SCAN, str(exc)) from exc
-            # Persist the landing receipt BEFORE the event that announces it (T-020):
-            # `track.done` rides the SSE channel, which a restart or a buffer eviction
-            # wipes, leaving `GET /api/jobs/{id}` the only way to recover *where the
-            # song went*. Durable-first means a card that reconnects to a dead channel
-            # can still read the path off the snapshot. Same field shape as the event.
-            store.set_job_landing(job_id, landed.landed_path, landed.tags)
-            bus.publish(job_id, "track.done", {
-                "job_id": job_id, "path": landed.landed_path, "tags": landed.tags or {},
-            })
-            return _finish(store, registry, job_id, bus=bus, status=STATUS_DONE)
+                # The song already landed on disk; only the Jellyfin nudge failed. Report
+                # the scan error but carry the landing path/tags on the error event so the
+                # card still shows where the song went (ADR-015). Mirrors run_resolve via
+                # the shared helper so the two branches cannot drift.
+                logger.warning(
+                    "job %s landed at %s but the Jellyfin scan failed: %s",
+                    job_id, landed.landed_path, exc,
+                )
+                return _finish_scan_failed(
+                    store, registry, job_id, bus=bus,
+                    path=landed.landed_path, tags=landed.tags, exc=exc,
+                )
+            # Announce the landing: `_finish` publishes `track.done` built from the path/tags
+            # below (ADR-015 — they ride the event, not a durable row).
+            return _finish(
+                store, registry, job_id, bus=bus, landed=True,
+                landed_path=landed.landed_path, landed_tags=landed.tags,
+            )
 
         # No outcome at all: the song neither landed nor parked (e.g. beets skipped
         # the task before choose_item could decide). That is a silent vanish, not a
@@ -588,16 +595,22 @@ def run_resolve(
                 "review %s landed at %s but the Jellyfin scan failed: %s",
                 review_id, final_path, exc,
             )
-            return _finish(
+            # The song is on disk; report the scan error but carry the path/tags on the
+            # error event so the card still shows where it went (ADR-015). Same shared
+            # helper as run_pipeline, so the two branches cannot drift.
+            return _finish_scan_failed(
                 store, registry, job_id, bus=bus,
-                status=STATUS_ERROR, stage=STAGE_SCAN, error=str(exc),
+                path=final_path, tags=landed.tags, exc=exc,
             )
 
-        bus.publish(job_id, "track.done", {
-            "job_id": job_id, "path": final_path, "tags": landed.tags or {},
-        })
         logger.info("review %s resolved as %s — landed at %s", review_id, request.choice, final_path)
-        return _finish(store, registry, job_id, bus=bus, status=STATUS_DONE)
+        # Announce the landing on the resolve path too. `final_path` reflects a REPLACE
+        # choice; `landed=True` (not a non-None path) marks the landing, so even a REPLACE
+        # whose moved item yields no path still announces track.done (ADR-015).
+        return _finish(
+            store, registry, job_id, bus=bus, landed=True,
+            landed_path=final_path, landed_tags=landed.tags,
+        )
 
     except _StageFailure as failure:
         # `_StageFailure` is only ever raised pre-commit (the scan-stage failure is
@@ -826,17 +839,31 @@ def _finish(
     job_id: str,
     *,
     bus: EventBus,
-    status: str,
+    status: str = STATUS_DONE,
     stage: str | None = None,
     review_id: str | None = None,
     error: str | None = None,
+    landed_path: str | None = None,
+    landed_tags: dict | None = None,
+    landed: bool = False,
 ) -> JobState:
     """Record a terminal outcome to the durable row, the live registry, and the SSE bus.
 
-    The single terminal choke point, so it also owns SSE closure: it emits `track.error`
-    for a failure (the success/park events are emitted at their branch, where the rich
-    payload is in hand) and then `bus.close` on *every* path — including a skip, which
-    has no §6 event — so no stream is ever left hanging.
+    The single terminal choke point, so it also owns SSE closure: it emits the terminal §6
+    event — `track.error` for a failure, `track.done` for a landing — then `bus.close` on
+    *every* path, including a skip (which has no §6 event), so no stream is left hanging.
+
+    Only the coarse `status` is durable (spec §7 keeps a job's status across a restart). The
+    landing detail (`landed_path` / `landed_tags`) rides the terminal EVENT, not the row
+    (ADR-015): the file is at a deterministic library path, so R1 shows *where the song went*
+    in the moment rather than persisting it — a restart between the event and a reconnect
+    shows a bare status, and the owner re-scans. `landed=True` marks a landing and is the sole
+    marker, because a REPLACE resolve can land with a null path, so `landed_path is not None`
+    cannot stand in for it. A clean landing takes the default `status='done'` and announces
+    `track.done`; a song that reached disk whose Jellyfin scan then failed passes
+    `status=STATUS_ERROR` and still carries its path/tags — on the `track.error` event, so the
+    card shows the landing even though the scan is a genuine error the owner must fix. A
+    skip-`done` and every non-landing outcome leave `landed=False` and carry no detail.
     """
     # Capture the live stage BEFORE finish() overwrites it: an unattributed error (the
     # defensive catch-all passes stage=None) is best named by whatever stage the job
@@ -848,13 +875,46 @@ def _finish(
     )
     if status == STATUS_ERROR:
         error_stage = stage or (prev.stage if prev else None) or STAGE_LAND
-        bus.publish(job_id, "track.error", {
-            "job_id": job_id, "stage": error_stage, "message": error or "",
+        payload: dict = {"job_id": job_id, "stage": error_stage, "message": error or ""}
+        if landed:
+            # A song that reached disk whose scan then failed: carry where it went on the
+            # error event so the card can still show the file is in the library (ADR-015).
+            payload["path"] = landed_path
+            payload["tags"] = landed_tags or {}
+        bus.publish(job_id, "track.error", payload)
+    elif landed:
+        bus.publish(job_id, "track.done", {
+            "job_id": job_id, "path": landed_path, "tags": landed_tags or {},
         })
     bus.close(job_id)
     # finish() only returns None if the job was never started, which can't happen —
     # run_pipeline calls registry.start() before any _finish. Fall back defensively.
     return state or JobState(job_id, status, stage, review_id, error)
+
+
+def _finish_scan_failed(
+    store: Store,
+    registry: JobRegistry,
+    job_id: str,
+    *,
+    bus: EventBus,
+    path: str | None,
+    tags: dict | None,
+    exc: Exception,
+) -> JobState:
+    """Terminal for a song that landed on disk but whose Jellyfin scan then failed.
+
+    A present-but-failed scan config is a real error the owner must fix (T-010), so the job
+    ends `error` at the scan stage — but the file IS in the library, so the landing path/tags
+    ride the `track.error` event (ADR-015) and the card shows where it went. Shared by
+    `run_pipeline` and `run_resolve` so the two scan-failure branches cannot drift (the
+    T-016-class "fixed one branch, missed the other" failure — the sync-sensitive duplication
+    this ticket set out to remove)."""
+    return _finish(
+        store, registry, job_id, bus=bus, landed=True,
+        status=STATUS_ERROR, stage=STAGE_SCAN, error=str(exc),
+        landed_path=path, landed_tags=tags,
+    )
 
 
 def _id_only_candidates(candidate_ids: list[str]) -> list[dict]:

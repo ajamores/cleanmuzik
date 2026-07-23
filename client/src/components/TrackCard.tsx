@@ -80,8 +80,8 @@ const RAIL: { key: ErrorStage; label: string }[] = [
 ]
 
 /** Which rail step a stage lights up. `done` completes every step; `error` is
- *  positioned from the stage the server named, so the rail itself shows where it
- *  broke. `scan` shares the Land step (both are "getting it into the library"). */
+ *  positioned by ERROR_STEP from the stage the server named, so the rail shows
+ *  where it broke. */
 const STAGE_STEP: Record<Stage, number> = {
   queued: -1,
   downloading: 0,
@@ -100,13 +100,18 @@ const STAGE_STEP: Record<Stage, number> = {
 
 /** Which rail step an error stage lights up — derived from RAIL so the two can't
  *  drift when a step is added or reordered (T-020, carried from a T-016 review; it
- *  was a hand-kept copy of RAIL's indices). `scan` has no rail step of its own — it
- *  shares Land, both being "getting it into the library" — so it maps to Land's index. */
+ *  was a hand-kept copy of RAIL's indices). `scan` is the post-landing Jellyfin
+ *  refresh: it runs AFTER the file has landed, so a scan failure means every rail
+ *  step — Land included — actually completed. Mapping it to `RAIL.length` (one past
+ *  the end) paints the whole rail complete rather than Land red: the file IS in the
+ *  library (the error banner + LandingDetail path say so), only Jellyfin hasn't
+ *  refreshed. Mapping scan to Land's index instead made the card contradict itself
+ *  once the path render moved onto the error branch (ADR-015). */
 const ERROR_STEP: Record<ErrorStage, number> = {
   ...(Object.fromEntries(
     RAIL.map((step, i) => [step.key, i]),
   ) as Record<ErrorStage, number>),
-  scan: RAIL.findIndex((s) => s.key === 'land'),
+  scan: RAIL.length,
 }
 
 /** `track.tagging.chosen` / the display subset of `track.done.tags`. Every field
@@ -343,6 +348,11 @@ export function TrackCard({ jobId, url }: TrackCardProps) {
         stage: asErrorStage(data.stage),
         message: asString(data.message) || 'The job failed.',
       })
+      // A post-landing scan failure carries where the song went on the error event
+      // (ADR-015) — set it so the card shows the song is in the library, just not yet
+      // refreshed in Jellyfin. A pre-landing error has no path/tags → narrowed to null,
+      // and the error render's `landed?.path` guard shows nothing.
+      setLanded({ path: asString(data.path), tags: asDoneTags(data.tags) })
     })
 
     /**
@@ -412,15 +422,12 @@ export function TrackCard({ jobId, url }: TrackCardProps) {
         if (snap.status === 'done') {
           es.close()
           setStage('done')
-          // Recover the landing receipt the dead stream never delivered (T-020). The
-          // durable snapshot carries `path` + `tags` for a landed job, so a card that
-          // reconnected after `track.done` was lost still shows *where the song went*
-          // instead of a bare "Done". Absent for a duplicate-skip "done" (nothing
-          // landed) — `asString`/`asDoneTags` narrow that to null, and `displayMatch`
-          // keeps whatever `track.tagging` already showed. Off-the-wire, so narrowed.
-          if (snap.path || snap.tags) {
-            setLanded({ path: asString(snap.path), tags: asDoneTags(snap.tags) })
-          }
+          // No receipt to recover from the snapshot (ADR-015): the landing path/tags rode the
+          // `track.done` event, so the path shows when that event is delivered live. This fallback
+          // settles only the status and does NOT wait for the buffered event to replay — so if the
+          // event wasn't delivered (a drop that overlapped completion, or a restart's empty buffer)
+          // the card shows a bare "Done" with no path. That's fine and deliberate: the file is at a
+          // known library path regardless (best-effort path, ADR-015).
         } else if (snap.status === 'review') {
           es.close()
           setStage('review_required')
@@ -443,6 +450,10 @@ export function TrackCard({ jobId, url }: TrackCardProps) {
             stage: asErrorStage(snap.stage),
             message: snap.error || 'The job failed.',
           })
+          // As with `done`: a post-landing scan failure's path/tags rode the `track.error` event
+          // (ADR-015), shown when that event is delivered live. This fallback settles only the
+          // status; if the event wasn't delivered the card shows a bare error with no path. The
+          // file is still on disk at its library path regardless (best-effort path, ADR-015).
         }
         // else: still queued/running — a transient drop. Say nothing, change
         // nothing, and let EventSource reconnect.
@@ -456,16 +467,18 @@ export function TrackCard({ jobId, url }: TrackCardProps) {
           setStreamLost('This job no longer exists on the server.')
           return
         }
-        // Anything else is transient — a dead backend mid-`uvicorn --reload`, or a
-        // restart that outlasts this attempt. Crucially we got NO answer, so this is
-        // NOT the outage's one allowed check: clear the latch so the next `onerror`
-        // (EventSource keeps retrying) asks again once the backend is back. Without
-        // this, a restart that lands/errors the job while the stream is down freezes
-        // the card on its last stage forever — the first check fails during downtime,
-        // latches, and the terminal job then replays an empty buffer and closes with
-        // no event to clear the latch, so the recovery snapshot never fires (T-020,
-        // observed in a browser: a hard restart mid-job left the card stuck at
-        // "Identifying" while the server said `error`).
+        // Anything else is transient and did NOT give a definitive answer about the job:
+        // a dead backend mid-`uvicorn --reload` (ApiError status 0), or a proxy answering
+        // a briefly-down backend with a 5xx (status 502/504 — an error, not a job status).
+        // Neither is the outage's one allowed check, so clear the latch: the next `onerror`
+        // (EventSource keeps retrying) asks again once the backend is back. Without this, a
+        // restart that lands/errors the job while the stream is down freezes the card on its
+        // last stage forever — the first check fails during downtime, latches, and the
+        // terminal job then replays an empty buffer and closes with no event to clear the
+        // latch, so the recovery snapshot never fires (T-020, observed in a browser: a hard
+        // restart mid-job left the card stuck at "Identifying" while the server said `error`).
+        // A definitive still-running 2xx answer stays latched via the try-block (it changes
+        // nothing), so this only re-checks when the job's fate is genuinely still unknown.
         outageChecked = false
       }
     }
@@ -576,30 +589,24 @@ export function TrackCard({ jobId, url }: TrackCardProps) {
           <p className="track-card__note">Weak match — parked for your review.</p>
         ))}
 
-      {stage === 'done' && (
-        <>
-          {landed?.path && (
-            <p className="track-card__path" title={landed.path}>
-              {landed.path}
-            </p>
-          )}
-          {tags && (
-            <ul className="track-card__tags">
-              {tags.genre && <li>{tags.genre}</li>}
-              {tags.has_art && <li>Art</li>}
-              {tags.has_lyrics && <li>Lyrics</li>}
-            </ul>
-          )}
-        </>
-      )}
+      {stage === 'done' && <LandingDetail path={landed?.path} tags={tags} />}
 
       {stage === 'error' && error && (
-        <p className="track-card__error" role="alert">
-          <strong>
-            {error.stage ? `${ERROR_STAGE_LABEL[error.stage]} failed` : 'Failed'}
-          </strong>{' '}
-          — {error.message}
-        </p>
+        <>
+          <p className="track-card__error" role="alert">
+            <strong>
+              {error.stage ? `${ERROR_STAGE_LABEL[error.stage]} failed` : 'Failed'}
+            </strong>{' '}
+            — {error.message}
+          </p>
+          {/* A post-landing scan failure filed the song before it errored: show where it
+              went and its tags so the owner knows it's in the library (just not yet
+              refreshed in Jellyfin), not lost. The path/tags ride the error event
+              (ADR-015). Same `LandingDetail` as the `done` branch — one fragment so the
+              chips can't drift (ADR-010); a pre-landing error has no path and renders
+              nothing. */}
+          <LandingDetail path={landed?.path} tags={tags} />
+        </>
       )}
 
       {streamLost && stage !== 'error' && (
@@ -608,6 +615,36 @@ export function TrackCard({ jobId, url }: TrackCardProps) {
         </p>
       )}
     </article>
+  )
+}
+
+/** Where a landed file went + its tag chips. Shown from `track.done` (a clean
+ *  landing) and, on a post-landing scan failure, from the path/tags that ride the
+ *  `track.error` event (ADR-015). One fragment for both branches so the two can't
+ *  drift (ADR-010). Renders nothing when there's no path (a pre-landing error), and
+ *  the chip list is omitted entirely when no chip is present — no empty `<ul>`. */
+function LandingDetail({
+  path,
+  tags,
+}: {
+  path: string | null | undefined
+  tags: DoneTags | null | undefined
+}) {
+  return (
+    <>
+      {path && (
+        <p className="track-card__path" title={path}>
+          {path}
+        </p>
+      )}
+      {tags && (tags.genre || tags.has_art || tags.has_lyrics) && (
+        <ul className="track-card__tags">
+          {tags.genre && <li>{tags.genre}</li>}
+          {tags.has_art && <li>Art</li>}
+          {tags.has_lyrics && <li>Lyrics</li>}
+        </ul>
+      )}
+    </>
   )
 }
 

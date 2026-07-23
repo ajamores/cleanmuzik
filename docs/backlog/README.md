@@ -13,6 +13,8 @@ Two tiers live here:
   - [`T-023.md`](T-023.md) — Jellyfin needs a second scan before sidecar lyrics appear *(duplicate of T-030)*
   - [`T-030.md`](T-030.md) — landed lyrics don't surface in Jellyfin until a second scan *(reconcile with T-023 first)*
   - [`T-031.md`](T-031.md) — recover the album when it's real (Topic-channel rips, same-album clusters)
+  - [`T-032.md`](T-032.md) — browser reload loses all job cards (no restore-on-load)
+  - [`T-033.md`](T-033.md) — boot reconciliation strands a review whose resolve was in flight at restart *(pre-existing bug, HIGH)*
 - **Unscoped ideas** — broader directions not yet worked into tickets:
 
 - Playlist support (batch of tracks from one URL)

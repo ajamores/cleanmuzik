@@ -181,7 +181,7 @@ some of it is tempting to fold in now.
 |---|---|---|---|
 | `POST` | `/api/jobs` | `{ "url": "<one youtube song url>" }` | `{ "job_id": "<id>" }`. Rejects playlist URLs with 422. |
 | `GET` | `/api/jobs/{job_id}/events` | — | **SSE stream** (see below) for that job. |
-| `GET` | `/api/jobs/{job_id}` | — | Job status snapshot (for reconnect / SSE fallback): `{ job_id, url, status, created_at }` plus, when the worker still has it in flight, `stage` / `review_id` / `error`; and for a **landed** job, the durable `path` + `tags` (same shape as `track.done`). The landing receipt is persisted on the row, so the snapshot answers *where the song went* even after the SSE channel is gone — a stream that dropped after landing (buffer evicted, or a restart killed the channel) can recover the receipt this event-less way (T-020). `404` if unknown. |
+| `GET` | `/api/jobs/{job_id}` | — | Job status snapshot (for reconnect / SSE fallback): `{ job_id, url, status, created_at }` plus, when the worker still has it in flight, `stage` / `review_id` / `error`. **No landing `path`/`tags`:** the landing detail rides the terminal SSE event, not this snapshot (ADR-015). The card shows it when that event is delivered live; on a stream drop or restart it settles to a bare status from here, and the file is at its library path regardless (best-effort path). `404` if unknown. |
 | `GET` | `/api/reviews` | — | Parked reviews: `[{ review_id, job_id, query, rec, candidates[] }]` (a `duplicate` row also carries `duplicate`). |
 | `GET` | `/api/reviews/{review_id}` | — | One hydrated pending review (same row shape); `404` if gone/resolved. The card re-hydrates a lost panel from this after a stream drop/restart; the duplicate panel reads its one row without re-hydrating the whole queue (T-017). |
 | `POST` | `/api/reviews/{review_id}/resolve` | see the two body shapes below | `{ "ok": true }`; resumes the import. |
@@ -233,7 +233,7 @@ One stream per job. Names are stable; the UI keys the track card off them.
 - `track.review_required` → `{ job_id, review_id, rec, query, candidates: [ { candidate_id, title, artist, score } ] }` — ADR-010: no album/year/art_url; a recording lookup can't reach them. `rec` is the row's recommendation (`"none"`/`"low"`/… for a weak match, `"duplicate"` for a "keep-which-copy" park), so the card knows *which question* to render without a `GET /api/reviews` round-trip (T-017). The duplicate branch's existing-vs-incoming detail is not in the event — it needs a library read — so `rec == "duplicate"` is the card's cue to fetch that detail; a weak match renders from the inline candidates alone.
 - `track.tagging` → `{ job_id, chosen: { title, artist, album, year } }` — the *accepted* match, unlike a candidate, has been through beets' full apply, so its album/year are real.
 - `track.done` → `{ job_id, path, tags: { title, artist, album, year, genre, has_art, has_lyrics } }`
-- `track.error` → `{ job_id, stage: "download|transcode|identify|tag|land|scan", message }`
+- `track.error` → `{ job_id, stage: "download|transcode|identify|tag|land|scan", message, path?, tags? }` — `path`/`tags` are present **only** when the song had already landed before the failing step (a post-landing Jellyfin scan failure): the file is in the library, so the card shows *where it went* even though the scan failed (ADR-015).
 - `ping` → `{}` — periodic keepalive so proxies don't drop the stream.
 
 ### Disk layout (beets output)
@@ -265,10 +265,9 @@ truly album-less song lands under `singleton`. beets creates missing directories
 
 ### Persistence (SQLite)
 
-- `jobs(id, url, status, created_at, landed_path, landed_tags_json)` — `landed_path` +
-  `landed_tags_json` are the durable landing receipt (the `track.done` payload), written when a song
-  lands and `NULL` until then. They exist so `GET /api/jobs/{id}` can answer *where the song went*
-  after the SSE channel is gone; nothing else reads them (T-020).
+- `jobs(id, url, status, created_at)` — the durable job lifecycle; a job's coarse `status` must
+  survive a restart (spec §7). The landing `path`/`tags` are **not** persisted — they ride the
+  terminal SSE event (ADR-015), so nothing about *where the song went* lives on the row.
 - `reviews(id, job_id, staging_path, query, candidate_ids_json, rec, status)` — store MusicBrainz
   candidate **IDs**, not the rich candidate objects; re-match on resume.
 

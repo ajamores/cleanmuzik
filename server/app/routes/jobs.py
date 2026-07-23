@@ -129,14 +129,10 @@ def get_job(job_id: str, request: Request) -> dict:
         "status": job.status,
         "created_at": job.created_at,
     }
-
-    # The durable landing receipt (T-020): present only on a landed job, and the whole
-    # reason this route can answer "where did the song go?" after the SSE channel that
-    # carried `track.done` is gone (restart / buffer eviction). Same shape as the event
-    # (`tags` defaults to `{}` there, so mirror that rather than emit a null).
-    if job.landed_path is not None:
-        snapshot["path"] = job.landed_path
-        snapshot["tags"] = job.landed_tags or {}
+    # No landing path/tags here: the landing detail rides the terminal SSE event, not the
+    # durable row (ADR-015). A card recovers the path from the replayed `track.done` /
+    # `track.error`; after a restart (empty replay buffer) it shows a bare status and the
+    # owner re-scans — the file is at a deterministic library path regardless.
 
     live = request.app.state.worker.registry.get(job_id)
     if live is not None:
