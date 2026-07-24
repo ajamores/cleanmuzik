@@ -156,6 +156,14 @@ interface ReviewInfo {
 interface TrackCardProps {
   jobId: string
   url: string
+  /** Card→App seam (T-101): fired when this card's stream parks a review, so App can
+   *  re-read `GET /api/reviews` and surface the row in the Needs-review inbox. SSE is
+   *  per-card here — this event only exists on the card's own stream — so the inbox
+   *  learns of a live park through this nudge, not a global listener. */
+  onReviewParked?: () => void
+  /** Card→App seam (T-101): fired when a review resolves, so App can re-read the queue
+   *  and drop the resolved row from the inbox. */
+  onReviewResolved?: () => void
 }
 
 /**
@@ -174,7 +182,12 @@ interface TrackCardProps {
  * 3. **The server closes the channel on every terminal path** and EventSource
  *    reconnects on EOF — see STREAM_TERMINAL above.
  */
-export function TrackCard({ jobId, url }: TrackCardProps) {
+export function TrackCard({
+  jobId,
+  url,
+  onReviewParked,
+  onReviewResolved,
+}: TrackCardProps) {
   const [stage, setStage] = useState<Stage>('queued')
   // T-026: the pasted URL named one song but carried a curated album/playlist, so the
   // other tracks were not taken. A property of the URL, not a stage — shown under the
@@ -214,6 +227,14 @@ export function TrackCard({ jobId, url }: TrackCardProps) {
   // resolve. Without it `maxStepSeen` would reset to -1 and a replayed resume event
   // could repaint an already-completed step as fresh.
   const reachedRef = useRef(-1)
+  // The park signal is fired from inside the stream effect (deps [jobId, episode]); a ref
+  // keeps the latest App callback reachable there WITHOUT adding it to the deps — so a new
+  // callback identity from App can't churn the subscription and re-open the SSE stream.
+  // Written in an effect, not during render (refs must not be mutated in render).
+  const onReviewParkedRef = useRef(onReviewParked)
+  useEffect(() => {
+    onReviewParkedRef.current = onReviewParked
+  }, [onReviewParked])
 
   // Subscribes to the job's SSE stream. `jobId` is in the dep array because the effect
   // reads it, but it never actually changes for a mounted card: App.tsx keys each card
@@ -332,6 +353,11 @@ export function TrackCard({ jobId, url }: TrackCardProps) {
       // resolve's in-memory result), so upgrade them from the durable row (finding #1).
       // Only on a re-park — a first park is already rich and needs no round-trip.
       if (message && reviewId) void hydrateReview(reviewId)
+      // Card→App seam (T-101): tell App a review was parked on this stream so it re-reads
+      // the queue and surfaces the row in the Needs-review inbox. Fired on both a first
+      // park and a T-029 re-park — App reconciles by refetch, so a re-park's re-appearance
+      // is handled for free.
+      onReviewParkedRef.current?.()
     })
     // A keepalive with an empty payload — registered only so the catalogue here
     // is complete and it's clear it's known and deliberately inert.
@@ -583,7 +609,12 @@ export function TrackCard({ jobId, url }: TrackCardProps) {
             message={review.message}
             // Re-subscribe for the resume episode. The panel stays mounted (and its
             // buttons disabled) until this moves the stage off `review_required`.
-            onResolved={() => setEpisode((e) => e + 1)}
+            onResolved={() => {
+              setEpisode((e) => e + 1)
+              // Card→App seam (T-101): the review left the queue — tell App to re-read it
+              // and drop the row from the inbox. (A re-park re-adds it via onReviewParked.)
+              onReviewResolved?.()
+            }}
           />
         ) : (
           <p className="track-card__note">Weak match — parked for your review.</p>
