@@ -25,10 +25,9 @@ are in `CLAUDE.md`; scope in `cleanmuzik-prd.md`. Not restated here.
   roadmap row + backlog moves) is committed (`afe34f3`).
 - **T-104 and T-101 are DONE — merged to `main`** (`90d5854`, `700df62`), both suites green there
   (backend 383, client 42 + lint/tsc).
-  - **T-104** — boot reconciliation: one transactional `Store.reconcile_orphans_on_boot()` (reviews
-    first, then jobs that own a pending review settle to `review`, then remaining orphans → `error`).
-    Superseded backlog T-033.
-  - **T-101** — durable Needs-review inbox in `App.tsx`, fetched on cold load; live freshness via a
+  - **T-104** — boot reconciliation: one transactional `reconcile_orphans_on_boot()` (reviews first,
+    then jobs owning a pending review → `review`, then remaining orphans → `error`). Superseded T-033.
+  - **T-101** — durable Needs-review inbox (`App.tsx`), fetched on cold load; live freshness via a
     per-card `onReviewParked`/`onReviewResolved` nudge (no global EventSource). A cold-loaded review
     shows but its Review action is **disabled** — resolving it in place is T-102.
 
@@ -54,8 +53,8 @@ are in `CLAUDE.md`; scope in `cleanmuzik-prd.md`. Not restated here.
 
 - Owner's real servers: `:8137` (uvicorn `--reload`, real library — **do NOT POST jobs to it**) +
   `:5173`. Editing a startup module (`db.py`) re-runs the lifespan on the live DB. Tests:
-  `./.venv/bin/pytest` from `server/`; `npm test` from `client/` (vitest cold start ~60s — don't call
-  it a hang; re-run alone if it times out). R1.1 inbox is browser-behaviour → needs `/verify`.
+  `./.venv/bin/pytest` from `server/`; `npm test` from `client/` (vitest cold start ~60s, not a hang).
+  R1.1 inbox is browser-behaviour → needs `/verify`.
 
 ## Where the rest of the context lives
 
