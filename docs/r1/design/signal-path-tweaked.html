@@ -1,0 +1,219 @@
+<title>CleanMuzik — Signal Path: wordmark + ambient motion</title>
+<style>
+  :root{ --doc-bg:#0e1114; --doc-panel:#161b20; --doc-ink:#eef2f4; --doc-muted:#8b97a1; --doc-line:#242c33; --doc-accent:#3fb6d8;
+         --sans:system-ui,'Segoe UI',Roboto,sans-serif; --mono:ui-monospace,'Cascadia Mono',Consolas,monospace; }
+  @media (prefers-color-scheme: light){ :root{ --doc-bg:#e9ecee; --doc-panel:#f6f8f9; --doc-ink:#1b2228; --doc-muted:#5b6870; --doc-line:#c9d1d6; --doc-accent:#0e7d9c; } }
+  :root[data-theme='light']{ --doc-bg:#e9ecee; --doc-panel:#f6f8f9; --doc-ink:#1b2228; --doc-muted:#5b6870; --doc-line:#c9d1d6; --doc-accent:#0e7d9c; }
+  :root[data-theme='dark']{ --doc-bg:#0e1114; --doc-panel:#161b20; --doc-ink:#eef2f4; --doc-muted:#8b97a1; --doc-line:#242c33; --doc-accent:#3fb6d8; }
+
+  *{ box-sizing:border-box; }
+  body{ margin:0; background:var(--doc-bg); color:var(--doc-ink); font:16px/1.5 var(--sans); -webkit-font-smoothing:antialiased; }
+  .wrap{ max-width:1080px; margin:0 auto; padding:52px 24px 92px; }
+  .eyebrow{ font:600 12px/1 var(--mono); letter-spacing:.12em; text-transform:uppercase; color:var(--doc-accent); margin:0 0 14px; }
+  h1{ font-size:clamp(28px,5vw,42px); font-weight:700; letter-spacing:-.02em; line-height:1.06; margin:0 0 14px; text-wrap:balance; }
+  .lede{ max-width:64ch; font-size:16px; color:var(--doc-muted); margin:0 0 6px; }
+  .lede b{ color:var(--doc-ink); }
+
+  .caprow{ display:flex; align-items:baseline; gap:12px; margin:44px 0 14px; }
+  .capnum{ font:700 13px/1 var(--mono); color:#0a1418; background:var(--doc-accent); border-radius:6px; padding:6px 8px; }
+  .captxt{ font-size:17px; color:var(--doc-ink); font-weight:650; }
+  .captxt small{ display:block; font-weight:400; font-size:13px; color:var(--doc-muted); margin-top:2px; }
+  .rec{ font:600 10px/1 var(--mono); letter-spacing:.06em; text-transform:uppercase; color:#0a1418; background:var(--doc-accent); padding:5px 8px; border-radius:999px; align-self:center; }
+
+  /* wordmark option tiles */
+  .marks{ display:grid; grid-template-columns:1fr; gap:16px; }
+  @media(min-width:760px){ .marks{ grid-template-columns:1fr 1fr 1fr; } }
+  .mark{ background:#12161a; border:1px solid #242c33; border-radius:12px; padding:34px 22px 20px; text-align:center; position:relative; overflow:hidden; }
+  .mark .tag{ position:absolute; top:12px; left:14px; font:600 10px/1 var(--mono); letter-spacing:.08em; text-transform:uppercase; color:#8b97a1; }
+  .mark .desc{ margin-top:22px; font-size:12.5px; color:#8b97a1; line-height:1.45; }
+  .mark .desc b{ color:#c8d0d6; }
+
+  /* shared wordmark type bits (Signal Path world) */
+  .clean{ font:600 30px 'IBM Plex Sans',system-ui,sans-serif; color:#e6ebee; letter-spacing:-.5px; }
+  .muzik-script{ font:italic 400 40px 'Snell Roundhand','Apple Chancery','URW Chancery L','Segoe Script',cursive; color:#7fd6ee; }
+  .muzik-serif{ font:italic 500 34px Georgia,'Times New Roman',serif; color:#7fd6ee; letter-spacing:.3px; }
+  .caps{ font:700 26px 'IBM Plex Sans',system-ui,sans-serif; letter-spacing:6px; color:#e6ebee; }
+  .emblem{ display:inline-block; vertical-align:middle; }
+
+  /* the underline "signal" flourish */
+  .sig-underline{ display:block; width:120px; height:8px; margin:6px auto 0; }
+
+  .frame{ border:1px solid var(--doc-line); border-radius:14px; overflow:hidden; box-shadow:rgba(0,0,0,.35) 0 14px 40px -16px; }
+  .fbar{ display:flex; align-items:center; gap:7px; padding:11px 14px; background:#11161a; border-bottom:1px solid #242c33; }
+  .fbar i{ width:11px; height:11px; border-radius:50%; background:#242c33; }
+  .fbar .u{ margin-left:10px; font:12px/1 var(--mono); color:#6d7a83; }
+
+  /* ===== SIGNAL PATH SCREEN ===== */
+  .scr{
+    --card:#1a2026; --field:#141a1f; --line:#2a323a; --tx:#e6ebee; --tx2:#8b97a1;
+    --ac:#3fb6d8; --ac-fg:#0a1418; --ac-tint:rgba(63,182,216,.14);
+    --warn:#e0a33d; --warn-tint:rgba(224,163,61,.14); --ok:#46b878; --ok-tint:rgba(70,184,120,.14);
+    --fnt:'IBM Plex Sans',system-ui,sans-serif; --mn:'IBM Plex Mono',ui-monospace,'Cascadia Mono',Consolas,monospace;
+    background:#12161a; color:var(--tx2); font-family:var(--fnt); padding:30px 32px 40px; position:relative; overflow:hidden;
+  }
+  /* ---- THE AMBIENT MOTION: a single slow signal line drifting behind everything ---- */
+  .ambient{ position:absolute; inset:0; z-index:0; pointer-events:none; opacity:.5; }
+  .ambient svg{ position:absolute; width:200%; height:100%; left:0; top:0; }
+  .ambient .w1{ animation:drift 26s linear infinite; }
+  .ambient .w2{ animation:drift 38s linear infinite; opacity:.6; }
+  @keyframes drift{ from{ transform:translateX(0);} to{ transform:translateX(-50%);} }
+  .scr > *{ position:relative; z-index:1; }
+
+  .wm-line{ display:flex; align-items:center; gap:12px; margin:0 0 5px; }
+  .scr .sub{ font-size:13.5px; color:var(--tx2); margin:0 0 22px; }
+  .paste{ display:flex; gap:10px; margin-bottom:28px; }
+  .paste input{ flex:1; min-width:0; font:14px var(--fnt); color:var(--tx); background:var(--field); border:1px solid var(--line); border-radius:4px; padding:12px 14px; }
+  .paste input::placeholder{ color:var(--tx2); opacity:.7; }
+  .go{ font-weight:700; font-size:14px; color:var(--ac-fg); background:var(--ac); border:0; border-radius:4px; padding:12px 24px; }
+
+  .seclabel{ display:flex; align-items:baseline; gap:10px; margin:26px 0 12px; }
+  .seclabel h3{ font-size:12px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--tx); margin:0; }
+  .count{ font:600 11px var(--mn); color:var(--warn); border:1px solid var(--warn); border-radius:999px; padding:1px 8px; }
+
+  .card{ background:var(--card); border:1px solid var(--line); border-radius:4px; padding:16px 18px; box-shadow:inset 0 1px 0 rgba(255,255,255,.05); }
+  .chead{ display:flex; align-items:center; gap:10px; margin-bottom:9px; }
+  .badge{ font:600 11px var(--mn); letter-spacing:.05em; text-transform:uppercase; padding:3px 8px; border-radius:2px; color:var(--ac); background:var(--ac-tint); white-space:nowrap; }
+  .badge.warn{ color:var(--warn); background:var(--warn-tint); }
+  .spacer{ flex:1; }
+  .cid{ font:11px var(--mn); color:var(--tx2); opacity:.8; }
+  .curl{ font-size:13px; color:var(--tx); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .meter{ display:flex; gap:4px; margin-top:14px; }
+  .meter .seg{ flex:1; height:6px; border-radius:2px; background:var(--line); }
+  .meter .seg.on{ background:var(--ac); }
+  .meter .seg.now{ background:var(--ac); animation:pulse 1.6s ease-in-out infinite; }
+  .mlabels{ display:flex; margin-top:7px; }
+  .mlabels span{ flex:1; font:10px var(--mn); letter-spacing:.04em; text-transform:uppercase; color:var(--tx2); }
+  .mlabels span.dim{ opacity:.4; }
+  @keyframes pulse{ 0%,100%{opacity:1} 50%{opacity:.5} }
+
+  .inbox{ display:flex; flex-direction:column; gap:10px; }
+  .row{ background:var(--card); border:1px solid var(--line); border-left:3px solid var(--line); border-radius:4px; padding:12px 15px; display:flex; align-items:center; gap:13px; }
+  .row.warn{ border-left-color:var(--warn); }
+  .row.acc{ border-left-color:var(--ac); }
+  .disc{ width:38px; height:38px; border-radius:50%; flex:none; background:radial-gradient(circle at 50% 50%, #2a323a 0 22%, var(--line) 23% 34%, #222a30 35%); position:relative; }
+  .disc::after{ content:''; position:absolute; inset:44%; border-radius:50%; background:var(--ac); opacity:.6; }
+  .rtext{ min-width:0; flex:1; }
+  .rtitle{ font-size:15px; font-weight:650; color:var(--tx); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .rmeta{ font:12px var(--mn); color:var(--tx2); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .rbtn{ font-weight:700; font-size:13px; color:var(--ac-fg); background:var(--ac); border:0; border-radius:3px; padding:8px 15px; flex:none; }
+  .cover{ width:46px; height:46px; border-radius:3px; flex:none; box-shadow:0 1px 4px rgba(0,0,0,.4); overflow:hidden; }
+  .cover svg{ display:block; width:100%; height:100%; }
+  .landed{ display:flex; align-items:center; gap:13px; border:1px solid var(--ok); background:var(--ok-tint); border-radius:4px; padding:12px 15px; }
+  .landed .msg{ font-size:14px; color:var(--tx); }
+  .landed .where{ font:11px var(--mn); color:var(--tx2); }
+
+  @media(prefers-reduced-motion: reduce){ .ambient .w1,.ambient .w2{ animation:none; } .meter .seg.now{ animation:none; } }
+
+  .foot{ margin-top:52px; padding:16px 18px; background:var(--doc-panel); border:1px solid var(--doc-line); border-left:3px solid var(--doc-accent); border-radius:10px; font-size:14px; color:var(--doc-muted); max-width:72ch; }
+  .foot b{ color:var(--doc-ink); }
+  .note{ max-width:64ch; font-size:13px; color:var(--doc-muted); margin:14px 0 0; font-style:italic; }
+</style>
+
+<div class="wrap">
+  <p class="eyebrow">CleanMuzik · Signal Path — wordmark &amp; ambient motion</p>
+  <h1>The name earns some character</h1>
+  <p class="lede">Two changes: the busy spectrum bars are gone, replaced by a <b>single slow signal line
+    drifting in the background</b> — barely there. And the plain wordmark gets a treatment, echoing your
+    OutKast reference: an emblem plus an elegant script on the name.</p>
+
+  <!-- WORDMARK OPTIONS -->
+  <div class="caprow"><span class="capnum">1</span><span class="captxt">Pick a wordmark treatment<small>All three sit in Signal Path's dark. Script/serif faces are approximated here; the real face gets inlined at build.</small></span></div>
+  <div class="marks">
+
+    <!-- A: emblem + script -->
+    <div class="mark">
+      <span class="tag">A · Seal + script</span>
+      <div class="emblem">
+        <svg width="52" height="52" viewBox="0 0 64 64" fill="none" stroke="#3fb6d8" stroke-width="1.6">
+          <circle cx="32" cy="32" r="29"/><circle cx="32" cy="32" r="23" opacity=".5"/>
+          <path d="M12 32 q5 -11 10 0 t10 0 t10 0 t10 0" stroke="#7fd6ee" stroke-width="2" stroke-linecap="round"/>
+        </svg>
+      </div>
+      <div style="margin-top:10px"><span class="clean">Clean</span><span class="muzik-script">Muzik</span></div>
+      <p class="desc"><b>The recommendation.</b> A broadcast seal (soundwave in a ring) with a flowing script “Muzik.” Engineered mark, expressive name — the one indulgence.</p>
+    </div>
+
+    <!-- B: script only w/ signal underline -->
+    <div class="mark">
+      <span class="tag">B · Script + signal line</span>
+      <div style="margin-top:34px"><span class="clean">Clean</span><span class="muzik-serif">Muzik</span></div>
+      <svg class="sig-underline" viewBox="0 0 120 8" fill="none" stroke="#3fb6d8" stroke-width="1.4"><path d="M0 4 q10 -4 20 0 t20 0 t20 0 t20 0 t20 0"/></svg>
+      <p class="desc">No emblem. “Muzik” in an italic serif over a thin signal underline. Closest to the <b>Ghetto Musick</b> feel — quieter, more editorial.</p>
+    </div>
+
+    <!-- C: crest lockup, all caps -->
+    <div class="mark">
+      <span class="tag">C · Crest, engineered</span>
+      <div class="emblem" style="margin-top:26px">
+        <svg width="46" height="52" viewBox="0 0 56 64" fill="none" stroke="#3fb6d8" stroke-width="1.6">
+          <path d="M28 3 L52 12 V34 Q52 52 28 61 Q4 52 4 34 V12 Z"/>
+          <path d="M14 30 q7 -12 14 0 t14 0" stroke="#7fd6ee" stroke-width="2" stroke-linecap="round"/>
+        </svg>
+      </div>
+      <div style="margin-top:12px"><span class="caps">CLEANMUZIK</span></div>
+      <p class="desc">A shield crest with the wave inside, name in letterspaced caps. Most like the <b>OutKast shield</b> — boldest, furthest from the app's calm.</p>
+    </div>
+  </div>
+  <p class="note">Note: A and C are hand-drawn SVG line-work, so they render identically everywhere. B leans on an italic serif and is font-dependent until the real face is inlined.</p>
+
+  <!-- HOME SCREEN with A + ambient motion -->
+  <div class="caprow"><span class="capnum">2</span><span class="captxt">On the home screen — treatment A, with the ambient line<small>Watch the background: one slow signal line drifting, ~7% opacity. No spectrum. Reduced-motion freezes it.</small></span><span class="rec">Live motion</span></div>
+  <div class="frame">
+    <div class="fbar"><i></i><i></i><i></i><span class="u">localhost:5173</span></div>
+    <div class="scr">
+      <!-- ambient background signal line -->
+      <div class="ambient" aria-hidden="true">
+        <svg class="w1" viewBox="0 0 2000 200" preserveAspectRatio="none" fill="none" stroke="#3fb6d8" stroke-width="1.4">
+          <path d="M0 100 q50 -34 100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0"/>
+        </svg>
+        <svg class="w2" viewBox="0 0 2000 200" preserveAspectRatio="none" fill="none" stroke="#7fd6ee" stroke-width="1">
+          <path d="M0 130 q75 24 150 0 t150 0 t150 0 t150 0 t150 0 t150 0 t150 0 t150 0 t150 0 t150 0 t150 0 t150 0 t150 0"/>
+        </svg>
+      </div>
+
+      <div class="wm-line">
+        <svg width="40" height="40" viewBox="0 0 64 64" fill="none" stroke="#3fb6d8" stroke-width="1.7">
+          <circle cx="32" cy="32" r="29"/><circle cx="32" cy="32" r="23" opacity=".5"/>
+          <path d="M12 32 q5 -11 10 0 t10 0 t10 0 t10 0" stroke="#7fd6ee" stroke-width="2.2" stroke-linecap="round"/>
+        </svg>
+        <span><span class="clean" style="font-size:27px">Clean</span><span class="muzik-script" style="font-size:36px">Muzik</span></span>
+      </div>
+      <p class="sub">Paste one YouTube song URL and it lands, tagged, in your library.</p>
+      <div class="paste"><input placeholder="https://www.youtube.com/watch?v=…"><span class="go">Go</span></div>
+
+      <div class="card">
+        <div class="chead"><span class="badge">Working</span><span class="spacer"></span><span class="cid">a13f·9c02</span></div>
+        <div class="curl">https://www.youtube.com/watch?v=djV11Xbc914</div>
+        <div class="meter"><span class="seg on"></span><span class="seg on"></span><span class="seg now"></span><span class="seg"></span><span class="seg"></span></div>
+        <div class="mlabels"><span>Download</span><span>Transcode</span><span>Identify</span><span class="dim">Tag</span><span class="dim">Land</span></div>
+      </div>
+
+      <div class="seclabel"><h3>Needs review</h3><span class="count">2</span></div>
+      <div class="inbox">
+        <div class="row warn">
+          <span class="disc"></span>
+          <div class="rtext"><div class="rtitle">Take On Me</div><div class="rmeta">a-ha Take On Me official video</div></div>
+          <span class="badge warn">Weak match</span><button class="rbtn">Review</button>
+        </div>
+        <div class="row acc">
+          <span class="disc"></span>
+          <div class="rtext"><div class="rtitle">Blue Monday</div><div class="rmeta">New Order · 320 vs 256 kbps</div></div>
+          <span class="badge">Keep which?</span><button class="rbtn">Review</button>
+        </div>
+      </div>
+
+      <div class="seclabel"><h3>Just landed</h3></div>
+      <div class="landed">
+        <span class="cover"><svg viewBox="0 0 46 46"><defs><linearGradient id="c1" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#1b3a5c"/><stop offset="1" stop-color="#3fb6d8"/></linearGradient></defs><rect width="46" height="46" fill="url(#c1)"/><circle cx="23" cy="23" r="9" fill="none" stroke="#eaf6fb" stroke-width="1.4" opacity=".85"/><circle cx="23" cy="23" r="2" fill="#eaf6fb"/></svg></span>
+        <div><div class="msg">Midnight City landed in your library.</div><div class="where">CleanMuzik/M83/Midnight City.mp3</div></div>
+      </div>
+    </div>
+  </div>
+
+  <p class="foot">
+    <b>Tell me which wordmark — A, B, or C</b> (I'd take <b>A</b>: engineered seal, expressive script — it threads
+    your reference through Signal Path without going full record-label). The ambient line is deliberately near-invisible;
+    say if you want it a touch stronger or gone. Once the wordmark's picked, that's the skin locked and I file
+    <b>R1.1</b> and build.
+  </p>
+</div>

@@ -1,0 +1,459 @@
+<title>CleanMuzik — Visual Directions</title>
+<style>
+  /* ===========================================================
+     GALLERY CHROME (theme-aware) — the three screens inside each
+     block are fixed in their own committed palette.
+     =========================================================== */
+  :root {
+    --doc-bg: #eceaf0; --doc-panel: #f7f6f9; --doc-ink: #1a1620;
+    --doc-muted: #6b6375; --doc-line: #d9d6de; --doc-accent: #aa3bff;
+    --sans: system-ui, 'Segoe UI', Roboto, sans-serif;
+    --mono: ui-monospace, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --doc-bg:#0b0c10; --doc-panel:#14151b; --doc-ink:#f3f0f7; --doc-muted:#9a93a5; --doc-line:#2a2c36; --doc-accent:#c084fc; }
+  }
+  :root[data-theme='light'] { --doc-bg:#eceaf0; --doc-panel:#f7f6f9; --doc-ink:#1a1620; --doc-muted:#6b6375; --doc-line:#d9d6de; --doc-accent:#aa3bff; }
+  :root[data-theme='dark'] { --doc-bg:#0b0c10; --doc-panel:#14151b; --doc-ink:#f3f0f7; --doc-muted:#9a93a5; --doc-line:#2a2c36; --doc-accent:#c084fc; }
+
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--doc-bg); color:var(--doc-ink); font:16px/1.5 var(--sans); -webkit-font-smoothing:antialiased; }
+  .wrap { max-width:1180px; margin:0 auto; padding:56px 24px 96px; }
+
+  .eyebrow { font:600 12px/1 var(--mono); letter-spacing:.12em; text-transform:uppercase; color:var(--doc-accent); margin:0 0 14px; }
+  h1 { font-size:clamp(30px,5vw,46px); font-weight:700; letter-spacing:-.02em; line-height:1.05; margin:0 0 14px; text-wrap:balance; }
+  .lede { max-width:64ch; font-size:17px; color:var(--doc-muted); margin:0 0 8px; }
+  .lede strong { color:var(--doc-ink); font-weight:600; }
+  .note {
+    max-width:64ch; font-size:13.5px; color:var(--doc-muted); margin:18px 0 0;
+    padding:12px 16px; background:var(--doc-panel); border:1px solid var(--doc-line);
+    border-left:3px solid var(--doc-accent); border-radius:8px;
+  }
+
+  /* ---- direction block ---- */
+  .block { margin-top:56px; padding-top:40px; border-top:1px solid var(--doc-line); }
+  .block:first-of-type { border-top:none; }
+  .bhead { display:flex; align-items:baseline; gap:14px; flex-wrap:wrap; margin-bottom:6px; }
+  .bnum { font:700 15px/1 var(--mono); color:#fff; background:var(--doc-accent); border-radius:7px; padding:8px 10px; }
+  .btitle { font-size:24px; font-weight:700; letter-spacing:-.01em; }
+  .brec { font:600 11px/1 var(--mono); letter-spacing:.06em; text-transform:uppercase; color:#fff; background:var(--doc-accent); padding:5px 9px; border-radius:999px; align-self:center; }
+  .bthesis { font-size:16px; color:var(--doc-muted); margin:4px 0 18px; max-width:70ch; }
+  .bthesis em { color:var(--doc-ink); font-style:italic; }
+
+  .meta { display:grid; grid-template-columns:1fr; gap:18px; margin-bottom:22px; }
+  @media (min-width:820px){ .meta { grid-template-columns:1fr 1fr; } }
+  .facts { font-size:14px; }
+  .facts dt { font:600 11px/1 var(--mono); letter-spacing:.05em; text-transform:uppercase; color:var(--doc-accent); margin-bottom:4px; }
+  .facts dd { margin:0 0 12px; color:var(--doc-ink); }
+  .facts dd.risk { color:var(--doc-muted); }
+
+  /* palette strips */
+  .pal { display:flex; flex-direction:column; gap:8px; }
+  .pal-row { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+  .pal-tag { font:600 10px/1 var(--mono); letter-spacing:.05em; text-transform:uppercase; color:var(--doc-muted); width:38px; flex:none; }
+  .chip { width:26px; height:26px; border-radius:6px; border:1px solid rgba(128,128,128,.25); flex:none; }
+
+  /* ---- the rendered screen frame ---- */
+  .frame { border:1px solid var(--doc-line); border-radius:14px; overflow:hidden; box-shadow:rgba(0,0,0,.12) 0 12px 34px -14px; }
+  .fbar { display:flex; align-items:center; gap:7px; padding:11px 14px; background:var(--doc-panel); border-bottom:1px solid var(--doc-line); }
+  .fbar i { width:11px; height:11px; border-radius:50%; background:var(--doc-line); }
+  .fbar .u { margin-left:10px; font:12px/1 var(--mono); color:var(--doc-muted); }
+
+  /* ===========================================================
+     SHARED SCREEN COMPONENTS — driven by per-direction --d-* vars
+     =========================================================== */
+  .scr { background:var(--d-bg); color:var(--d-text2); font-family:var(--d-font); padding:32px 34px 40px; }
+  .scr .wm { font-size:30px; color:var(--d-text); margin:0 0 6px; }
+  .scr .sub { font-size:14px; color:var(--d-text2); margin:0 0 24px; }
+
+  .scr .paste { display:flex; gap:10px; margin-bottom:30px; }
+  .scr .paste input {
+    flex:1; min-width:0; font:14px var(--d-font); color:var(--d-text);
+    background:var(--d-field, var(--d-card)); border:1px solid var(--d-line);
+    border-radius:var(--d-radius); padding:12px 14px;
+  }
+  .scr .paste input::placeholder { color:var(--d-text2); opacity:.7; }
+  .scr .go {
+    font-weight:700; font-size:14px; color:var(--d-accent-fg,#fff); background:var(--d-accent);
+    border:1px solid transparent; border-radius:var(--d-radius); padding:12px 24px;
+  }
+
+  .scr .seclabel { display:flex; align-items:baseline; gap:10px; margin:30px 0 12px; }
+  .scr .seclabel h3 { font-size:12px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--d-text); margin:0; font-family:var(--d-label, var(--d-font)); }
+  .scr .count { font:600 11px var(--d-mono); color:var(--d-warn); border:1px solid var(--d-warn); border-radius:999px; padding:1px 8px; }
+
+  .scr .card {
+    background:var(--d-card); border:1px solid var(--d-line); border-radius:var(--d-radius);
+    padding:16px 18px; box-shadow:var(--d-shadow, none);
+  }
+  .scr .card + .card, .scr .card + .inbox, .scr .landed + .seclabel { margin-top:12px; }
+  .scr .chead { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:10px; }
+  .scr .cid { font:11px var(--d-mono); color:var(--d-text2); opacity:.85; }
+  .scr .curl { font-size:13.5px; color:var(--d-text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+
+  /* badges — base; each direction overrides shape */
+  .scr .badge {
+    font:600 11px var(--d-mono); letter-spacing:.05em; text-transform:uppercase;
+    padding:3px 9px; border-radius:999px; white-space:nowrap;
+    color:var(--d-accent); background:var(--d-accent-tint);
+  }
+  .scr .badge.warn { color:var(--d-warn); background:var(--d-warn-tint); }
+  .scr .badge.ok   { color:var(--d-ok);   background:var(--d-ok-tint); }
+
+  /* inbox rows */
+  .scr .inbox { display:flex; flex-direction:column; gap:10px; }
+  .scr .row {
+    background:var(--d-card); border:1px solid var(--d-line); border-radius:var(--d-radius);
+    padding:13px 16px; display:flex; align-items:center; gap:12px;
+    border-left:var(--d-rowedge, 1px solid var(--d-line));
+  }
+  .scr .row.warn { border-left-color:var(--d-warn); }
+  .scr .row.acc  { border-left-color:var(--d-accent); }
+  .scr .acc-no { font:11px var(--d-mono); color:var(--d-text2); flex:none; display:var(--d-accno, none); }
+  .scr .rtext { min-width:0; flex:1; }
+  .scr .rtitle { font-size:15px; font-weight:650; color:var(--d-text); font-family:var(--d-record, var(--d-font)); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .scr .rmeta { font:12px var(--d-mono); color:var(--d-text2); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .scr .rbtn { font-weight:700; font-size:13px; color:var(--d-accent-fg,#fff); background:var(--d-accent); border:none; border-radius:var(--d-radius); padding:8px 15px; flex:none; }
+
+  /* landed confirmation */
+  .scr .landed {
+    display:flex; align-items:center; gap:12px; border:1px solid var(--d-ok);
+    background:var(--d-ok-tint); border-radius:var(--d-radius); padding:13px 16px;
+  }
+  .scr .landed .msg { font-size:14px; color:var(--d-text); }
+  .scr .landed .where { font:11px var(--d-mono); color:var(--d-text2); }
+
+  /* --- rail A: segmented meter (Signal Path) --- */
+  .meter { display:flex; gap:4px; margin-top:14px; }
+  .meter .seg { flex:1; height:8px; border-radius:2px; background:var(--d-line); }
+  .meter .seg.on { background:var(--d-accent); }
+  .meter .seg.now { background:var(--d-accent); animation:breathe 1.6s ease-in-out infinite; }
+  .meterlabels { display:flex; margin-top:7px; }
+  .meterlabels span { flex:1; font:10px var(--d-mono); letter-spacing:.04em; text-transform:uppercase; color:var(--d-text2); }
+  .meterlabels span.dim { opacity:.45; }
+  @keyframes breathe { 0%,100%{opacity:1} 50%{opacity:.45} }
+
+  /* --- rail B: ink-fill bar (Pressing Plant) --- */
+  .inkbar { margin-top:15px; height:9px; background:var(--d-line); border-radius:0; overflow:hidden; }
+  .inkbar > i { display:block; height:100%; width:62%; background:var(--d-accent); }
+  .stagerow { display:flex; margin-top:7px; }
+  .stagerow span { flex:1; font:10px var(--d-mono); letter-spacing:.04em; text-transform:uppercase; color:var(--d-text2); }
+  .stagerow span.dim { opacity:.4; }
+
+  /* --- rail C: ruled dots (Card Catalogue) --- */
+  .rule { height:2px; background:var(--d-accent); opacity:.5; margin:12px 0 14px; }
+  .dots { display:flex; }
+  .dots .st { flex:1; display:flex; flex-direction:column; align-items:center; gap:6px; position:relative; }
+  .dots .st + .st::before { content:''; position:absolute; top:5px; right:50%; left:-50%; height:2px; background:var(--d-line); }
+  .dots .st.on + .st.on::before, .dots .st.on::before { background:var(--d-accent); }
+  .dots .d { width:11px; height:11px; border-radius:50%; background:var(--d-line); z-index:1; }
+  .dots .st.on .d { background:var(--d-accent); }
+  .dots .lbl { font:10px var(--d-mono); letter-spacing:.04em; text-transform:uppercase; color:var(--d-text2); }
+
+  /* stamps (Pressing Plant / Card Catalogue) */
+  .stamp {
+    font:700 12px var(--d-mono); letter-spacing:.12em; text-transform:uppercase;
+    color:var(--d-ok); border:2px solid var(--d-ok); border-radius:3px;
+    padding:4px 10px; transform:rotate(-4deg); flex:none;
+  }
+
+  @media (prefers-reduced-motion: reduce) { .meter .seg.now { animation:none; } }
+
+  /* =====================  DIRECTION 1 — SIGNAL PATH (dark native)  ===================== */
+  .dir--signal {
+    --d-bg:#12161a; --d-card:#1a2026; --d-field:#141a1f; --d-line:#2a323a;
+    --d-text:#e6ebee; --d-text2:#8b97a1;
+    --d-accent:#3fb6d8; --d-accent-fg:#0a1418; --d-accent-tint:rgba(63,182,216,.14);
+    --d-warn:#e0a33d; --d-warn-tint:rgba(224,163,61,.14);
+    --d-ok:#46b878; --d-ok-tint:rgba(70,184,120,.14);
+    --d-fail:#e05c5c;
+    --d-radius:4px;
+    --d-font:'IBM Plex Sans',system-ui,sans-serif;
+    --d-mono:'IBM Plex Mono',ui-monospace,'Cascadia Mono',Consolas,monospace;
+    --d-shadow: inset 0 1px 0 rgba(255,255,255,.05);
+    --d-rowedge:3px solid var(--d-line);
+  }
+  /* silkscreen-label badges: rectangles, not pills */
+  .dir--signal .badge { border-radius:2px; }
+  .dir--signal .rbtn { border-radius:3px; }
+  .dir--signal .wm { font-weight:600; letter-spacing:-.3px; }
+
+  /* =====================  DIRECTION 2 — PRESSING PLANT (paper native)  ===================== */
+  .dir--press {
+    --d-bg:#f2f2ef; --d-card:#fcfcfa; --d-field:#fff; --d-line:#d8d8d2;
+    --d-text:#17181a; --d-text2:#5c5e60;
+    --d-accent:#2b3fbf; --d-accent-fg:#fff; --d-accent-tint:rgba(43,63,191,.10);
+    --d-warn:#a86a10; --d-warn-tint:rgba(168,106,16,.12);
+    --d-ok:#2b7d4f; --d-ok-tint:rgba(43,125,79,.12);
+    --d-fail:#c0392b;
+    --d-radius:2px;
+    --d-font:'Archivo',system-ui,sans-serif;
+    --d-mono:'JetBrains Mono',ui-monospace,Consolas,monospace;
+    --d-rowedge:4px solid var(--d-line);
+  }
+  .dir--press .wm { font-weight:800; text-transform:uppercase; letter-spacing:1.5px; }
+  .dir--press .seclabel h3 { font-weight:800; letter-spacing:.12em; }
+  /* solid spot-ink badges */
+  .dir--press .badge { border-radius:1px; color:#fff; background:var(--d-accent); letter-spacing:.08em; }
+  .dir--press .badge.warn { color:#fff; background:var(--d-warn); }
+  .dir--press .badge.ok { color:#fff; background:var(--d-ok); }
+  /* the primary (active) card gets a hard offset ink shadow — misregistration */
+  .dir--press .card.primary { --d-shadow: 4px 4px 0 var(--d-text); border-color:var(--d-text); }
+  .dir--press .rbtn { border-radius:1px; }
+
+  /* =====================  DIRECTION 3 — CARD CATALOGUE (reading-room native)  ===================== */
+  .dir--cat {
+    --d-bg:#f2f4f1; --d-card:#fbfcfa; --d-field:#fff; --d-line:#d5dad3;
+    --d-text:#212723; --d-text2:#5d6660;
+    --d-accent:#2f5a78; --d-accent-fg:#fff; --d-accent-tint:rgba(47,90,120,.10);
+    --d-warn:#a06b14; --d-warn-tint:rgba(160,107,20,.12);
+    --d-ok:#2e7d4f; --d-ok-tint:rgba(46,125,79,.12);
+    --d-fail:#b23a34;
+    --d-radius:6px;
+    --d-font:system-ui,sans-serif;
+    --d-label:system-ui,sans-serif;
+    --d-record:Charter,'Bitstream Charter',Georgia,serif;
+    --d-mono:'Courier Prime','Courier New',monospace;
+    --d-shadow: rgba(0,0,0,.05) 0 1px 2px, rgba(0,0,0,.04) 0 4px 12px;
+    --d-accno: block;
+  }
+  .dir--cat .wm { font-family:var(--d-record); font-weight:700; letter-spacing:-.3px; }
+  /* rubber-stamp badges: outline + tilt, courier */
+  .dir--cat .badge { background:transparent; border:1.5px solid var(--d-accent); color:var(--d-accent); border-radius:3px; transform:rotate(1deg); }
+  .dir--cat .badge.warn { border-color:var(--d-warn); color:var(--d-warn); }
+  .dir--cat .badge.ok { border-color:var(--d-ok); color:var(--d-ok); }
+  .dir--cat .rtitle { font-weight:700; }
+</style>
+
+<div class="wrap">
+
+  <p class="eyebrow">CleanMuzik · The skin — a separate decision from the flow</p>
+  <h1>Three visual directions</h1>
+  <p class="lede">Same screen, three identities. Each shows CleanMuzik's real surface — paste bar, a
+    running job, the review inbox, a landed track — so you're judging the <strong>look</strong>, not the layout.
+    Each direction is shown in the theme it was designed around; its light/dark palette sits beside it.</p>
+  <p class="note"><b>Type is approximated.</b> I can't inline the licensed fonts here, so Signal Path (IBM Plex)
+    and Pressing Plant (Archivo Expanded) fall back to system faces and lose some character; Card Catalogue's
+    Georgia/Courier render nearly true. At build the named face gets inlined. <b>Palette, surfaces, badges,
+    the rail, and each signature move render faithfully</b> — that's where the identity actually lives.</p>
+
+  <!-- ================= DIRECTION 1 ================= -->
+  <section class="block">
+    <div class="bhead">
+      <span class="bnum">1</span>
+      <span class="btitle">Signal Path</span>
+      <span class="brec">Recommended</span>
+    </div>
+    <p class="bthesis">A broadcast engineer's rack unit — software that behaves like a well-made piece of
+      audio hardware. <em>Dark is its native mode.</em></p>
+
+    <div class="meta">
+      <dl class="facts">
+        <dt>Type</dt><dd>IBM Plex Sans + Plex Mono for all data (durations, bitrates, scores) — engineered, calibrated.</dd>
+        <dt>Signature move</dt><dd>The progress rail is a <b>segmented meter</b> — discrete blocks fill left-to-right, the active one breathes, then the whole rail settles to green.</dd>
+        <dt>Risk</dt><dd class="risk">Can read cold; tips into skeuomorphic cosplay if the hardware metaphor spreads past the type and the meter.</dd>
+      </dl>
+      <div class="pal">
+        <div class="pal-row"><span class="pal-tag">Light</span>
+          <span class="chip" style="background:#e9ecee" title="chassis"></span>
+          <span class="chip" style="background:#f6f8f9" title="panel"></span>
+          <span class="chip" style="background:#0e7d9c" title="accent"></span>
+          <span class="chip" style="background:#9a6a00" title="warn"></span>
+          <span class="chip" style="background:#1b7a43" title="ok"></span>
+          <span class="chip" style="background:#bb3a3a" title="fail"></span>
+        </div>
+        <div class="pal-row"><span class="pal-tag">Dark</span>
+          <span class="chip" style="background:#12161a" title="chassis"></span>
+          <span class="chip" style="background:#1a2026" title="panel"></span>
+          <span class="chip" style="background:#3fb6d8" title="accent"></span>
+          <span class="chip" style="background:#e0a33d" title="warn"></span>
+          <span class="chip" style="background:#46b878" title="ok"></span>
+          <span class="chip" style="background:#e05c5c" title="fail"></span>
+        </div>
+      </div>
+    </div>
+
+    <div class="frame">
+      <div class="fbar"><i></i><i></i><i></i><span class="u">localhost:5173</span></div>
+      <div class="scr dir--signal">
+        <p class="wm">CleanMuzik</p>
+        <p class="sub">Paste one YouTube song URL and it lands, tagged, in your library.</p>
+        <div class="paste"><input placeholder="https://www.youtube.com/watch?v=…"><span class="go">Go</span></div>
+
+        <div class="card">
+          <div class="chead"><span class="badge">Working</span><span class="cid">a13f·9c02</span></div>
+          <div class="curl">https://www.youtube.com/watch?v=djV11Xbc914</div>
+          <div class="meter"><span class="seg on"></span><span class="seg on"></span><span class="seg now"></span><span class="seg"></span><span class="seg"></span></div>
+          <div class="meterlabels"><span>Download</span><span>Transcode</span><span>Identify</span><span class="dim">Tag</span><span class="dim">Land</span></div>
+        </div>
+
+        <div class="seclabel"><h3>Needs review</h3><span class="count">2</span></div>
+        <div class="inbox">
+          <div class="row warn">
+            <div class="rtext"><div class="rtitle">Take On Me</div><div class="rmeta">a-ha Take On Me official video</div></div>
+            <span class="badge warn">Weak match</span><button class="rbtn">Review</button>
+          </div>
+          <div class="row acc">
+            <div class="rtext"><div class="rtitle">Blue Monday</div><div class="rmeta">New Order · 320 vs 256 kbps</div></div>
+            <span class="badge">Keep which?</span><button class="rbtn">Review</button>
+          </div>
+        </div>
+
+        <div class="seclabel"><h3>Just landed</h3></div>
+        <div class="landed"><div><div class="msg">Midnight City landed in your library.</div><div class="where">CleanMuzik/M83/Midnight City.mp3</div></div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= DIRECTION 2 ================= -->
+  <section class="block">
+    <div class="bhead">
+      <span class="bnum">2</span>
+      <span class="btitle">Pressing Plant</span>
+    </div>
+    <p class="bthesis">A small record-pressing workshop — flat spot-ink print, work orders travelling through
+      the plant. <em>Paper is its native mode.</em></p>
+
+    <div class="meta">
+      <dl class="facts">
+        <dt>Type</dt><dd>Archivo Expanded Black, uppercase, for the title &amp; headers only; JetBrains Mono for catalog data. Poster-confident, mid-century label print.</dd>
+        <dt>Signature move</dt><dd>The <b>stamp</b> — LANDED / DUPLICATE impresses once with a slight rotation; the active job card carries a hard offset ink shadow (misregistration).</dd>
+        <dt>Risk</dt><dd class="risk">Loud. Expanded caps + thick borders fatigue fast if they spread past the header and the one primary card.</dd>
+      </dl>
+      <div class="pal">
+        <div class="pal-row"><span class="pal-tag">Light</span>
+          <span class="chip" style="background:#f2f2ef" title="paper"></span>
+          <span class="chip" style="background:#fcfcfa" title="card"></span>
+          <span class="chip" style="background:#2b3fbf" title="accent"></span>
+          <span class="chip" style="background:#a86a10" title="warn"></span>
+          <span class="chip" style="background:#2b7d4f" title="ok"></span>
+          <span class="chip" style="background:#c0392b" title="fail"></span>
+        </div>
+        <div class="pal-row"><span class="pal-tag">Dark</span>
+          <span class="chip" style="background:#16151a" title="plate"></span>
+          <span class="chip" style="background:#1e1d24" title="card"></span>
+          <span class="chip" style="background:#6e7ff3" title="accent"></span>
+          <span class="chip" style="background:#dfa032" title="warn"></span>
+          <span class="chip" style="background:#4cb377" title="ok"></span>
+          <span class="chip" style="background:#e5624f" title="fail"></span>
+        </div>
+      </div>
+    </div>
+
+    <div class="frame">
+      <div class="fbar"><i></i><i></i><i></i><span class="u">localhost:5173</span></div>
+      <div class="scr dir--press">
+        <p class="wm">CleanMuzik</p>
+        <p class="sub">Paste one YouTube song URL and it lands, tagged, in your library.</p>
+        <div class="paste"><input placeholder="https://www.youtube.com/watch?v=…"><span class="go">Go</span></div>
+
+        <div class="card primary">
+          <div class="chead"><span class="badge">Working</span><span class="cid">a13f·9c02</span></div>
+          <div class="curl">https://www.youtube.com/watch?v=djV11Xbc914</div>
+          <div class="inkbar"><i></i></div>
+          <div class="stagerow"><span>Download</span><span>Transcode</span><span>Identify</span><span class="dim">Tag</span><span class="dim">Land</span></div>
+        </div>
+
+        <div class="seclabel"><h3>Needs review</h3><span class="count">2</span></div>
+        <div class="inbox">
+          <div class="row warn">
+            <div class="rtext"><div class="rtitle">Take On Me</div><div class="rmeta">a-ha Take On Me official video</div></div>
+            <span class="badge warn">Weak match</span><button class="rbtn">Review</button>
+          </div>
+          <div class="row acc">
+            <div class="rtext"><div class="rtitle">Blue Monday</div><div class="rmeta">New Order · 320 vs 256 kbps</div></div>
+            <span class="badge">Keep which?</span><button class="rbtn">Review</button>
+          </div>
+        </div>
+
+        <div class="seclabel"><h3>Just landed</h3></div>
+        <div class="landed"><span class="stamp">Landed</span><div><div class="msg">Midnight City landed in your library.</div><div class="where">CleanMuzik/M83/Midnight City.mp3</div></div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= DIRECTION 3 ================= -->
+  <section class="block">
+    <div class="bhead">
+      <span class="bnum">3</span>
+      <span class="btitle">Card Catalogue</span>
+      <span class="brec" style="background:var(--doc-muted)">Best for the inbox</span>
+    </div>
+    <p class="bthesis">A municipal library's accession ledger — the tool as a patient archivist filing records
+      into the collection. <em>Reading-room light is its native mode.</em></p>
+
+    <div class="meta">
+      <dl class="facts">
+        <dt>Type</dt><dd>System sans for the chrome; <b>Charter serif for the records themselves</b> (titles, artists) — the sans/serif split is the whole idea. Courier for accession numbers.</dd>
+        <dt>Signature move</dt><dd>The <b>verdict stamp</b> — resolving a review impresses FILED onto the row and it persists in the item's history. State becomes a physical record.</dd>
+        <dt>Risk</dt><dd class="risk">One bad call from twee (fake paper grain, typewriter everything). Works only held to the cool palette and the strict sans-chrome / serif-content split.</dd>
+      </dl>
+      <div class="pal">
+        <div class="pal-row"><span class="pal-tag">Light</span>
+          <span class="chip" style="background:#f2f4f1" title="paper"></span>
+          <span class="chip" style="background:#fbfcfa" title="card"></span>
+          <span class="chip" style="background:#2f5a78" title="accent"></span>
+          <span class="chip" style="background:#a06b14" title="warn"></span>
+          <span class="chip" style="background:#2e7d4f" title="ok"></span>
+          <span class="chip" style="background:#b23a34" title="fail"></span>
+        </div>
+        <div class="pal-row"><span class="pal-tag">Dark</span>
+          <span class="chip" style="background:#161a17" title="after hours"></span>
+          <span class="chip" style="background:#1f2420" title="card"></span>
+          <span class="chip" style="background:#7fa8c4" title="accent"></span>
+          <span class="chip" style="background:#d9a13a" title="warn"></span>
+          <span class="chip" style="background:#52b47c" title="ok"></span>
+          <span class="chip" style="background:#dd6b60" title="fail"></span>
+        </div>
+      </div>
+    </div>
+
+    <div class="frame">
+      <div class="fbar"><i></i><i></i><i></i><span class="u">localhost:5173</span></div>
+      <div class="scr dir--cat">
+        <p class="wm">CleanMuzik</p>
+        <p class="sub">Paste one YouTube song URL and it lands, tagged, in your library.</p>
+        <div class="paste"><input placeholder="https://www.youtube.com/watch?v=…"><span class="go">Go</span></div>
+
+        <div class="card">
+          <div class="chead"><span class="badge">Working</span><span class="cid">acc. 00417</span></div>
+          <div class="curl">https://www.youtube.com/watch?v=djV11Xbc914</div>
+          <div class="rule"></div>
+          <div class="dots">
+            <span class="st on"><span class="d"></span><span class="lbl">Download</span></span>
+            <span class="st on"><span class="d"></span><span class="lbl">Transcode</span></span>
+            <span class="st on"><span class="d"></span><span class="lbl">Identify</span></span>
+            <span class="st"><span class="d"></span><span class="lbl">Tag</span></span>
+            <span class="st"><span class="d"></span><span class="lbl">Land</span></span>
+          </div>
+        </div>
+
+        <div class="seclabel"><h3>Needs review</h3><span class="count">2</span></div>
+        <div class="inbox">
+          <div class="row warn">
+            <span class="acc-no">00418</span>
+            <div class="rtext"><div class="rtitle">Take On Me</div><div class="rmeta">a-ha Take On Me official video</div></div>
+            <span class="badge warn">Weak match</span><button class="rbtn">Review</button>
+          </div>
+          <div class="row acc">
+            <span class="acc-no">00419</span>
+            <div class="rtext"><div class="rtitle">Blue Monday</div><div class="rmeta">New Order · 320 vs 256 kbps</div></div>
+            <span class="badge">Keep which?</span><button class="rbtn">Review</button>
+          </div>
+        </div>
+
+        <div class="seclabel"><h3>Just landed</h3></div>
+        <div class="landed"><span class="stamp">Filed</span><div><div class="msg">Midnight City landed in your library.</div><div class="where">CleanMuzik/M83/Midnight City.mp3</div></div></div>
+      </div>
+    </div>
+  </section>
+
+  <p class="note" style="border-left-color:var(--doc-accent); margin-top:48px">
+    <b>Pick one to build against.</b> My read matches Fable's: <b>Signal Path</b> for the calmest daily driver —
+    the mono-data discipline fits your durations/bitrates/scores exactly, and the meter gives the progress rail a
+    native language. <b>Card Catalogue</b> if you'd rather it feel <em>loved</em> than <em>professional</em>;
+    its stamp metaphor is the strongest fit for the review inbox itself. <b>Pressing Plant</b> is the most
+    memorable and the most likely to wear out its welcome.
+  </p>
+
+</div>

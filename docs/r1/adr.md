@@ -414,3 +414,32 @@ Format: `ADR-NNN — decision. Rationale. [date]`
   and over-scope while they are cheap. (Owner decision, 2026-07-23, out of the R1 front-end
   retrospective. Pairs with the standing `TrackCard` architecture review — the gate catches flow
   errors before build; the architecture review reduces how many corners exist to find.) [2026-07-23]
+
+- **ADR-017 — The review lifecycle lives in a durable, top-level inbox, not inside the ephemeral
+  `TrackCard`. Job cards are transient; the review queue is the app's durable surface.** A card shows
+  pipeline progress and then gets out of the way; when it parks, it hands off to a top-level
+  **Needs-review inbox** backed by `GET /api/reviews` and stops owning the review. Rationale: R1 built
+  the review lifecycle *inside* `TrackCard` (T-016/T-020), but the card list is ephemeral React state
+  (`App.tsx`) that boots empty, so a parked review was **invisible and unreachable on a fresh load** —
+  the durable `GET /api/reviews` (T-014) sat unwired, a no-candidate park rendered a dead-end panel with
+  no buttons, and a boot-orphaned review (T-033) had no surface at all. The spec §7 promised parked
+  reviews *"can still be resolved"*; the card-owned model didn't deliver it. This **reverses** the
+  card-owns-review model: the review's existence is independent of any card's lifetime. Also the direct
+  means of paying down the `TrackCard` "one component runs the whole job state machine" debt. Corollary:
+  because the inbox reads the queue directly, a review is reachable even when its job's card shows an
+  error (which is why the T-033 boot-orphan becomes *reachable* here, though T-104 still fixes the
+  underlying state disagreement). (Owner decision, 2026-07-23, R1.1 spec; design gate signed off —
+  `docs/r1.1/spec.md`.) [2026-07-23]
+
+- **ADR-018 — Signal Path is CleanMuzik's visual identity; do not re-skin without a decision.**
+  Dark-native "broadcast engineer's rack": IBM Plex Sans + Plex Mono (faces inlined, no CDN), a
+  **desaturated** cyan accent `#3fb6d8` chosen so the amber/green/red **semantic** colours (needs-review
+  / landed / failed) always out-shout it, a segmented-meter progress rail, wordmark **A** (a
+  soundwave-in-a-ring seal + script "Muzik"), and exactly **one** ambient background signal line at ~7%
+  opacity (frozen under `prefers-reduced-motion`) — **no spectrum bars, no other ambient motion.** Cover
+  art shows only where it genuinely exists (landed tracks + the owned side of a duplicate); the
+  weak-match picker stays text+score because the review event can't carry art (ADR-010). Rationale:
+  chosen from a three-way pitch (Signal Path / Pressing Plant / Card Catalogue) for the calmest
+  daily-driver voice, its mono-data discipline fitting durations/bitrates/scores, and the meter giving
+  the progress rail — the product's spine — a native language. Full tokens + markup:
+  `docs/r1/design/signal-path-tweaked.html`. (Owner decision, 2026-07-23, R1.1 skin sign-off.) [2026-07-23]

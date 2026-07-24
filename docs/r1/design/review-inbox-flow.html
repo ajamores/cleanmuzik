@@ -1,0 +1,791 @@
+<title>CleanMuzik — Review Inbox · Design Gate</title>
+<style>
+  /* ============================================================
+     TOKENS
+     Two layers: the gallery chrome (--doc-*) is a quiet slate so the
+     app screens read as objects on a table; the app frames use CleanMuzik's
+     REAL tokens (client/src/index.css) so you're signing off the actual look.
+     ============================================================ */
+  :root {
+    /* gallery chrome */
+    --doc-bg: #eceaf0;
+    --doc-panel: #f7f6f9;
+    --doc-ink: #1a1620;
+    --doc-muted: #6b6375;
+    --doc-line: #d9d6de;
+    --doc-accent: #aa3bff;
+
+    /* app tokens — CleanMuzik light */
+    --text: #6b6375;
+    --text-h: #08060d;
+    --bg: #fafafa;
+    --card-bg: #fff;
+    --border: #e5e4e7;
+    --accent: #aa3bff;
+    --accent-bg: rgba(170, 59, 255, 0.1);
+    --danger: #c62828;
+    --danger-bg: rgba(198, 40, 40, 0.1);
+    --warn: #b26a00;
+    --warn-bg: rgba(178, 106, 0, 0.12);
+    --ok: #1b7a43;
+    --ok-bg: rgba(27, 122, 67, 0.12);
+    --shadow: rgba(0, 0, 0, 0.05) 0 1px 2px, rgba(0, 0, 0, 0.04) 0 4px 12px;
+
+    --sans: system-ui, 'Segoe UI', Roboto, sans-serif;
+    --mono: ui-monospace, Consolas, monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --doc-bg: #0b0c10;
+      --doc-panel: #14151b;
+      --doc-ink: #f3f0f7;
+      --doc-muted: #9a93a5;
+      --doc-line: #2a2c36;
+      --doc-accent: #c084fc;
+
+      --text: #9ca3af;
+      --text-h: #f3f4f6;
+      --bg: #101116;
+      --card-bg: #16171d;
+      --border: #2e303a;
+      --accent: #c084fc;
+      --accent-bg: rgba(192, 132, 252, 0.15);
+      --danger: #f28b82;
+      --danger-bg: rgba(242, 139, 130, 0.15);
+      --warn: #f5b544;
+      --warn-bg: rgba(245, 181, 68, 0.15);
+      --ok: #5ac68a;
+      --ok-bg: rgba(90, 198, 138, 0.15);
+      --shadow: rgba(0, 0, 0, 0.4) 0 1px 2px, rgba(0, 0, 0, 0.3) 0 4px 12px;
+    }
+  }
+  /* explicit toggle wins in both directions */
+  :root[data-theme='light'] {
+    --doc-bg: #eceaf0; --doc-panel: #f7f6f9; --doc-ink: #1a1620; --doc-muted: #6b6375; --doc-line: #d9d6de; --doc-accent: #aa3bff;
+    --text: #6b6375; --text-h: #08060d; --bg: #fafafa; --card-bg: #fff; --border: #e5e4e7;
+    --accent: #aa3bff; --accent-bg: rgba(170,59,255,0.1); --danger: #c62828; --danger-bg: rgba(198,40,40,0.1);
+    --warn: #b26a00; --warn-bg: rgba(178,106,0,0.12); --ok: #1b7a43; --ok-bg: rgba(27,122,67,0.12);
+    --shadow: rgba(0,0,0,0.05) 0 1px 2px, rgba(0,0,0,0.04) 0 4px 12px;
+  }
+  :root[data-theme='dark'] {
+    --doc-bg: #0b0c10; --doc-panel: #14151b; --doc-ink: #f3f0f7; --doc-muted: #9a93a5; --doc-line: #2a2c36; --doc-accent: #c084fc;
+    --text: #9ca3af; --text-h: #f3f4f6; --bg: #101116; --card-bg: #16171d; --border: #2e303a;
+    --accent: #c084fc; --accent-bg: rgba(192,132,252,0.15); --danger: #f28b82; --danger-bg: rgba(242,139,130,0.15);
+    --warn: #f5b544; --warn-bg: rgba(245,181,68,0.15); --ok: #5ac68a; --ok-bg: rgba(90,198,138,0.15);
+    --shadow: rgba(0,0,0,0.4) 0 1px 2px, rgba(0,0,0,0.3) 0 4px 12px;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--doc-bg);
+    color: var(--doc-ink);
+    font: 16px/1.5 var(--sans);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap {
+    max-width: 1140px;
+    margin: 0 auto;
+    padding: 56px 24px 96px;
+  }
+
+  /* ---- gallery header ---- */
+  .doc-head { margin-bottom: 8px; }
+  .doc-eyebrow {
+    font: 600 12px/1 var(--mono);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--doc-accent);
+    margin: 0 0 14px;
+  }
+  .doc-head h1 {
+    font-size: clamp(30px, 5vw, 46px);
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    line-height: 1.05;
+    margin: 0 0 14px;
+    text-wrap: balance;
+    color: var(--doc-ink);
+  }
+  .doc-head p {
+    max-width: 62ch;
+    font-size: 17px;
+    color: var(--doc-muted);
+    margin: 0 0 10px;
+  }
+  .doc-head strong { color: var(--doc-ink); font-weight: 600; }
+
+  /* ---- legend ---- */
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 18px;
+    margin: 24px 0 8px;
+    padding: 16px 18px;
+    background: var(--doc-panel);
+    border: 1px solid var(--doc-line);
+    border-radius: 12px;
+    font-size: 13px;
+    color: var(--doc-muted);
+  }
+  .legend b { color: var(--doc-ink); font-weight: 600; }
+  .legend span { display: inline-flex; align-items: center; gap: 7px; }
+  .swatch { width: 11px; height: 11px; border-radius: 3px; flex: none; }
+
+  /* ---- screen block ---- */
+  .screen { margin-top: 44px; }
+
+  .cap {
+    display: flex;
+    align-items: baseline;
+    gap: 14px;
+    margin-bottom: 14px;
+    padding-left: 4px;
+  }
+  .cap-num {
+    font: 700 14px/1 var(--mono);
+    color: #fff;
+    background: var(--doc-accent);
+    border-radius: 7px;
+    padding: 7px 9px;
+    flex: none;
+    align-self: center;
+  }
+  .cap-body { min-width: 0; }
+  .cap-title {
+    font-size: 19px;
+    font-weight: 650;
+    color: var(--doc-ink);
+    letter-spacing: -0.01em;
+  }
+  .cap-note {
+    font-size: 14px;
+    color: var(--doc-muted);
+    margin-top: 3px;
+  }
+  .cap-note em { color: var(--warn); font-style: normal; font-weight: 600; }
+
+  /* tag on caption to signal kind of state */
+  .kind {
+    font: 600 11px/1 var(--mono);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 4px 8px;
+    border-radius: 999px;
+    flex: none;
+    align-self: center;
+  }
+  .kind-happy { color: var(--accent); background: var(--accent-bg); }
+  .kind-review { color: var(--warn); background: var(--warn-bg); }
+  .kind-done { color: var(--ok); background: var(--ok-bg); }
+  .kind-edge { color: var(--danger); background: var(--danger-bg); }
+
+  /* ---- the app frame (a screen sitting on the table) ---- */
+  .frame {
+    background: var(--bg);
+    border: 1px solid var(--doc-line);
+    border-radius: 14px;
+    box-shadow: rgba(0,0,0,0.10) 0 10px 30px -12px;
+    overflow: hidden;
+  }
+  .frame-bar {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 11px 14px;
+    background: var(--doc-panel);
+    border-bottom: 1px solid var(--doc-line);
+  }
+  .frame-bar i { width: 11px; height: 11px; border-radius: 50%; background: var(--doc-line); display: block; }
+  .frame-url {
+    margin-left: 10px;
+    font: 12px/1 var(--mono);
+    color: var(--doc-muted);
+  }
+
+  /* the app viewport — CleanMuzik itself, real tokens */
+  .app {
+    padding: 38px 36px 44px;
+    color: var(--text);
+    text-align: left;
+  }
+  .app-narrow { max-width: 620px; }
+
+  .app h2 {
+    font-size: 34px;
+    font-weight: 600;
+    letter-spacing: -1px;
+    color: var(--text-h);
+    margin: 0 0 6px;
+  }
+  .app-sub { color: var(--text); margin: 0 0 26px; font-size: 15px; }
+
+  .paste { display: flex; gap: 10px; }
+  .paste input {
+    flex: 1 1 auto; min-width: 0;
+    font: 15px var(--sans);
+    color: var(--text-h);
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 14px;
+  }
+  .paste .ph { color: var(--text); opacity: 0.7; }
+  .go {
+    font: 600 15px var(--sans);
+    color: #fff; background: var(--accent);
+    border: 1px solid transparent; border-radius: 8px;
+    padding: 12px 26px; cursor: default;
+  }
+
+  /* section label */
+  .sec-label {
+    display: flex; align-items: baseline; gap: 10px;
+    margin: 34px 0 14px;
+  }
+  .sec-label h3 {
+    font-size: 13px; font-weight: 700; letter-spacing: 0.03em;
+    text-transform: uppercase; color: var(--text-h); margin: 0;
+  }
+  .sec-count {
+    font: 600 12px var(--mono); color: var(--warn);
+    background: var(--warn-bg); border-radius: 999px; padding: 2px 9px;
+  }
+
+  .empty {
+    color: var(--text); opacity: 0.8; font-size: 14px;
+    padding: 22px; text-align: center;
+    border: 1px dashed var(--border); border-radius: 10px;
+  }
+
+  /* ---- track card (live pipeline — shown for context only) ---- */
+  .card {
+    border: 1px solid var(--border); border-radius: 10px;
+    background: var(--card-bg); padding: 16px 18px; box-shadow: var(--shadow);
+  }
+  .card + .card, .card + .inbox, .inbox + .card { margin-top: 12px; }
+  .card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+  .pill {
+    font: 600 12px var(--sans); letter-spacing: 0.02em; text-transform: uppercase;
+    color: var(--accent); background: var(--accent-bg); border-radius: 999px; padding: 3px 10px;
+  }
+  .pill-review { color: var(--warn); background: var(--warn-bg); }
+  .pill-done { color: var(--ok); background: var(--ok-bg); }
+  .pill-error { color: var(--danger); background: var(--danger-bg); }
+  .jobid { font: 12px var(--mono); color: var(--text); opacity: 0.8; }
+  .card-url { font-size: 14px; color: var(--text-h); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  /* rail */
+  .rail { display: flex; list-style: none; margin: 16px 0 0; padding: 0; }
+  .step { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px; position: relative; min-width: 0; }
+  .step + .step::before {
+    content: ''; position: absolute; top: 5px; right: 50%; left: -50%; height: 2px; background: var(--border);
+  }
+  .step.done::before, .step.active::before { background: var(--accent); }
+  .dot { width: 12px; height: 12px; border-radius: 50%; background: var(--border); position: relative; z-index: 1; }
+  .step.done .dot { background: var(--accent); }
+  .step.active .dot { background: var(--accent); transform: scale(1.25); box-shadow: 0 0 0 5px var(--accent-bg); }
+  .step.review .dot { background: var(--warn); transform: scale(1.2); }
+  .steplabel { font-size: 11px; letter-spacing: 0.02em; text-transform: uppercase; color: var(--text); opacity: 0.55; }
+  .step:not(.pending) .steplabel { opacity: 1; }
+
+  /* card hand-off note */
+  .handoff {
+    margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border);
+    font-size: 13px; color: var(--warn); display: flex; align-items: center; gap: 8px;
+  }
+  .handoff .arrow { font-weight: 700; }
+  .card-faded { opacity: 0.62; }
+
+  /* landed confirmation */
+  .landed {
+    display: flex; align-items: center; gap: 10px;
+    border: 1px solid var(--ok); background: var(--ok-bg);
+    border-radius: 10px; padding: 13px 16px; font-size: 14px; color: var(--text-h);
+  }
+  .landed .tick { color: var(--ok); font-weight: 700; }
+  .landed .where { font: 12px var(--mono); color: var(--text); }
+
+  /* ---- inbox rows ---- */
+  .inbox { display: flex; flex-direction: column; gap: 10px; }
+  .row {
+    border: 1px solid var(--border); border-radius: 10px; background: var(--card-bg);
+    box-shadow: var(--shadow); padding: 14px 16px;
+  }
+  .row-head { display: flex; align-items: center; gap: 12px; }
+  .row-title { font-size: 15px; font-weight: 600; color: var(--text-h); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row-artist { font-size: 13px; color: var(--text); }
+  .row-spacer { flex: 1; }
+  .qtag {
+    font: 600 11px var(--mono); letter-spacing: 0.04em; text-transform: uppercase;
+    padding: 3px 9px; border-radius: 999px; flex: none;
+    color: var(--warn); background: var(--warn-bg);
+  }
+  .qtag-dup { color: var(--accent); background: var(--accent-bg); }
+  .review-btn {
+    font: 600 13px var(--sans); color: var(--text-h);
+    background: var(--card-bg); border: 1px solid var(--border); border-radius: 8px;
+    padding: 8px 16px; cursor: default; flex: none;
+  }
+  .review-btn.primary { color: #fff; background: var(--accent); border-color: var(--accent); }
+
+  /* expanded review body */
+  .rbody { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border); }
+  .query { font-size: 13px; color: var(--text); margin: 0 0 12px; }
+  .query b { color: var(--text-h); }
+
+  .cands { list-style: none; margin: 0 0 14px; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+  .cand {
+    display: flex; align-items: center; gap: 12px;
+    border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px;
+  }
+  .cand.sel { border-color: var(--accent); background: var(--accent-bg); }
+  .radio { width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--border); flex: none; }
+  .cand.sel .radio { border-color: var(--accent); background: radial-gradient(circle, var(--accent) 0 42%, transparent 46%); }
+  .cand-text { flex: 1; min-width: 0; }
+  .cand-title { font-size: 14px; font-weight: 600; color: var(--text-h); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cand-artist { font-size: 13px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .score { width: 72px; flex: none; }
+  .score-track { height: 6px; border-radius: 999px; background: var(--border); overflow: hidden; }
+  .score-fill { height: 100%; border-radius: 999px; background: var(--warn); }
+
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  .btn {
+    font: 600 13px var(--sans); padding: 8px 16px; border-radius: 8px;
+    border: 1px solid var(--border); background: var(--card-bg); color: var(--text-h); cursor: default;
+  }
+  .btn-accept { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn-danger { border-color: var(--danger); color: var(--danger); }
+
+  /* duplicate compare */
+  .dup { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 14px; }
+  .dup-side { border: 1px solid var(--border); border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 4px; }
+  .dup-side.incoming { border-color: var(--accent); }
+  .dup-h { font: 600 11px var(--mono); letter-spacing: 0.05em; text-transform: uppercase; color: var(--text); opacity: 0.75; margin-bottom: 4px; }
+  .dup-t { font-size: 14px; font-weight: 600; color: var(--text-h); }
+  .dup-m { font-size: 13px; color: var(--text); }
+  .dup-br { font: 12px var(--mono); color: var(--accent); }
+
+  /* edge notes */
+  .reparked {
+    font-size: 13px; color: var(--warn); border-left: 3px solid var(--warn);
+    padding: 8px 0 8px 12px; margin: 0 0 12px; background: var(--warn-bg); border-radius: 0 6px 6px 0;
+  }
+  .nocands {
+    font-size: 13px; color: var(--text); margin: 0 0 14px;
+    padding: 12px; border: 1px dashed var(--border); border-radius: 8px;
+  }
+  .nocands b { color: var(--text-h); }
+  .loaderr {
+    display: flex; flex-direction: column; align-items: flex-start; gap: 12px;
+    padding: 26px; text-align: left;
+    border: 1px solid var(--danger); background: var(--danger-bg); border-radius: 10px;
+  }
+  .loaderr p { margin: 0; font-size: 14px; color: var(--text-h); }
+  .loaderr .sub { font-size: 13px; color: var(--text); }
+
+  /* edge grid — three mini screens side by side */
+  .edge-grid { display: grid; grid-template-columns: 1fr; gap: 20px; }
+  @media (min-width: 860px) { .edge-grid { grid-template-columns: repeat(3, 1fr); } }
+  .edge-cell .mini-cap {
+    font: 600 12px var(--mono); letter-spacing: 0.04em; text-transform: uppercase;
+    color: var(--danger); margin-bottom: 10px;
+  }
+  .edge-cell .frame { box-shadow: rgba(0,0,0,0.08) 0 6px 18px -10px; }
+  .edge-cell .app { padding: 22px 20px 26px; }
+  .edge-cell .app h2 { font-size: 24px; }
+
+  .foot {
+    margin-top: 64px; padding-top: 22px; border-top: 1px solid var(--doc-line);
+    font-size: 14px; color: var(--doc-muted); max-width: 68ch;
+  }
+  .foot b { color: var(--doc-ink); }
+</style>
+
+<div class="wrap">
+
+  <header class="doc-head">
+    <p class="doc-eyebrow">CleanMuzik · R1.1 · Design Gate</p>
+    <h1>Review inbox — the flow, one screen per moment</h1>
+    <p>These are flat screens, not the running app. Each one freezes CleanMuzik in a single
+      state so you can sign off <strong>how the flow behaves</strong> before any code is written.
+      The look is today's app; the <strong>skin is a separate decision</strong> (Fable's working on that).</p>
+    <p>The one change under review: parked reviews stop living inside a disappearing track card and
+      move into a <strong>durable "Needs review" inbox</strong> that's still there when you come back.</p>
+  </header>
+
+  <div class="legend">
+    <span><span class="swatch" style="background:var(--accent)"></span><b>Working</b> — a live job</span>
+    <span><span class="swatch" style="background:var(--warn)"></span><b>Needs review</b> — waiting on you</span>
+    <span><span class="swatch" style="background:var(--ok)"></span><b>Landed</b> — in the library</span>
+    <span><span class="swatch" style="background:var(--danger)"></span><b>Broken corner</b> — an edge state</span>
+  </div>
+
+  <!-- ============ 1 · BLANK ============ -->
+  <section class="screen">
+    <div class="cap">
+      <span class="cap-num">1</span>
+      <div class="cap-body">
+        <div class="cap-title">Blank — nothing running, nothing waiting</div>
+        <div class="cap-note">The resting state. The inbox is always present, even empty, so you always know it exists.</div>
+      </div>
+    </div>
+    <div class="frame">
+      <div class="frame-bar"><i></i><i></i><i></i><span class="frame-url">localhost:5173</span></div>
+      <div class="app app-narrow">
+        <h2>CleanMuzik</h2>
+        <p class="app-sub">Paste one YouTube song URL and it lands, tagged, in your library.</p>
+        <div class="paste">
+          <input value="" placeholder="https://www.youtube.com/watch?v=…" />
+          <span class="go">Go</span>
+        </div>
+        <div class="sec-label"><h3>Needs review</h3></div>
+        <div class="empty">Nothing waiting. Paste a link above and walk away — anything the tagger isn't sure about shows up here.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 2 · HAPPY ============ -->
+  <section class="screen">
+    <div class="cap">
+      <span class="cap-num">2</span>
+      <div class="cap-body">
+        <div class="cap-title">Single track, happy path — it's landing fine</div>
+        <div class="cap-note">You pasted; the pipeline runs. <em>Pipeline unchanged</em> — shown only for context, not for re-approval.</div>
+      </div>
+      <span class="kind kind-happy">Working</span>
+    </div>
+    <div class="frame">
+      <div class="frame-bar"><i></i><i></i><i></i><span class="frame-url">localhost:5173</span></div>
+      <div class="app app-narrow">
+        <h2>CleanMuzik</h2>
+        <p class="app-sub">Paste one YouTube song URL and it lands, tagged, in your library.</p>
+        <div class="paste">
+          <input value="" placeholder="https://www.youtube.com/watch?v=…" />
+          <span class="go">Go</span>
+        </div>
+        <div style="margin-top:28px">
+          <div class="card" data-stage="working">
+            <div class="card-head"><span class="pill">Working</span><span class="jobid">a13f…9c02</span></div>
+            <div class="card-url">https://www.youtube.com/watch?v=djV11Xbc914</div>
+            <ol class="rail">
+              <li class="step done"><span class="dot"></span><span class="steplabel">Download</span></li>
+              <li class="step done"><span class="dot"></span><span class="steplabel">Transcode</span></li>
+              <li class="step active"><span class="dot"></span><span class="steplabel">Identify</span></li>
+              <li class="step pending"><span class="dot"></span><span class="steplabel">Tag</span></li>
+              <li class="step pending"><span class="dot"></span><span class="steplabel">Land</span></li>
+            </ol>
+          </div>
+        </div>
+        <div class="sec-label"><h3>Needs review</h3></div>
+        <div class="empty">Nothing waiting.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 3 · HAND-OFF ============ -->
+  <section class="screen">
+    <div class="cap">
+      <span class="cap-num">3</span>
+      <div class="cap-body">
+        <div class="cap-title">It doesn't know what to do — the hand-off</div>
+        <div class="cap-note">A weak match. The live card bows out with a one-line note, and the song appears in the inbox below. <em>The card is theatre; the inbox is memory.</em></div>
+      </div>
+      <span class="kind kind-review">Needs review</span>
+    </div>
+    <div class="frame">
+      <div class="frame-bar"><i></i><i></i><i></i><span class="frame-url">localhost:5173</span></div>
+      <div class="app app-narrow">
+        <h2>CleanMuzik</h2>
+        <p class="app-sub">Paste one YouTube song URL and it lands, tagged, in your library.</p>
+        <div class="paste">
+          <input value="" placeholder="https://www.youtube.com/watch?v=…" />
+          <span class="go">Go</span>
+        </div>
+        <div style="margin-top:28px">
+          <div class="card card-faded" data-stage="review">
+            <div class="card-head"><span class="pill pill-review">Needs review</span><span class="jobid">6c27…d5f5e</span></div>
+            <div class="card-url">https://www.youtube.com/watch?v=D5QjfJao9FQ</div>
+            <ol class="rail">
+              <li class="step done"><span class="dot"></span><span class="steplabel">Download</span></li>
+              <li class="step done"><span class="dot"></span><span class="steplabel">Transcode</span></li>
+              <li class="step done"><span class="dot"></span><span class="steplabel">Identify</span></li>
+              <li class="step review"><span class="dot"></span><span class="steplabel">Tag</span></li>
+              <li class="step pending"><span class="dot"></span><span class="steplabel">Land</span></li>
+            </ol>
+            <div class="handoff"><span class="arrow">→</span> Weak match — moved to your review inbox.</div>
+          </div>
+        </div>
+        <div class="sec-label"><h3>Needs review</h3><span class="sec-count">1</span></div>
+        <div class="inbox">
+          <div class="row">
+            <div class="row-head">
+              <div style="min-width:0">
+                <div class="row-title">Take On Me</div>
+                <div class="row-artist">searched: “a‑ha Take On Me official video”</div>
+              </div>
+              <span class="row-spacer"></span>
+              <span class="qtag">Weak match</span>
+              <span class="review-btn primary">Review</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 4 · COME BACK ============ -->
+  <section class="screen">
+    <div class="cap">
+      <span class="cap-num">4</span>
+      <div class="cap-body">
+        <div class="cap-title">You come back later — three waiting</div>
+        <div class="cap-note">Cold open, days later. No live cards (nothing's running) — just the queue that survived, loaded from the backend.</div>
+      </div>
+      <span class="kind kind-review">Needs review</span>
+    </div>
+    <div class="frame">
+      <div class="frame-bar"><i></i><i></i><i></i><span class="frame-url">localhost:5173</span></div>
+      <div class="app app-narrow">
+        <h2>CleanMuzik</h2>
+        <p class="app-sub">Paste one YouTube song URL and it lands, tagged, in your library.</p>
+        <div class="paste">
+          <input value="" placeholder="https://www.youtube.com/watch?v=…" />
+          <span class="go">Go</span>
+        </div>
+        <div class="sec-label"><h3>Needs review</h3><span class="sec-count">3</span></div>
+        <div class="inbox">
+          <div class="row"><div class="row-head">
+            <div style="min-width:0"><div class="row-title">Take On Me</div><div class="row-artist">searched: “a‑ha Take On Me official video”</div></div>
+            <span class="row-spacer"></span><span class="qtag">Weak match</span><span class="review-btn">Review</span>
+          </div></div>
+          <div class="row"><div class="row-head">
+            <div style="min-width:0"><div class="row-title">Blue Monday</div><div class="row-artist">searched: “New Order Blue Monday 1983”</div></div>
+            <span class="row-spacer"></span><span class="qtag qtag-dup">Keep which?</span><span class="review-btn">Review</span>
+          </div></div>
+          <div class="row"><div class="row-head">
+            <div style="min-width:0"><div class="row-title">Midnight City (live)</div><div class="row-artist">searched: “M83 Midnight City live lollapalooza”</div></div>
+            <span class="row-spacer"></span><span class="qtag">Weak match</span><span class="review-btn">Review</span>
+          </div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 5 · OPEN WEAK ============ -->
+  <section class="screen">
+    <div class="cap">
+      <span class="cap-num">5</span>
+      <div class="cap-body">
+        <div class="cap-title">You open a weak one — pick the release</div>
+        <div class="cap-note">The row expands in place. Radio-pick a candidate → <b>Use this</b>, or reject the lot. Score bar shows how sure the tagger was.</div>
+      </div>
+      <span class="kind kind-review">Needs review</span>
+    </div>
+    <div class="frame">
+      <div class="frame-bar"><i></i><i></i><i></i><span class="frame-url">localhost:5173</span></div>
+      <div class="app app-narrow">
+        <div class="sec-label"><h3>Needs review</h3><span class="sec-count">3</span></div>
+        <div class="inbox">
+          <div class="row">
+            <div class="row-head">
+              <div style="min-width:0"><div class="row-title">Take On Me</div></div>
+              <span class="row-spacer"></span><span class="qtag">Weak match</span>
+            </div>
+            <div class="rbody">
+              <p class="query">Looked up <b>“a‑ha Take On Me official video”</b> — none scored high enough to land on its own. Which release is it?</p>
+              <ul class="cands">
+                <li class="cand sel">
+                  <span class="radio"></span>
+                  <span class="cand-text"><span class="cand-title">Take On Me</span><span class="cand-artist">a‑ha · Hunting High and Low · 1985</span></span>
+                  <span class="score"><span class="score-track"><span class="score-fill" style="width:71%"></span></span></span>
+                </li>
+                <li class="cand">
+                  <span class="radio"></span>
+                  <span class="cand-text"><span class="cand-title">Take On Me (2017 Acoustic)</span><span class="cand-artist">a‑ha · MTV Unplugged · 2017</span></span>
+                  <span class="score"><span class="score-track"><span class="score-fill" style="width:48%"></span></span></span>
+                </li>
+                <li class="cand">
+                  <span class="radio"></span>
+                  <span class="cand-text"><span class="cand-title">Take On Me</span><span class="cand-artist">Reytons · single · 2021</span></span>
+                  <span class="score"><span class="score-track"><span class="score-fill" style="width:33%"></span></span></span>
+                </li>
+              </ul>
+              <div class="actions">
+                <span class="btn btn-accept">Use this</span>
+                <span class="btn btn-danger">None of these — reject</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 6 · OPEN DUPLICATE ============ -->
+  <section class="screen">
+    <div class="cap">
+      <span class="cap-num">6</span>
+      <div class="cap-body">
+        <div class="cap-title">You open a duplicate — keep which copy</div>
+        <div class="cap-note">A different question: you already own this. Compare what's in the library vs what came down. <b>Never auto-deletes</b> (ADR-009).</div>
+      </div>
+      <span class="kind kind-review">Needs review</span>
+    </div>
+    <div class="frame">
+      <div class="frame-bar"><i></i><i></i><i></i><span class="frame-url">localhost:5173</span></div>
+      <div class="app app-narrow">
+        <div class="sec-label"><h3>Needs review</h3><span class="sec-count">3</span></div>
+        <div class="inbox">
+          <div class="row">
+            <div class="row-head">
+              <div style="min-width:0"><div class="row-title">Blue Monday</div></div>
+              <span class="row-spacer"></span><span class="qtag qtag-dup">Keep which?</span>
+            </div>
+            <div class="rbody">
+              <p class="query">You already have <b>New Order — Blue Monday</b> in your library. Keep which copy?</p>
+              <div class="dup">
+                <div class="dup-side">
+                  <span class="dup-h">In your library</span>
+                  <span class="dup-t">Blue Monday</span>
+                  <span class="dup-m">New Order · Power, Corruption &amp; Lies</span>
+                  <span class="dup-br">MP3 · 256 kbps</span>
+                </div>
+                <div class="dup-side incoming">
+                  <span class="dup-h">Just downloaded</span>
+                  <span class="dup-t">Blue Monday</span>
+                  <span class="dup-m">New Order · Substance 1987</span>
+                  <span class="dup-br">MP3 · 320 kbps</span>
+                </div>
+              </div>
+              <div class="actions">
+                <span class="btn">Keep the one I have</span>
+                <span class="btn btn-accept">Replace with the new one</span>
+                <span class="btn">Keep both</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 7 · RESOLVED ============ -->
+  <section class="screen">
+    <div class="cap">
+      <span class="cap-num">7</span>
+      <div class="cap-body">
+        <div class="cap-title">You resolved it — one down</div>
+        <div class="cap-note">The item leaves the inbox, a brief confirmation shows where it landed, and the count ticks down. Two left.</div>
+      </div>
+      <span class="kind kind-done">Landed</span>
+    </div>
+    <div class="frame">
+      <div class="frame-bar"><i></i><i></i><i></i><span class="frame-url">localhost:5173</span></div>
+      <div class="app app-narrow">
+        <h2>CleanMuzik</h2>
+        <p class="app-sub">Paste one YouTube song URL and it lands, tagged, in your library.</p>
+        <div class="paste">
+          <input value="" placeholder="https://www.youtube.com/watch?v=…" />
+          <span class="go">Go</span>
+        </div>
+        <div style="margin-top:26px">
+          <div class="landed">
+            <span class="tick">✓</span>
+            <div><div>Take On Me landed in your library.</div><div class="where">CleanMuzik/a‑ha/Take On Me.mp3</div></div>
+          </div>
+        </div>
+        <div class="sec-label"><h3>Needs review</h3><span class="sec-count">2</span></div>
+        <div class="inbox">
+          <div class="row"><div class="row-head">
+            <div style="min-width:0"><div class="row-title">Blue Monday</div></div>
+            <span class="row-spacer"></span><span class="qtag qtag-dup">Keep which?</span><span class="review-btn">Review</span>
+          </div></div>
+          <div class="row"><div class="row-head">
+            <div style="min-width:0"><div class="row-title">Midnight City (live)</div></div>
+            <span class="row-spacer"></span><span class="qtag">Weak match</span><span class="review-btn">Review</span>
+          </div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 8 · BROKEN CORNERS ============ -->
+  <section class="screen">
+    <div class="cap">
+      <span class="cap-num">8</span>
+      <div class="cap-body">
+        <div class="cap-title">The broken corners — where it goes wrong</div>
+        <div class="cap-note">The states a happy path never shows. <b>8b is your actual bug</b>: a park with nothing to pick from, which today is a dead end with no buttons.</div>
+      </div>
+      <span class="kind kind-edge">Edge states</span>
+    </div>
+
+    <div class="edge-grid">
+      <!-- 8a re-parked -->
+      <div class="edge-cell">
+        <div class="mini-cap">8a · Resolve failed, came back</div>
+        <div class="frame">
+          <div class="app">
+            <div class="sec-label"><h3>Needs review</h3><span class="sec-count">1</span></div>
+            <div class="row">
+              <div class="row-head"><div class="row-title">Take On Me</div><span class="row-spacer"></span><span class="qtag">Weak match</span></div>
+              <div class="rbody">
+                <div class="reparked">That pick didn't apply — the release wasn't found when we tried to land it. Pick another, or reject.</div>
+                <ul class="cands">
+                  <li class="cand"><span class="radio"></span><span class="cand-text"><span class="cand-title">Take On Me</span><span class="cand-artist">a‑ha · 1985</span></span></li>
+                  <li class="cand"><span class="radio"></span><span class="cand-text"><span class="cand-title">Take On Me (Acoustic)</span><span class="cand-artist">a‑ha · 2017</span></span></li>
+                </ul>
+                <div class="actions"><span class="btn btn-accept">Use this</span><span class="btn btn-danger">Reject</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 8b no candidates — THE BUG -->
+      <div class="edge-cell">
+        <div class="mini-cap">8b · Parked with no candidates (the bug)</div>
+        <div class="frame">
+          <div class="app">
+            <div class="sec-label"><h3>Needs review</h3><span class="sec-count">1</span></div>
+            <div class="row">
+              <div class="row-head"><div class="row-title">unknown_track_D5QjfJao9FQ</div><span class="row-spacer"></span><span class="qtag">No match</span></div>
+              <div class="rbody">
+                <p class="query">Looked up <b>“D5QjfJao9FQ start_radio”</b> and found <b>nothing to pick from</b> — the title was too garbled to identify.</p>
+                <div class="nocands">Nothing landed. You can <b>reject</b> it, or <b>keep the file as-is</b> (untagged) and fix it later in your library.</div>
+                <div class="actions"><span class="btn">Keep the file, untagged</span><span class="btn btn-danger">Reject &amp; delete</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 8c inbox won't load -->
+      <div class="edge-cell">
+        <div class="mini-cap">8c · Backend down — inbox won't load</div>
+        <div class="frame">
+          <div class="app">
+            <div class="sec-label"><h3>Needs review</h3></div>
+            <div class="loaderr">
+              <p>Couldn't load your review queue.</p>
+              <p class="sub">The backend isn't responding. Your parked songs are safe — they're saved and will still be here. Check that the server is running.</p>
+              <span class="btn">Try again</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <p class="foot">
+    <b>What I need from you:</b> sign off the <b>behaviour</b> — the hand-off in #3, the two questions in
+    #5/#6, and especially the three corners in #8. Screen <b>8b</b> is the decision that matters most:
+    a no-candidate park should offer <em>keep-untagged</em> or <em>reject</em>, not the dead end you hit.
+    The <b>look</b> is a separate call — Fable's pitching visual directions next.
+  </p>
+
+</div>
