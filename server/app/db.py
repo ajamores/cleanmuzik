@@ -223,21 +223,6 @@ class Store:
             if cur.rowcount == 0:
                 raise KeyError(f"no job with id {job_id!r}")
 
-    def fail_unfinished_jobs(self) -> int:
-        """Mark every job left `queued`/`running` by a crash or shutdown as `error`.
-
-        The job queue is in-memory (T-012): it does not survive a restart, so any
-        row still `queued` or `running` at boot is orphaned — it will never be
-        picked up again. Left alone it would report `running` forever (a stuck
-        progress UI). Called once on worker startup so the durable status is honest
-        after any restart. Returns how many rows were reconciled.
-        """
-        with self._connect() as conn:
-            cur = conn.execute(
-                "UPDATE jobs SET status = 'error' WHERE status IN ('queued', 'running')"
-            )
-            return cur.rowcount
-
     # --- reviews ----------------------------------------------------------
 
     def create_review(
@@ -392,10 +377,12 @@ class Store:
     def reset_resolving_reviews(self) -> int:
         """Return every review stranded mid-resolve by a crash/shutdown to `pending`.
 
-        The mirror of `fail_unfinished_jobs`, and for the same reason: the work queue
-        is in-memory, so a row left `resolving` at boot has no worker coming for it and
-        would sit invisible to the queue forever. Called once on worker startup.
-        Returns how many rows were reconciled.
+        A standalone review-only sweep (still exercised directly by the review tests).
+        The coordinated boot path uses `reconcile_orphans_on_boot`, which folds this same
+        reset into one transaction with the job sweep so the two tables cannot disagree.
+        The work queue is in-memory, so a row left `resolving` at boot has no worker
+        coming for it and would sit invisible to the queue forever. Returns how many rows
+        were reconciled.
 
         `last_error` is cleared (T-029, finding #3): a crash mid-resolve is not a failed
         pick, so a reason left over from a *previous* re-park must not be shown as the
@@ -407,6 +394,59 @@ class Store:
                 (REVIEW_PENDING, REVIEW_RESOLVING),
             )
             return cur.rowcount
+
+    # --- boot reconciliation ----------------------------------------------
+
+    def reconcile_orphans_on_boot(self) -> tuple[int, int, int]:
+        """Reconcile jobs AND reviews orphaned by a crash/shutdown — in one coordinated,
+        ordered transaction (T-104). Returns `(reviews_reset, jobs_reviewed, jobs_errored)`.
+
+        Replaces the two independent boot sweeps that used to run back-to-back and could
+        disagree: failing every `queued`/`running` job to `error` while, separately,
+        resetting every `resolving` review to `pending` left a restart mid-resolve with
+        `job=error` AND `review=pending` — a dead error over a live review. That is the
+        exact T-029 orphan (`_repark_after_release` in jobs.py), recreated through the boot
+        door: the review is resolvable but the job it points at is a terminal `error`, so a
+        reconnecting card follows the job to a dead error with no queue view to reach the
+        still-pending row from.
+
+        **Order is the whole fix — reviews first, then jobs.** Only once the reviews are
+        reconciled is the set of jobs that *own a pending review* known, so a job whose
+        review points back at it can settle to `review` — the same terminal shape
+        `run_pipeline` uses when it first parks — and AGREE with its review. Failing jobs
+        first (the old order) reproduces the bug.
+
+        The three steps, in one transaction so the tables can never be seen half-reconciled:
+
+        1. Reviews stranded `resolving` return to `pending` (`last_error` cleared — a crash
+           is not a failed pick, T-029 finding #3). Same effect as `reset_resolving_reviews`.
+        2. A `queued`/`running` job that now owns a `pending` review settles to `review`.
+           The set is computed AFTER step 1, so it captures both the just-reset rows and any
+           review already `pending` (job flipped to `running` by `submit_resolve`, restart
+           before the resolve claimed it) — both must agree to `review`, not `error`.
+        3. Every remaining `queued`/`running` orphan (no pending review — a bare interrupted
+           download, or a `queued` job that never started) fails to `error`: the in-memory
+           queue is gone, nothing is coming for it, and it would report `running` forever.
+           Step 2's winners are already `review`, so this UPDATE no longer touches them.
+
+        A parked-then-restarted job is untouched: `run_pipeline`'s first park already makes
+        `job=review` durable, and every step here only reads `queued`/`running`.
+        """
+        with self._connect() as conn:
+            reviews_reset = conn.execute(
+                "UPDATE reviews SET status = ?, last_error = NULL WHERE status = ?",
+                (REVIEW_PENDING, REVIEW_RESOLVING),
+            ).rowcount
+            jobs_reviewed = conn.execute(
+                "UPDATE jobs SET status = 'review' "
+                "WHERE status IN ('queued', 'running') "
+                "AND id IN (SELECT job_id FROM reviews WHERE status = ?)",
+                (REVIEW_PENDING,),
+            ).rowcount
+            jobs_errored = conn.execute(
+                "UPDATE jobs SET status = 'error' WHERE status IN ('queued', 'running')"
+            ).rowcount
+        return reviews_reset, jobs_reviewed, jobs_errored
 
 
 def _job_from_row(row: sqlite3.Row) -> Job:

@@ -1006,21 +1006,26 @@ class JobWorker:
     def start(self) -> None:
         if self._thread is not None:
             return
-        # Reconcile jobs orphaned by a previous crash/shutdown before accepting new
-        # work: the queue is in-memory, so anything still `queued`/`running` in the
-        # durable table will never run again and must not report `running` forever.
-        reconciled = self._store.fail_unfinished_jobs()
-        if reconciled:
+        # Reconcile jobs AND reviews orphaned by a previous crash/shutdown before
+        # accepting new work — one coordinated pass, reviews first. The in-memory queue
+        # does not survive a restart, so anything still `queued`/`running`/`resolving` in
+        # the durable tables will never be picked up again and must not report `running`
+        # forever. Order is the fix (T-104): a job whose review reconciles back to
+        # `pending` settles to `review` — agreeing with it — not `error`; failing jobs
+        # first (the old two-sweep order) recreated the T-029 orphan through the boot
+        # door. See Store.reconcile_orphans_on_boot for the ordering rationale.
+        reviews_reset, jobs_reviewed, jobs_errored = (
+            self._store.reconcile_orphans_on_boot()
+        )
+        if jobs_errored:
             logger.warning(
-                "marked %d interrupted job(s) as error on startup", reconciled
+                "marked %d interrupted job(s) as error on startup", jobs_errored
             )
-        # Same reasoning for reviews claimed by a resolve that never finished: the
-        # work queue is in-memory, so a `resolving` row has no worker coming for it
-        # and would be invisible to the queue forever. Return them to `pending`.
-        released = self._store.reset_resolving_reviews()
-        if released:
+        if reviews_reset or jobs_reviewed:
             logger.warning(
-                "returned %d interrupted review(s) to the queue on startup", released
+                "returned %d interrupted review(s) to the queue on startup "
+                "(%d job(s) settled to review to agree with them)",
+                reviews_reset, jobs_reviewed,
             )
         self._thread = threading.Thread(
             target=self._run, name="cleanmuzik-worker", daemon=True
@@ -1098,8 +1103,8 @@ class JobWorker:
         Best-effort: the sentinel makes the loop exit once the *current* job returns,
         but a real pipeline job can run far longer than `timeout` (a download alone
         can), so shutdown does not block on it. A job still in flight when the process
-        exits is reconciled to `error` on the next `start()` (fail_unfinished_jobs) —
-        that boot sweep, not this join, is what keeps the durable status honest.
+        exits is reconciled on the next `start()` (reconcile_orphans_on_boot) — that
+        boot sweep, not this join, is what keeps the durable status honest.
         """
         if self._thread is None:
             return
