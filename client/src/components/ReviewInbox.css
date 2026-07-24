@@ -1,0 +1,98 @@
+.review-inbox {
+  margin-top: 32px;
+  text-align: left;
+}
+
+.review-inbox__title {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--text);
+  margin: 0 0 12px;
+}
+
+.review-inbox__empty {
+  color: var(--text);
+  opacity: 0.7;
+  font-size: 15px;
+}
+
+.review-inbox__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.review-inbox__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--card-bg);
+  padding: 12px 16px;
+  box-shadow: var(--shadow);
+}
+
+.review-inbox__body {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.review-inbox__query {
+  font-size: 14px;
+  color: var(--text-h);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A parked review is waiting on the owner — the same "waiting" colour the card's
+   review pill uses (--warn), so the two surfaces read as one state. */
+.review-inbox__tag {
+  flex: none;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--warn);
+  background: var(--warn-bg);
+  border-radius: 999px;
+  padding: 2px 10px;
+}
+
+.review-inbox__action {
+  flex: none;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--accent);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 16px;
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+
+.review-inbox__action:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.review-inbox__action:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.review-inbox__action:disabled {
+  color: var(--text);
+  opacity: 0.5;
+  cursor: not-allowed;
+}
