@@ -21,7 +21,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 import app.jobs as jobs
-from app.db import Store
+from app.db import REVIEW_RESOLVING, Store
 from app.events import EventBus
 from app.import_seam import Outcome
 from app.jellyfin import JellyfinScanError
@@ -433,6 +433,81 @@ def test_worker_start_fails_orphaned_jobs(tmp_path):
 
     assert store.get_job(stuck.id).status == "error"
     assert store.get_job(done.id).status == "done"  # terminal rows untouched
+
+
+def test_worker_start_reconciles_inflight_resolve_to_agreement(tmp_path):
+    # T-104: a restart mid-resolve — job `running`, its review `resolving` — must leave
+    # the two in AGREEMENT: the review back to `pending` (resolvable) and the job settled
+    # to `review`, not a dead `error` over a live review. That job/review disagreement is
+    # the T-029 orphan, recreated through the boot door by the old two-sweep order that
+    # failed jobs blindly before reconciling reviews. A bare `running` job with no review
+    # still fails to `error`, unchanged.
+    store = _store(tmp_path)
+
+    resolving_job = store.create_job("u")
+    store.update_job_status(resolving_job.id, "running")
+    review = store.create_review(
+        resolving_job.id, str(tmp_path / "s"), "q", ["rec-A"], "none",
+        status=REVIEW_RESOLVING,
+    )
+
+    orphan = store.create_job("v")  # bare running, no review — the unchanged case
+    store.update_job_status(orphan.id, "running")
+
+    worker = JobWorker(store)
+    worker.start()  # reconciles on startup
+    worker.stop()
+
+    assert store.get_job(resolving_job.id).status == "review", (
+        "the job must follow its reset review to `review`, not settle to `error`"
+    )
+    assert store.get_review(review.id).status == "pending", (
+        "the review must return to the queue"
+    )
+    assert store.get_job(orphan.id).status == "error", (
+        "a running job with no pending review still fails to `error`"
+    )
+
+
+def test_worker_start_settles_running_job_with_already_pending_review(tmp_path):
+    # T-104 edge: `submit_resolve` flips the job to `running` but the review stays
+    # `pending` until the resolve claims it. A restart in that window leaves job=running,
+    # review=pending — already agreeing a review is due, so the job must settle to
+    # `review`, not `error`. The pending-review set is computed AFTER the resolving-reset
+    # precisely so it captures this already-pending row too, not only the just-reset ones.
+    store = _store(tmp_path)
+    job = store.create_job("u")
+    store.update_job_status(job.id, "running")
+    store.create_review(job.id, str(tmp_path / "s"), "q", ["rec-A"], "none")  # pending
+
+    worker = JobWorker(store)
+    worker.start()
+    worker.stop()
+
+    assert store.get_job(job.id).status == "review"
+
+
+def test_worker_start_resets_review_but_never_resurrects_a_terminal_job(tmp_path):
+    # T-104 edge: a `resolving` review whose job is already terminal (`done`) must still
+    # return to `pending` — losing that would strand it, the pre-existing
+    # reset_resolving_reviews behaviour — but the terminal job must NOT be dragged back to
+    # `review`. Only `queued`/`running` jobs are eligible to settle.
+    store = _store(tmp_path)
+    done_job = store.create_job("u")
+    store.update_job_status(done_job.id, "done")
+    review = store.create_review(
+        done_job.id, str(tmp_path / "s"), "q", ["rec-A"], "none",
+        status=REVIEW_RESOLVING,
+    )
+
+    worker = JobWorker(store)
+    worker.start()
+    worker.stop()
+
+    assert store.get_review(review.id).status == "pending"
+    assert store.get_job(done_job.id).status == "done", (
+        "a terminal job is never resurrected by the boot sweep"
+    )
 
 
 # --- JobWorker: one at a time, in order -------------------------------------
