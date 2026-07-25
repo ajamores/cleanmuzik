@@ -13,6 +13,20 @@ Format: `- <date> — what went wrong → the correction / rule now in place`
 
 ---
 
+- 2026-07-24 — (T-101 browser `/verify`, owner at the browser) **A long-running Vite dev server can
+  serve a stale transform of a file changed by a `git merge` rather than an editor save — HMR misses
+  the filesystem event, so `:5173` renders the *pre-merge* module while the new file sits correct on
+  disk.** T-101's cold-load inbox showed "No tracks yet" after a refresh; the backend had all 7 reviews
+  durably parked and the Vite proxy served them, `ReviewInbox.tsx` existed on disk and served 200, but
+  the `App.tsx` Vite served still imported only `{ createJob }` — the pre-T-101 version, with no
+  `ReviewInbox`. The merge landed the files via git, not through an editor write the watcher was
+  listening for. This nearly booked a **false FAIL** against correct code. Rule: **before browser-
+  verifying a frontend ticket, confirm the dev server is serving current code** — `curl
+  http://localhost:5173/src/App.tsx | grep <new-symbol>`, or just restart the dev server (and
+  `rm -rf client/node_modules/.vite` if it persists) after any `git merge`/`checkout` that touched
+  `client/`. The `--reload` uvicorn hazard already in `CLAUDE.md` has a Vite sibling: the same
+  "is the running process serving the merged code?" question, opposite failure mode (uvicorn re-runs
+  *too eagerly* on save; Vite *misses* a merge).
 - 2026-07-22 — (T-020, owner step-back after round-4 `/code-review`) **When a fix keeps generating
   review rounds, the defect may be the design, not the code — step back and check the requirement
   before patching again.** T-020's durable landing receipt (persist `path`/`tags` to the row, recover
@@ -625,3 +639,12 @@ Format: `- <date> — what went wrong → the correction / rule now in place`
   the server's `_finish_scan_failed` helper exists to prevent, reintroduced in the render layer.
   Extracting one `LandingDetail` fragment killed it. **Duplication caught on the server returns on the
   client unless the same "one source" habit crosses the boundary.**
+- 2026-07-25 — (Shazam spike setup) **Two sandbox gotchas when driving a real download/identify
+  outside the app.** (1) A plain `yt-dlp` audio pull **403s** here — YouTube now needs a JS runtime to
+  solve `nsig`, and the default (deno) isn't present. Fix: `yt-dlp --js-runtimes node` (node *is* on
+  PATH via nvm). The app's own downloads work because they ran before this tightened / use a different
+  client path; a from-scratch verify download does not, unless you pass the runtime. (2) `python3 -m
+  venv` fails — `ensurepip` / `python3.10-venv` isn't installed. Don't fight it: `uv venv` (uv is on
+  PATH) builds an isolated env cleanly, and keeps experiment deps (e.g. `shazamio`) **out of the
+  project venv**. Both are "spend the one cheap probe" wins — the first looked like YouTube blocking
+  us, the second like venvs being broken; neither was true.

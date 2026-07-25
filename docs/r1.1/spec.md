@@ -111,6 +111,8 @@ decision.
       covered by a two-sweep test.
 - [ ] The app renders in **Signal Path** (ADR-018): wordmark A, the single ambient line, art where it
       exists, no spectrum bars.
+- [ ] A review parked before a **machine reboot** is still resolvable after it — its staging audio lives
+      somewhere durable, not in the system temp, and orphaned staging dirs are swept at boot (T-106).
 - [ ] Green on `main`, both suites, per the DoD.
 
 ## Design artifacts (the signed-off gates)

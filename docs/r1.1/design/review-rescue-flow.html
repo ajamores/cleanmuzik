@@ -1,0 +1,352 @@
+<title>Re-search escape hatch — flow screens</title>
+<style>
+  :root {
+    --bg: #0d1418; --bg-2: #101a1f; --surface: #172329; --surface-2: #1d2b32;
+    --line: #26383f; --line-strong: #33505a;
+    --text: #e8f0f2; --text-2: #a7bcc4; --muted: #7994a0;
+    --accent: #3fb6d8; --accent-dim: #2b7f97;
+    --good: #45c9a0; --warn: #e0a24e; --bad: #e26a60;
+    --good-bg: rgba(69,201,160,0.12); --warn-bg: rgba(224,162,78,0.12); --bad-bg: rgba(226,106,96,0.12);
+    --accent-bg: rgba(63,182,216,0.12);
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --mono: ui-monospace, "SF Mono", "Cascadia Code", "JetBrains Mono", Menlo, monospace;
+    --shadow: 0 10px 34px rgba(0,0,0,0.4);
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #eef3f4; --bg-2: #e7eeef; --surface: #ffffff; --surface-2: #f3f8f9;
+      --line: #d3dee1; --line-strong: #b6c8cd; --text: #10201f; --text-2: #3c565c; --muted: #5f7981;
+      --accent: #147a97; --accent-dim: #1c93b3;
+      --good: #1f9b78; --warn: #b3781f; --bad: #c34d43;
+      --good-bg: rgba(31,155,120,0.12); --warn-bg: rgba(179,120,31,0.12); --bad-bg: rgba(195,77,67,0.12);
+      --accent-bg: rgba(20,122,151,0.12); --shadow: 0 10px 28px rgba(20,40,45,0.10);
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg:#0d1418;--bg-2:#101a1f;--surface:#172329;--surface-2:#1d2b32;--line:#26383f;--line-strong:#33505a;
+    --text:#e8f0f2;--text-2:#a7bcc4;--muted:#7994a0;--accent:#3fb6d8;--accent-dim:#2b7f97;
+    --good:#45c9a0;--warn:#e0a24e;--bad:#e26a60;--good-bg:rgba(69,201,160,0.12);--warn-bg:rgba(224,162,78,0.12);
+    --bad-bg:rgba(226,106,96,0.12);--accent-bg:rgba(63,182,216,0.12);--shadow:0 10px 34px rgba(0,0,0,0.4);
+  }
+  :root[data-theme="light"] {
+    --bg:#eef3f4;--bg-2:#e7eeef;--surface:#ffffff;--surface-2:#f3f8f9;--line:#d3dee1;--line-strong:#b6c8cd;
+    --text:#10201f;--text-2:#3c565c;--muted:#5f7981;--accent:#147a97;--accent-dim:#1c93b3;
+    --good:#1f9b78;--warn:#b3781f;--bad:#c34d43;--good-bg:rgba(31,155,120,0.12);--warn-bg:rgba(179,120,31,0.12);
+    --bad-bg:rgba(195,77,67,0.12);--accent-bg:rgba(20,122,151,0.12);--shadow:0 10px 28px rgba(20,40,45,0.10);
+  }
+
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font-family:var(--sans); line-height:1.55; -webkit-font-smoothing:antialiased; }
+  .wrap { max-width: 1120px; margin:0 auto; padding: clamp(1.4rem,4vw,3.2rem) clamp(1rem,4vw,2.6rem) 5rem; }
+
+  .eyebrow { font-family:var(--mono); font-size:0.72rem; letter-spacing:0.16em; text-transform:uppercase; color:var(--accent); display:flex; gap:0.8rem; flex-wrap:wrap; align-items:center; }
+  .eyebrow .muted { color:var(--muted); }
+  h1 { font-size:clamp(1.8rem,4.4vw,3rem); line-height:1.06; letter-spacing:-0.02em; text-wrap:balance; margin:1rem 0 0.7rem; font-weight:680; }
+  .lede { font-size:clamp(1rem,1.7vw,1.15rem); color:var(--text-2); max-width:64ch; margin:0; }
+  .note-static { margin-top:1.3rem; display:flex; gap:0.7rem; align-items:flex-start; font-size:0.88rem; color:var(--text-2); background:var(--accent-bg); border:1px solid var(--line); border-left:4px solid var(--accent); border-radius:9px; padding:0.75rem 1rem; max-width:70ch; }
+  .note-static b { color:var(--accent); font-family:var(--mono); font-size:0.78rem; letter-spacing:0.05em; }
+
+  /* progress rail */
+  .rail { display:flex; flex-wrap:wrap; gap:0.5rem; margin-top:1.8rem; }
+  .rail .pip { font-family:var(--mono); font-size:0.72rem; letter-spacing:0.04em; color:var(--muted); border:1px solid var(--line); border-radius:999px; padding:0.3rem 0.7rem; display:flex; gap:0.45rem; align-items:center; }
+  .rail .pip b { color:var(--accent); }
+
+  .screen { margin-top: clamp(2.6rem,5vw,4rem); }
+  .screen-head { display:flex; align-items:baseline; gap:0.9rem; margin-bottom:1.1rem; flex-wrap:wrap; }
+  .screen-num { font-family:var(--mono); font-weight:600; font-size:0.9rem; color:var(--accent); border:1px solid var(--accent-dim); border-radius:8px; padding:0.2rem 0.55rem; }
+  .screen-head h2 { margin:0; font-size:clamp(1.15rem,2.1vw,1.55rem); font-weight:640; letter-spacing:-0.01em; }
+  .screen-cap { margin:0.2rem 0 1.3rem; color:var(--text-2); font-size:0.98rem; max-width:74ch; }
+  .screen-cap .k { color:var(--accent); font-weight:600; }
+
+  /* app frame */
+  .frame { background:var(--bg-2); border:1px solid var(--line-strong); border-radius:16px; box-shadow:var(--shadow); overflow:hidden; }
+  .appbar { display:flex; align-items:center; gap:0.6rem; padding:0.7rem 1.1rem; background:linear-gradient(180deg,var(--surface),var(--bg-2)); border-bottom:1px solid var(--line); }
+  .appbar .logo { width:9px; height:9px; border-radius:50%; background:var(--accent); box-shadow:0 0 0 3px var(--accent-bg); }
+  .appbar .name { font-family:var(--mono); font-size:0.78rem; letter-spacing:0.08em; color:var(--text-2); }
+  .appbar .crumb { font-family:var(--mono); font-size:0.72rem; color:var(--muted); }
+  .appbar .count { margin-left:auto; font-family:var(--mono); font-size:0.7rem; color:var(--muted); border:1px solid var(--line); border-radius:999px; padding:0.15rem 0.55rem; }
+  .stage { padding: clamp(1.1rem,3vw,1.8rem); }
+  .stage-title { font-family:var(--mono); font-size:0.72rem; letter-spacing:0.12em; text-transform:uppercase; color:var(--muted); margin:0 0 0.9rem; }
+
+  /* review card */
+  .rcard { background:var(--surface); border:1px solid var(--line); border-radius:12px; padding:1.2rem 1.25rem 1.3rem; display:flex; flex-direction:column; gap:1rem; }
+  .rquery { display:flex; gap:0.8rem; align-items:flex-start; }
+  .rquery .art { width:44px; height:44px; border-radius:8px; background:var(--surface-2); border:1px solid var(--line); display:flex; align-items:center; justify-content:center; color:var(--muted); flex:none; }
+  .rquery .art svg { width:22px; height:22px; }
+  .rquery .meta { display:flex; flex-direction:column; gap:0.3rem; min-width:0; }
+  .rquery .title { font-weight:620; font-size:1.02rem; letter-spacing:-0.01em; word-break:break-word; }
+  .rquery .src { font-family:var(--mono); font-size:0.72rem; color:var(--muted); }
+  .tag { align-self:flex-start; font-family:var(--mono); font-size:0.66rem; letter-spacing:0.06em; text-transform:uppercase; padding:0.2rem 0.5rem; border-radius:999px; border:1px solid currentColor; white-space:nowrap; }
+  .tag.weak { color:var(--warn); background:var(--warn-bg); }
+  .tag.strong { color:var(--good); background:var(--good-bg); }
+
+  .cand-list { display:flex; flex-direction:column; gap:0.4rem; }
+  .cand-list .caption { font-family:var(--mono); font-size:0.7rem; letter-spacing:0.08em; text-transform:uppercase; color:var(--muted); margin-bottom:0.15rem; }
+  .cand { display:grid; grid-template-columns:20px 1fr auto; gap:0.75rem; align-items:center; padding:0.65rem 0.75rem; border:1px solid var(--line); border-radius:9px; background:var(--surface-2); }
+  .cand .dot { width:15px; height:15px; border-radius:50%; border:2px solid var(--line-strong); }
+  .cand.sel { border-color:var(--accent); background:var(--accent-bg); }
+  .cand.sel .dot { border-color:var(--accent); background:radial-gradient(circle at center, var(--accent) 0 4px, transparent 5px); }
+  .cand .c-meta { min-width:0; }
+  .cand .c-title { font-size:0.94rem; font-weight:560; }
+  .cand .c-artist { font-size:0.82rem; color:var(--text-2); }
+  .cand .score { display:flex; flex-direction:column; align-items:flex-end; gap:0.28rem; }
+  .cand .score .num { font-family:var(--mono); font-size:0.82rem; font-variant-numeric:tabular-nums; }
+  .cand .meter { width:74px; height:5px; border-radius:3px; background:var(--line); overflow:hidden; }
+  .cand .meter i { display:block; height:100%; border-radius:3px; }
+  .cand.low .num { color:var(--warn); }
+  .cand.low .meter i { background:var(--warn); }
+  .cand.hi .num { color:var(--good); }
+  .cand.hi .meter i { background:var(--good); }
+
+  .actions { display:flex; gap:0.6rem; align-items:center; flex-wrap:wrap; padding-top:0.2rem; }
+  .actions .spacer { flex:1; }
+  .btn { font-family:var(--sans); font-size:0.86rem; font-weight:560; padding:0.55rem 1rem; border-radius:8px; border:1px solid var(--line-strong); background:var(--surface-2); color:var(--text); cursor:default; }
+  .btn.ghost { background:transparent; color:var(--text-2); }
+  .btn.primary { background:var(--accent); border-color:var(--accent); color:#04222b; font-weight:640; }
+  .btn.primary.off { background:var(--surface-2); border-color:var(--line); color:var(--muted); }
+  .btn.danger { background:transparent; border-color:color-mix(in srgb, var(--bad) 55%, var(--line)); color:var(--bad); }
+  .hint { font-size:0.8rem; color:var(--muted); }
+
+  /* the new fix-the-search box */
+  .fixbox { border:1px dashed var(--accent-dim); background:var(--accent-bg); border-radius:10px; padding:1rem 1.05rem 1.1rem; display:flex; flex-direction:column; gap:0.85rem; }
+  .fixbox .fx-head { display:flex; align-items:center; gap:0.5rem; font-family:var(--mono); font-size:0.72rem; letter-spacing:0.06em; text-transform:uppercase; color:var(--accent); }
+  .fields { display:grid; grid-template-columns:1fr 1fr; gap:0.7rem; }
+  @media (max-width:560px){ .fields { grid-template-columns:1fr; } }
+  .field { display:flex; flex-direction:column; gap:0.3rem; }
+  .field label { font-family:var(--mono); font-size:0.66rem; letter-spacing:0.08em; text-transform:uppercase; color:var(--muted); }
+  .input { font-family:var(--sans); font-size:0.92rem; padding:0.55rem 0.7rem; border-radius:8px; border:1px solid var(--line-strong); background:var(--surface); color:var(--text); }
+  .input.wrongish { color:var(--warn); border-color:color-mix(in srgb, var(--warn) 45%, var(--line)); }
+  .input.fixed { color:var(--good); border-color:color-mix(in srgb, var(--good) 45%, var(--line)); }
+  .fx-foot { display:flex; align-items:center; gap:0.7rem; flex-wrap:wrap; }
+  .swap-note { font-size:0.8rem; color:var(--text-2); }
+  .swap-note b { color:var(--warn); }
+
+  .empty { text-align:center; padding:1.4rem 1rem; border:1px dashed var(--line-strong); border-radius:10px; color:var(--text-2); background:var(--surface-2); }
+  .empty .big { font-weight:600; color:var(--text); margin-bottom:0.25rem; }
+  .adv-link { text-align:center; font-size:0.8rem; color:var(--muted); }
+  .adv-link u { color:var(--text-2); text-underline-offset:2px; }
+  .preview-line { display:flex; align-items:center; gap:0.65rem; font-size:0.87rem; color:var(--text-2); background:var(--surface-2); border:1px solid var(--line); border-radius:9px; padding:0.6rem 0.8rem; }
+  .preview-line .ph { width:32px; height:32px; border-radius:6px; border:1px dashed var(--line-strong); display:flex; align-items:center; justify-content:center; color:var(--muted); font-size:0.55rem; font-family:var(--mono); text-align:center; line-height:1.1; flex:none; }
+  .preview-line b { color:var(--text); font-weight:600; }
+  .tradeoff-note { display:flex; gap:0.6rem; align-items:flex-start; font-size:0.85rem; color:var(--text-2); background:var(--warn-bg); border:1px solid color-mix(in srgb, var(--warn) 30%, var(--line)); border-left:4px solid var(--warn); border-radius:9px; padding:0.65rem 0.85rem; }
+  .tradeoff-note b { color:var(--warn); font-family:var(--mono); font-size:0.72rem; letter-spacing:0.05em; }
+  .mbid { display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap; }
+  .mbid .input { flex:1; min-width:200px; font-family:var(--mono); font-size:0.82rem; }
+
+  .landed { display:flex; gap:0.9rem; align-items:center; padding:1.1rem 1.2rem; border:1px solid color-mix(in srgb, var(--good) 40%, var(--line)); background:var(--good-bg); border-radius:11px; }
+  .landed .check { width:34px; height:34px; border-radius:50%; background:var(--good); color:#04231a; display:flex; align-items:center; justify-content:center; flex:none; }
+  .landed .check svg { width:19px; height:19px; }
+  .landed .l-title { font-weight:620; }
+  .landed .l-sub { font-size:0.86rem; color:var(--text-2); }
+  .inbox-empty { margin-top:0.9rem; text-align:center; font-size:0.86rem; color:var(--muted); font-family:var(--mono); padding:0.9rem; border:1px dashed var(--line); border-radius:9px; }
+
+  footer { margin-top:3.4rem; padding-top:1.2rem; border-top:1px solid var(--line); font-family:var(--mono); font-size:0.73rem; color:var(--muted); display:flex; justify-content:space-between; gap:1rem; flex-wrap:wrap; }
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow"><span>CleanMuzik</span><span class="muted">/</span><span>Flow screens · re-search escape hatch</span><span class="muted">/</span><span class="muted">ADR-016 design gate</span></div>
+    <h1>What the rescue actually looks like</h1>
+    <p class="lede">Six moments of the same review, from today's dead-end to a corrected match landing in your library — including the two honest exits when MusicBrainz simply doesn't have the track. This is the "manual-resolution vertebra" made concrete: a field on the card where you supply the answer you already know.</p>
+    <div class="note-static"><span><b>STATIC MOCKS</b> &nbsp;These are flat screens, not a working app — one per moment in the flow, including the failure state. Look, then sign off; the build comes after. Nothing here is clickable.</span></div>
+    <div class="rail">
+      <span class="pip"><b>1</b> Dead-end today</span>
+      <span class="pip"><b>2</b> Fix the search</span>
+      <span class="pip"><b>3</b> Real match → accept</span>
+      <span class="pip"><b>4</b> Not in MusicBrainz</span>
+      <span class="pip"><b>5</b> Keep my own tags</span>
+      <span class="pip"><b>6</b> Landed</span>
+    </div>
+  </header>
+
+  <!-- SCREEN 1 -->
+  <section class="screen">
+    <div class="screen-head"><span class="screen-num">01</span><h2>Today — the dead-end</h2></div>
+    <p class="screen-cap">The track parked with five candidates, all wrong (scores in the <span class="k">0.3–0.4</span> range, nowhere near the 0.90 bar). Your only real move is <span class="k">Reject</span>, which throws the download away. You know the song — but there's nowhere to say so.</p>
+    <div class="frame">
+      <div class="appbar"><span class="logo"></span><span class="name">CleanMuzik</span><span class="crumb">/ Needs review</span><span class="count">1 waiting</span></div>
+      <div class="stage">
+        <div class="rcard">
+          <div class="rquery">
+            <div class="art"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg></div>
+            <div class="meta">
+              <span class="title">All Get Right ft. J Stone - Nipsey Hussle (Crenshaw Mixtape)</span>
+              <span class="src">from youtube.com · no fingerprint match</span>
+            </div>
+            <span class="tag weak">Weak match</span>
+          </div>
+          <div class="cand-list">
+            <span class="caption">Best guesses (text search)</span>
+            <div class="cand low"><span class="dot"></span><div class="c-meta"><div class="c-title">All Money In</div><div class="c-artist">Nipsey Hussle</div></div><div class="score"><span class="num">0.45</span><span class="meter"><i style="width:45%"></i></span></div></div>
+            <div class="cand low"><span class="dot"></span><div class="c-meta"><div class="c-title">Crenshaw</div><div class="c-artist">Nipsey Hussle</div></div><div class="score"><span class="num">0.44</span><span class="meter"><i style="width:44%"></i></span></div></div>
+            <div class="cand low"><span class="dot"></span><div class="c-meta"><div class="c-title">Blue Laces</div><div class="c-artist">Nipsey Hussle</div></div><div class="score"><span class="num">0.42</span><span class="meter"><i style="width:42%"></i></span></div></div>
+            <div class="cand low"><span class="dot"></span><div class="c-meta"><div class="c-title">The Hussle Way</div><div class="c-artist">Nipsey Hussle</div></div><div class="score"><span class="num">0.39</span><span class="meter"><i style="width:39%"></i></span></div></div>
+          </div>
+          <div class="actions">
+            <span class="hint">None of these is the song — but the card gives you no way to say what is.</span>
+            <span class="spacer"></span>
+            <span class="btn danger">Reject &amp; discard</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SCREEN 2 -->
+  <section class="screen">
+    <div class="screen-head"><span class="screen-num">02</span><h2>The new move — fix the search</h2></div>
+    <p class="screen-cap">A <span class="k">"None of these?"</span> control opens a small form, pre-filled with what the machine guessed. Here's the teaching moment: it read the title <span class="k">backwards</span> — it thinks the artist is "All Get Right…" and the title is "Nipsey Hussle…". You can see the mistake and correct it.</p>
+    <div class="frame">
+      <div class="appbar"><span class="logo"></span><span class="name">CleanMuzik</span><span class="crumb">/ Needs review</span><span class="count">1 waiting</span></div>
+      <div class="stage">
+        <div class="rcard">
+          <div class="rquery">
+            <div class="art"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg></div>
+            <div class="meta"><span class="title">All Get Right ft. J Stone - Nipsey Hussle (Crenshaw Mixtape)</span><span class="src">from youtube.com · no fingerprint match</span></div>
+            <span class="tag weak">Weak match</span>
+          </div>
+          <div class="fixbox">
+            <div class="fx-head"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg> None of these? Search again</div>
+            <div class="fields">
+              <div class="field"><label>Artist</label><input class="input wrongish" value="All Get Right ft. J Stone" readonly></div>
+              <div class="field"><label>Title</label><input class="input wrongish" value="Nipsey Hussle (Crenshaw Mixtape)" readonly></div>
+            </div>
+            <div class="fx-foot">
+              <span class="swap-note"><b>Looks reversed.</b> The real artist is on the wrong side.</span>
+              <span class="spacer" style="flex:1"></span>
+              <span class="btn ghost">Swap ⇄</span>
+              <span class="btn primary">Re-search</span>
+            </div>
+          </div>
+          <div class="actions">
+            <span class="spacer"></span>
+            <span class="btn danger">Reject &amp; discard</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SCREEN 3 -->
+  <section class="screen">
+    <div class="screen-head"><span class="screen-num">03</span><h2>Corrected — the real track comes back</h2></div>
+    <p class="screen-cap">You put the two words where they belong and hit Re-search. The app re-queries MusicBrainz with the right question and the actual recording returns at <span class="k">full confidence</span>. Select it, Accept — done. No heuristics, just the answer you already had.</p>
+    <div class="frame">
+      <div class="appbar"><span class="logo"></span><span class="name">CleanMuzik</span><span class="crumb">/ Needs review</span><span class="count">1 waiting</span></div>
+      <div class="stage">
+        <div class="rcard">
+          <div class="rquery">
+            <div class="art"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg></div>
+            <div class="meta"><span class="title">All Get Right ft. J Stone - Nipsey Hussle (Crenshaw Mixtape)</span><span class="src">re-searched · Nipsey Hussle — All Get Right</span></div>
+            <span class="tag strong">Match found</span>
+          </div>
+          <div class="fixbox">
+            <div class="fx-head">Searched again for</div>
+            <div class="fields">
+              <div class="field"><label>Artist</label><input class="input fixed" value="Nipsey Hussle" readonly></div>
+              <div class="field"><label>Title</label><input class="input fixed" value="All Get Right" readonly></div>
+            </div>
+          </div>
+          <div class="cand-list">
+            <span class="caption">New results</span>
+            <div class="cand hi sel"><span class="dot"></span><div class="c-meta"><div class="c-title">All Get Right</div><div class="c-artist">Nipsey Hussle, J. Stone · Crenshaw</div></div><div class="score"><span class="num">1.00</span><span class="meter"><i style="width:100%"></i></span></div></div>
+            <div class="cand low"><span class="dot"></span><div class="c-meta"><div class="c-title">All Get Right (Instrumental)</div><div class="c-artist">Nipsey Hussle</div></div><div class="score"><span class="num">0.61</span><span class="meter"><i style="width:61%"></i></span></div></div>
+          </div>
+          <div class="actions">
+            <span class="btn ghost">Search again</span>
+            <span class="spacer"></span>
+            <span class="btn danger">Reject</span>
+            <span class="btn primary">Accept selected</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SCREEN 4 -->
+  <section class="screen">
+    <div class="screen-head"><span class="screen-num">04</span><h2>When it's just not in MusicBrainz</h2></div>
+    <p class="screen-cap">Your re-search already asked MusicBrainz directly, in your words — so an empty result means the recording genuinely isn't in their database (normal for bootlegs, mixtape rips, and YouTube-only mixes). No dead panel: <span class="k">search again</span> with different terms, or — the real last resort — <span class="k">keep it with your own tags</span>.</p>
+    <div class="frame">
+      <div class="appbar"><span class="logo"></span><span class="name">CleanMuzik</span><span class="crumb">/ Needs review</span><span class="count">1 waiting</span></div>
+      <div class="stage">
+        <div class="rcard">
+          <div class="rquery">
+            <div class="art"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg></div>
+            <div class="meta"><span class="title">All Get Right ft. J Stone - Nipsey Hussle (Crenshaw Mixtape)</span><span class="src">re-searched “Nipsey Hussle — All Get Right” · no results</span></div>
+            <span class="tag weak">Not in MusicBrainz</span>
+          </div>
+          <div class="empty">
+            <div class="big">MusicBrainz doesn't have this one</div>
+            <div>You searched their whole database directly and it has no record of this recording — common for bootlegs, edits, and YouTube-only mixes.</div>
+          </div>
+          <div class="actions">
+            <span class="btn ghost">Search again</span>
+            <span class="spacer"></span>
+            <span class="btn danger">Reject</span>
+            <span class="btn primary">Keep with my tags</span>
+          </div>
+          <div class="adv-link">Already found it on MusicBrainz? <u>Paste the link instead</u></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SCREEN 5 -->
+  <section class="screen">
+    <div class="screen-head"><span class="screen-num">05</span><h2>Last resort — keep it with your own tags</h2></div>
+    <p class="screen-cap">For a track you want that no database knows. Type what you know and it lands in your library as-is — beets still writes the tags and files it, there's just no MusicBrainz match behind them. The honest trade-off is on the card: <span class="k">no cover art or auto-genre</span>, because those come from a match. In your library beats in the trash, and you can re-tag it later.</p>
+    <div class="frame">
+      <div class="appbar"><span class="logo"></span><span class="name">CleanMuzik</span><span class="crumb">/ Needs review</span><span class="count">1 waiting</span></div>
+      <div class="stage">
+        <div class="rcard">
+          <div class="rquery">
+            <div class="art"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg></div>
+            <div class="meta"><span class="title">All Get Right ft. J Stone - Nipsey Hussle (Crenshaw Mixtape)</span><span class="src">manual tags · no MusicBrainz match</span></div>
+            <span class="tag weak">Manual</span>
+          </div>
+          <div class="fixbox">
+            <div class="fx-head">Your tags</div>
+            <div class="fields">
+              <div class="field"><label>Artist</label><input class="input fixed" value="Nipsey Hussle" readonly></div>
+              <div class="field"><label>Title</label><input class="input fixed" value="All Get Right" readonly></div>
+              <div class="field"><label>Album <span style="color:var(--muted)">· optional</span></label><input class="input" value="Crenshaw" readonly></div>
+              <div class="field"><label>Year <span style="color:var(--muted)">· optional</span></label><input class="input" value="2013" readonly></div>
+            </div>
+          </div>
+          <div class="tradeoff-note"><span><b>HEADS UP</b> &nbsp;Lands without cover art or an auto-genre — both need a MusicBrainz match. You can re-tag it any time if it ever turns up in a database.</span></div>
+          <div class="preview-line"><span class="ph">no&nbsp;art</span><span>Will land as &nbsp;<b>Nipsey Hussle — All Get Right</b>&nbsp; in your Jellyfin library</span></div>
+          <div class="actions">
+            <span class="btn ghost">Back</span>
+            <span class="spacer"></span>
+            <span class="btn primary">Land with these tags</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SCREEN 6 -->
+  <section class="screen">
+    <div class="screen-head"><span class="screen-num">06</span><h2>Landed</h2></div>
+    <p class="screen-cap">However you resolved it — the real match from Screen 3, or your own tags from Screen 5 — it lands through the path that already exists, the same one auto-accepted tracks use, and the review clears. A MusicBrainz match brings cover art; keep-my-tags lands the same way, just without it.</p>
+    <div class="frame">
+      <div class="appbar"><span class="logo"></span><span class="name">CleanMuzik</span><span class="crumb">/ Needs review</span><span class="count">0 waiting</span></div>
+      <div class="stage">
+        <div class="landed">
+          <div class="check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M5 13l4 4L19 7"/></svg></div>
+          <div>
+            <div class="l-title">All Get Right — Nipsey Hussle, J. Stone</div>
+            <div class="l-sub">Tagged · cover art embedded · added to your Jellyfin library</div>
+          </div>
+        </div>
+        <div class="inbox-empty">Nothing waiting for review.</div>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <span>CleanMuzik · re-search escape hatch (T-034 → T-103)</span>
+    <span>Flat design-gate mocks · not wired up</span>
+  </footer>
+</div>

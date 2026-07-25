@@ -1,0 +1,601 @@
+<title>T-034 Panel Synthesis — CleanMuzik</title>
+<style>
+  :root {
+    --bg: #0d1418;
+    --bg-2: #121c21;
+    --surface: #172329;
+    --surface-2: #1d2b32;
+    --line: #26383f;
+    --line-strong: #33505a;
+    --text: #e8f0f2;
+    --text-2: #a7bcc4;
+    --muted: #7994a0;
+    --accent: #3fb6d8;
+    --accent-dim: #2b7f97;
+    --build: #45c9a0;
+    --defer: #e0a24e;
+    --drop: #e26a60;
+    --build-bg: rgba(69, 201, 160, 0.10);
+    --defer-bg: rgba(224, 162, 78, 0.10);
+    --drop-bg: rgba(226, 106, 96, 0.10);
+    --accent-bg: rgba(63, 182, 216, 0.10);
+    --shadow: 0 1px 0 rgba(255,255,255,0.02), 0 8px 30px rgba(0,0,0,0.35);
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --mono: ui-monospace, "SF Mono", "Cascadia Code", "JetBrains Mono", Menlo, monospace;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #eef3f4;
+      --bg-2: #e6edee;
+      --surface: #ffffff;
+      --surface-2: #f4f8f9;
+      --line: #d3dee1;
+      --line-strong: #b6c8cd;
+      --text: #10201f;
+      --text-2: #3c565c;
+      --muted: #5f7981;
+      --accent: #147a97;
+      --accent-dim: #1c93b3;
+      --build: #1f9b78;
+      --defer: #b3781f;
+      --drop: #c34d43;
+      --build-bg: rgba(31, 155, 120, 0.10);
+      --defer-bg: rgba(179, 120, 31, 0.10);
+      --drop-bg: rgba(195, 77, 67, 0.10);
+      --accent-bg: rgba(20, 122, 151, 0.10);
+      --shadow: 0 1px 2px rgba(20,40,45,0.05), 0 10px 28px rgba(20,40,45,0.08);
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0d1418; --bg-2: #121c21; --surface: #172329; --surface-2: #1d2b32;
+    --line: #26383f; --line-strong: #33505a; --text: #e8f0f2; --text-2: #a7bcc4;
+    --muted: #7994a0; --accent: #3fb6d8; --accent-dim: #2b7f97;
+    --build: #45c9a0; --defer: #e0a24e; --drop: #e26a60;
+    --build-bg: rgba(69,201,160,0.10); --defer-bg: rgba(224,162,78,0.10);
+    --drop-bg: rgba(226,106,96,0.10); --accent-bg: rgba(63,182,216,0.10);
+    --shadow: 0 1px 0 rgba(255,255,255,0.02), 0 8px 30px rgba(0,0,0,0.35);
+  }
+  :root[data-theme="light"] {
+    --bg: #eef3f4; --bg-2: #e6edee; --surface: #ffffff; --surface-2: #f4f8f9;
+    --line: #d3dee1; --line-strong: #b6c8cd; --text: #10201f; --text-2: #3c565c;
+    --muted: #5f7981; --accent: #147a97; --accent-dim: #1c93b3;
+    --build: #1f9b78; --defer: #b3781f; --drop: #c34d43;
+    --build-bg: rgba(31,155,120,0.10); --defer-bg: rgba(179,120,31,0.10);
+    --drop-bg: rgba(195,77,67,0.10); --accent-bg: rgba(20,122,151,0.10);
+    --shadow: 0 1px 2px rgba(20,40,45,0.05), 0 10px 28px rgba(20,40,45,0.08);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap {
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: clamp(1.4rem, 4vw, 3.5rem) clamp(1.1rem, 4vw, 3rem) 5rem;
+  }
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 0.74rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--accent);
+    display: flex;
+    gap: 0.9rem;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+  .eyebrow .dot { color: var(--muted); }
+  .eyebrow .muted { color: var(--muted); }
+
+  h1 {
+    font-size: clamp(1.9rem, 4.6vw, 3.3rem);
+    line-height: 1.04;
+    letter-spacing: -0.02em;
+    text-wrap: balance;
+    margin: 1.1rem 0 0.7rem;
+    font-weight: 680;
+  }
+  .lede {
+    font-size: clamp(1rem, 1.7vw, 1.18rem);
+    color: var(--text-2);
+    max-width: 60ch;
+    margin: 0;
+  }
+
+  section { margin-top: clamp(2.6rem, 5vw, 4rem); }
+  .sec-head {
+    display: flex;
+    align-items: baseline;
+    gap: 0.9rem;
+    margin-bottom: 1.3rem;
+    border-bottom: 1px solid var(--line);
+    padding-bottom: 0.6rem;
+  }
+  .sec-num {
+    font-family: var(--mono);
+    font-size: 0.8rem;
+    color: var(--accent);
+    letter-spacing: 0.05em;
+  }
+  .sec-head h2 {
+    font-size: clamp(1.15rem, 2vw, 1.5rem);
+    margin: 0;
+    font-weight: 640;
+    letter-spacing: -0.01em;
+  }
+  .sec-head .aside {
+    margin-left: auto;
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    text-transform: uppercase;
+  }
+
+  /* Hero trade-off statement */
+  .thesis {
+    margin-top: 2rem;
+    background:
+      linear-gradient(180deg, var(--surface), var(--bg-2));
+    border: 1px solid var(--line-strong);
+    border-radius: 14px;
+    padding: clamp(1.4rem, 3.5vw, 2.4rem);
+    box-shadow: var(--shadow);
+    position: relative;
+    overflow: hidden;
+  }
+  .thesis::before {
+    content: "";
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    width: 4px;
+    background: linear-gradient(180deg, var(--accent), var(--accent-dim));
+  }
+  .thesis .label {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 0.8rem;
+  }
+  .thesis p {
+    margin: 0;
+    font-size: clamp(1.3rem, 3vw, 2.05rem);
+    line-height: 1.18;
+    letter-spacing: -0.015em;
+    font-weight: 600;
+    text-wrap: balance;
+  }
+  .thesis .sub {
+    margin-top: 1rem;
+    font-size: 1rem;
+    color: var(--text-2);
+    font-weight: 400;
+    letter-spacing: 0;
+    max-width: 68ch;
+  }
+
+  .grid { display: grid; gap: 1rem; }
+  .cols-2 { grid-template-columns: repeat(2, 1fr); }
+  .cols-4 { grid-template-columns: repeat(4, 1fr); }
+  @media (max-width: 860px) { .cols-4 { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 620px) { .cols-2, .cols-4 { grid-template-columns: 1fr; } }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 1.15rem 1.2rem 1.25rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.55rem;
+  }
+  .card .lens {
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .card h3 {
+    margin: 0;
+    font-size: 1.02rem;
+    font-weight: 620;
+    letter-spacing: -0.01em;
+  }
+  .card p { margin: 0; font-size: 0.92rem; color: var(--text-2); }
+  .card .verdict {
+    margin-top: auto;
+    padding-top: 0.7rem;
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    color: var(--build);
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+  }
+  .card .verdict::before {
+    content: "";
+    width: 7px; height: 7px; border-radius: 50%;
+    background: var(--build);
+    box-shadow: 0 0 0 3px var(--build-bg);
+  }
+
+  .badge {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.06em;
+    padding: 0.28rem 0.6rem;
+    border-radius: 999px;
+    border: 1px solid currentColor;
+    white-space: nowrap;
+  }
+  .badge.agree { color: var(--build); background: var(--build-bg); }
+
+  /* Facts */
+  .fact {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 1.25rem 1.35rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+  }
+  .fact .tag {
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+  .fact h3 { margin: 0; font-size: 1.12rem; font-weight: 630; letter-spacing: -0.01em; }
+  .fact p { margin: 0; color: var(--text-2); font-size: 0.95rem; }
+  .fact code {
+    font-family: var(--mono);
+    font-size: 0.85em;
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    border-radius: 5px;
+    padding: 0.08em 0.38em;
+    color: var(--text);
+  }
+
+  /* Verdict table */
+  .table {
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    overflow: hidden;
+    background: var(--surface);
+  }
+  .row {
+    display: grid;
+    grid-template-columns: 132px 1fr;
+    border-top: 1px solid var(--line);
+  }
+  .row:first-child { border-top: none; }
+  .row .cell-verdict {
+    padding: 1rem 1.1rem;
+    font-family: var(--mono);
+    font-weight: 600;
+    font-size: 0.86rem;
+    letter-spacing: 0.05em;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    border-left: 4px solid transparent;
+  }
+  .row .cell-body { padding: 1rem 1.2rem; border-left: 1px solid var(--line); }
+  .row .cell-body h4 { margin: 0 0 0.25rem; font-size: 0.98rem; font-weight: 600; }
+  .row .cell-body p { margin: 0; font-size: 0.9rem; color: var(--text-2); }
+  @media (max-width: 620px) {
+    .row { grid-template-columns: 1fr; }
+    .row .cell-body { border-left: none; border-top: 1px solid var(--line); }
+  }
+  .v-drop  { color: var(--drop);  border-left-color: var(--drop)  !important; background: var(--drop-bg); }
+  .v-build { color: var(--build); border-left-color: var(--build) !important; background: var(--build-bg); }
+  .v-defer { color: var(--defer); border-left-color: var(--defer) !important; background: var(--defer-bg); }
+
+  /* Decisions */
+  .decision {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 1.3rem 1.4rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.9rem;
+  }
+  .decision > .d-head {
+    display: flex; gap: 0.7rem; align-items: baseline; flex-wrap: wrap;
+  }
+  .decision .d-head .q {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .decision h3 { margin: 0; font-size: 1.1rem; font-weight: 630; width: 100%; letter-spacing: -0.01em; }
+  .options { display: flex; flex-direction: column; gap: 0.55rem; }
+  .opt {
+    display: flex; gap: 0.7rem; align-items: flex-start;
+    padding: 0.7rem 0.85rem;
+    border: 1px solid var(--line);
+    border-radius: 9px;
+    background: var(--surface-2);
+    font-size: 0.92rem;
+    color: var(--text-2);
+  }
+  .opt.rec {
+    border-color: var(--accent-dim);
+    background: var(--accent-bg);
+    color: var(--text);
+  }
+  .opt .mark {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    color: var(--muted);
+    padding-top: 0.1rem;
+    white-space: nowrap;
+  }
+  .opt.rec .mark { color: var(--accent); font-weight: 600; }
+  .opt strong { color: var(--text); font-weight: 620; }
+  .rec-pill {
+    font-family: var(--mono);
+    font-size: 0.64rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--accent);
+    border: 1px solid var(--accent-dim);
+    border-radius: 999px;
+    padding: 0.12rem 0.45rem;
+    margin-left: 0.5rem;
+    vertical-align: middle;
+  }
+
+  /* Next steps */
+  .steps { display: grid; gap: 0.8rem; grid-template-columns: repeat(3, 1fr); }
+  @media (max-width: 760px) { .steps { grid-template-columns: 1fr; } }
+  .step {
+    border: 1px solid var(--line);
+    border-radius: 11px;
+    padding: 1.1rem 1.15rem;
+    background: var(--surface);
+    display: flex; flex-direction: column; gap: 0.5rem;
+  }
+  .step .k {
+    font-family: var(--mono);
+    font-size: 1.3rem;
+    font-weight: 600;
+    color: var(--accent);
+    line-height: 1;
+  }
+  .step h4 { margin: 0; font-size: 0.98rem; font-weight: 600; }
+  .step p { margin: 0; font-size: 0.88rem; color: var(--text-2); }
+
+  footer {
+    margin-top: 3.5rem;
+    padding-top: 1.3rem;
+    border-top: 1px solid var(--line);
+    font-family: var(--mono);
+    font-size: 0.74rem;
+    color: var(--muted);
+    display: flex; justify-content: space-between; gap: 1rem; flex-wrap: wrap;
+  }
+  .track-note {
+    margin-top: 1.4rem;
+    display: flex; gap: 0.7rem; align-items: center;
+    font-size: 0.9rem; color: var(--text-2);
+    background: var(--drop-bg);
+    border: 1px solid var(--line);
+    border-left: 4px solid var(--drop);
+    border-radius: 9px;
+    padding: 0.75rem 1rem;
+  }
+  .track-note b { color: var(--drop); font-family: var(--mono); font-size: 0.82rem; letter-spacing: 0.05em; }
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">
+      <span>CleanMuzik</span>
+      <span class="dot">/</span>
+      <span>Design-panel synthesis</span>
+      <span class="dot">/</span>
+      <span class="muted">Ticket T-034 · four independent reviewers</span>
+    </div>
+    <h1>Stop making the guess smarter. Make the miss cheap to fix.</h1>
+    <p class="lede">A track that should have been easy — Nipsey Hussle's "All Get Right" — parked with junk candidates because a reversed YouTube title fooled the text search. The question on the table: is the fix a taller auto-match engine, or a design change? Four reviewers, four lenses, one answer.</p>
+  </header>
+
+  <div class="thesis">
+    <div class="label">The trade-off</div>
+    <p>Accept that the machine stays “dumb” about messy titles at acquire time → gain a review card where the present owner supplies the right answer, retiring the whole heuristic tower and covering every case it could never crack.</p>
+    <p class="sub">At acquire time you're sitting right there and a miss costs one park plus one action. So the win isn't a higher auto-match rate — it's lowering the cost of the miss. Auto-match only earns its keep in R2 migrate: unattended, thousands of files.</p>
+  </div>
+
+  <section>
+    <div class="sec-head">
+      <span class="sec-num">01</span>
+      <h2>The panel converged</h2>
+      <span class="aside"><span class="badge agree">4 / 4 agree</span></span>
+    </div>
+    <div class="grid cols-4">
+      <div class="card">
+        <span class="lens">Backend · YAGNI</span>
+        <h3>The engine already lands any MBID.</h3>
+        <p>A growing tower of title-parsing heuristics sprouts edge cases forever. One validator is all that fences you to the junk candidates.</p>
+        <span class="verdict">Escape hatch, drop the tower</span>
+      </div>
+      <div class="card">
+        <span class="lens">Interaction design</span>
+        <h3>The queue is missing a vertebra.</h3>
+        <p>The only exit from bad candidates is Reject — which discards the track. There's nowhere to type the answer you already know.</p>
+        <span class="verdict">Build the re-search field</span>
+      </div>
+      <div class="card">
+        <span class="lens">Product architecture</span>
+        <h3>The axis is attendance × volume.</h3>
+        <p>Acquire is attended and low-volume; migrate is a firehose. ADR-010 already declined this exact cost once.</p>
+        <span class="verdict">Defer heuristics to R2</span>
+      </div>
+      <div class="card">
+        <span class="lens">Music-tagging domain</span>
+        <h3>It reinvents a standard gesture.</h3>
+        <p>beets and Picard both let a human paste an MBID or re-search. The tower rebuilds an escape hatch every tagger already ships.</p>
+        <span class="verdict">Native fix, ~one day</span>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head">
+      <span class="sec-num">02</span>
+      <h2>Two facts that settle it</h2>
+      <span class="aside">found independently</span>
+    </div>
+    <div class="grid cols-2">
+      <div class="fact">
+        <span class="tag">The engine is 90% there</span>
+        <h3>It can already land the correct track.</h3>
+        <p><code>resolve_import</code> / <code>_forced_match</code> take <em>any</em> MusicBrainz recording ID and land it — no fingerprint, no requirement it was ever a parked candidate. The only thing blocking the score-100 answer is one guard, <code>_validate_weak_match</code>, that restricts your choice to the five junk candidates.</p>
+      </div>
+      <div class="fact">
+        <span class="tag">The design hole</span>
+        <h3>You can reject a wrong answer, not supply the right one.</h3>
+        <p>The review card offers pick-a-candidate or Reject (which throws the track away). You know the answer is two words; there's no field for them. And every title the tower <em>can't</em> crack still lands in this same recourse-less panel — so the manual field is needed either way.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head">
+      <span class="sec-num">03</span>
+      <h2>What changes in T-034</h2>
+      <span class="aside">drop · build · defer</span>
+    </div>
+    <div class="table">
+      <div class="row">
+        <div class="cell-verdict v-drop">DROP</div>
+        <div class="cell-body">
+          <h4>Layer 0 — channel ↔ title matching</h4>
+          <p>Reinvents the manual escape hatch, and a naive version regresses the aggregator ("Trap Nation") case.</p>
+        </div>
+      </div>
+      <div class="row">
+        <div class="cell-verdict v-drop">DROP</div>
+        <div class="cell-body">
+          <h4>Layer 2 — scored inversion retry</h4>
+          <p>A network round-trip to guess what you could simply type. Can still pick the "less bad" side.</p>
+        </div>
+      </div>
+      <div class="row">
+        <div class="cell-verdict v-defer">DEFER → R2</div>
+        <div class="cell-body">
+          <h4>Layer 1 — pure cruft-regex</h4>
+          <p>Cheap and safe, but doesn't fix the inversion. Earns its place on unattended migrate volume, not here.</p>
+        </div>
+      </div>
+      <div class="row">
+        <div class="cell-verdict v-build">BUILD NOW</div>
+        <div class="cell-body">
+          <h4>Manual-resolution vertebra</h4>
+          <p>The missing exit: supply the right answer instead of only rejecting wrong ones. Lands through the existing resolve path.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head">
+      <span class="sec-num">04</span>
+      <h2>Two calls that are yours</h2>
+      <span class="aside">recommendation flagged</span>
+    </div>
+    <div class="grid cols-2">
+      <div class="decision">
+        <div class="d-head">
+          <span class="q">Decision A</span>
+          <h3>Ergonomics of the escape hatch</h3>
+        </div>
+        <div class="options">
+          <div class="opt rec">
+            <span class="mark">▍rec</span>
+            <div><strong>Re-search field</strong> <span class="rec-pill">recommended</span><br>Type the two words you know; the app runs the MusicBrainz search and repopulates candidates. Keeps you in-app.</div>
+          </div>
+          <div class="opt">
+            <span class="mark">alt</span>
+            <div><strong>Paste an MBID / MB URL</strong><br>Cheapest to build and exact — but sends you to musicbrainz.org to hunt the ID yourself. Keep as a power-user fallback.</div>
+          </div>
+          <div class="opt">
+            <span class="mark">alt</span>
+            <div><strong>Both</strong><br>Re-search as the everyday gesture, paste-MBID for the pathological cases. More surface to design.</div>
+          </div>
+        </div>
+      </div>
+      <div class="decision">
+        <div class="d-head">
+          <span class="q">Decision B</span>
+          <h3>Where it lives</h3>
+        </div>
+        <div class="options">
+          <div class="opt rec">
+            <span class="mark">▍rec</span>
+            <div><strong>Fold into T-103</strong> <span class="rec-pill">recommended</span><br>Same vertebra: "candidates can't resolve this → give me another exit." T-103's reject-only empty case is the degenerate form. Keeps it legitimately in R1.1.</div>
+          </div>
+          <div class="opt">
+            <span class="mark">alt</span>
+            <div><strong>Standalone R1.1 ticket</strong><br>The review spine is R1.1's whole job; treat the missing field as its own slice.</div>
+          </div>
+          <div class="opt">
+            <span class="mark">alt</span>
+            <div><strong>Keep out of R1.1</strong><br>Scope discipline — it's new capability, not remediation. Defer entirely.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head">
+      <span class="sec-num">05</span>
+      <h2>If you say go</h2>
+      <span class="aside">awaiting your call</span>
+    </div>
+    <div class="steps">
+      <div class="step">
+        <span class="k">a</span>
+        <h4>Rewrite T-034</h4>
+        <p>Repoint the ticket at the manual-resolution vertebra; drop Layers 0/2, note Layer 1 deferred to R2; fold against T-103.</p>
+      </div>
+      <div class="step">
+        <span class="k">b</span>
+        <h4>Draft the ADR</h4>
+        <p>Record the reversal: auto-match is bound to the migrate path; at acquire time a miss is resolved human-in-the-loop, not by smarter guessing. For your ratification.</p>
+      </div>
+      <div class="step">
+        <span class="k">c</span>
+        <h4>Design gate (ADR-016)</h4>
+        <p>New user-visible flow → flat HTML screens of the re-search row, including the "re-search found nothing" state, for sign-off before code.</p>
+      </div>
+    </div>
+
+    <div class="track-note">
+      <b>THIS TRACK</b>
+      <span>None of the candidates is the real "All Get Right." Accepting one mistags it — <strong>Reject</strong>. T-034 is the fix for the next one like it.</span>
+    </div>
+  </section>
+
+  <footer>
+    <span>CleanMuzik · R1.1 review-inbox slice</span>
+    <span>Panel: backend · interaction · architecture · domain — unanimous</span>
+  </footer>
+</div>

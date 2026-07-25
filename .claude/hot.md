@@ -1,7 +1,7 @@
 ---
 type: meta
 title: "Hot — cleanmuzik"
-updated: 2026-07-24
+updated: 2026-07-25
 tags:
   - meta
   - hot-cache
@@ -10,55 +10,58 @@ status: evergreen
 # Hot — cleanmuzik (personal YouTube → Jellyfin music tool)
 
 > This repo's own working-memory board — session continuity, loaded at session start via `/hot`.
-> A cache, not a journal: rewritten each save, never appended to. Durable knowledge lives in this
-> repo's stores (`docs/r1/adr.md` · `docs/learnings.md` · `docs/r1.1/` · `docs/backlog/` ·
-> `docs/roadmap.md` · git); business/vault learnings go to the garden via `/graft`.
+> A cache, not a journal: rewritten each save, never appended. Durable knowledge lives in this repo's
+> stores (`docs/r1/adr.md` · `docs/learnings.md` · `docs/r1.1/` · `docs/backlog/` · git); business/vault
+> learnings go to the garden via `/graft`.
 
 ## What this repo is
 
-CleanMuzik — personal YouTube → Jellyfin music tool. Purpose, stack, constraints and read-order
-are in `CLAUDE.md`; scope in `cleanmuzik-prd.md`. Not restated here.
+CleanMuzik — personal YouTube → Jellyfin music tool. Purpose, stack, constraints and read-order are in
+`CLAUDE.md`; scope in `cleanmuzik-prd.md`. Not restated here.
 
-## Current State (2026-07-24)
+## Current State (2026-07-25)
 
-- **On `main`, tree clean, pushed.** R1.1 is `in-build`. The filing (spec + tickets + ADR-017/018 +
-  roadmap row + backlog moves) is committed (`afe34f3`).
-- **T-104 and T-101 are DONE — merged to `main`** (`90d5854`, `700df62`), both suites green there
-  (backend 383, client 42 + lint/tsc).
-  - **T-104** — boot reconciliation: one transactional `reconcile_orphans_on_boot()` (reviews first,
-    then jobs owning a pending review → `review`, then remaining orphans → `error`). Superseded T-033.
-  - **T-101** — durable Needs-review inbox (`App.tsx`), fetched on cold load; live freshness via a
-    per-card `onReviewParked`/`onReviewResolved` nudge (no global EventSource). A cold-loaded review
-    shows but its Review action is **disabled** — resolving it in place is T-102.
+- **On `main`.** Nothing committed this session — a **pile of uncommitted docs** is staged in the tree:
+  `docs/backlog/T-035.md` (new) · `T-034.md` + backlog `README.md` (reframed) · `docs/r1.1/tickets.md`
+  (T-103 design note) · `docs/r1.1/design/*.html` (new, 2 files) · `docs/learnings.md` · plus the prior
+  session's `docs/r1.1/tickets.md` T-101/T-104 marks. **Commit when ready** (small, then tree is clean).
+- **T-101 + T-104 remain DONE + VERIFIED LIVE** (merged `700df62`, `90d5854`). No verify debt.
+- This session was **design/experiment, no code shipped.** Chased "an easy track parked with junk
+  candidates" → found the fingerprint pipeline is healthy (5 tracks auto-landed happy-path); the Nipsey
+  rip was a *reversed-title* text-search fallback. A 4-lens agent panel → consensus: **don't build the
+  T-034 auto-match tower — build a manual-resolution escape hatch** (re-search + keep-untagged), fold
+  into **T-103**. Flow drawn as 6 flat screens (`docs/r1.1/design/review-rescue-flow.html`).
 
-## ⟹ NEXT ACTIONS (in order)
+## ⟹ LIVE THREAD — continue next session
 
-1. **T-101 browser `/verify`** — owner-only, still pending: cold-load hydration + `EventSource`
-   freshness through the Vite proxy. Can't run headless. The one open item on the two landed tickets.
-2. **T-102** — lift the review lifecycle out of `TrackCard` into the inbox row (re-home `ReviewPanel`
-   + its re-hydration/keep-which/re-park paths); this is what makes a cold-loaded row **resolvable**.
-   Depends on T-101 (landed). The seam props are already additive for it.
-3. **T-103** — no-candidate park exits (reject required; keep-untagged only if cheap — design in-ticket).
-   Depends on T-101 + T-102.
-4. **T-105** — Signal Path reskin (ADR-018), last, skins the finished structure. Depends on T-101/T-102.
+**Shazam backup-fingerprint spike (`docs/backlog/T-035.md`).** n=1 decisive win: the track AcoustID
+couldn't fingerprint, **Shazam identified cold** (Nipsey Hussle — All Get Right). Identification-only,
+feeds beets/MB (ADR-005 intact). **Next: measure the lift** —
 
-## Deferred (right time, not now)
+1. Run Shazam over **every track in the parked review queue** (real DB ~8 reviews) → count auto-rescues.
+   *That rescue-rate number is the go/no-go.* Harness ready: `scratchpad/shazam-test/` (uv venv +
+   shazamio; audio via `yt-dlp --js-runtimes node`).
+2. Test the truly-obscure parked tracks (the Nines-outro TV-mix) → shows where Shazam *also* fails =
+   the residual the manual escape hatch still must cover.
+3. If go → draft an ADR (add Shazam backup tier) for owner ratification. Cautions: unofficial API; was
+   the *abandoned* engine (different now as a backup ID tier); network dep.
 
-- **Candidate-art thumbnails in the picker** — needs a per-candidate art lookup (ADR-010); own ticket.
-- **T-032** (job-card reload restore) — deferred by design (ADR-017: cards are ephemeral); backlog.
-- **Security-review pass** — timed to the Tailscale/phase-1 move (ADR-004), not before.
-- **R2** (playlists + migrate) — blocked on R1.1; migrate is a firehose into this same queue.
+## Also open (not the live thread)
+
+- **T-103 escape-hatch design** — awaiting owner sign-off (ADR-016 gate) + an ADR. Shazam outcome
+  affects *how often* the manual exit is hit, not whether it's needed. Screens filed.
+- **T-102** — original next build ticket (lift review lifecycle out of `TrackCard`). Still valid.
+- **T-034** — Layers 0/2 likely retired by T-035; Layer 1 kept for R2/migrate only.
+- **T-105** Signal Path reskin; **R2** migrate — later.
 
 ## Verifying
 
-- Owner's real servers: `:8137` (uvicorn `--reload`, real library — **do NOT POST jobs to it**) +
-  `:5173`. Editing a startup module (`db.py`) re-runs the lifespan on the live DB. Tests:
-  `./.venv/bin/pytest` from `server/`; `npm test` from `client/` (vitest cold start ~60s, not a hang).
-  R1.1 inbox is browser-behaviour → needs `/verify`.
+- Owner's real servers: `:8137` (uvicorn `--reload`, real library — **do NOT POST jobs to it**) + `:5173`
+  (Vite — restart after any merge/checkout touching `client/`). Isolate `DB_PATH` to a temp dir for
+  backend checks. Sandbox download gotcha: `yt-dlp --js-runtimes node` (plain pull 403s); `uv venv` not
+  `python3 -m venv`. Both in `docs/learnings.md` (2026-07-24, 2026-07-25).
 
 ## Where the rest of the context lives
 
-- **Durable stores:** `docs/roadmap.md` · `docs/r1.1/` (active) · `docs/r1/adr.md` (ADR-018 newest) ·
-  `docs/learnings.md` · `docs/r1/tickets.md` · `docs/r1/design/*.html` (signed-off gates) ·
-  `docs/backlog/` · `cleanmuzik-prd.md` · git (tag `r1-single-song`).
-- **Business/vault context** — the garden, via `/garden`.
+`docs/roadmap.md` · `docs/r1.1/` (active) · `docs/r1/adr.md` (ADR-018 newest) · `docs/learnings.md` ·
+`docs/backlog/` (T-035 live) · `docs/r1/design/*.html` · git (tag `r1-single-song`). Business/vault → `/garden`.

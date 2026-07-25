@@ -443,3 +443,36 @@ Format: `ADR-NNN — decision. Rationale. [date]`
   daily-driver voice, its mono-data discipline fitting durations/bitrates/scores, and the meter giving
   the progress rail — the product's spine — a native language. Full tokens + markup:
   `docs/r1/design/signal-path-tweaked.html`. (Owner decision, 2026-07-23, R1.1 skin sign-off.) [2026-07-23]
+
+- **ADR-019 — Shazam (`shazamio`) returns as a *backup identification tier* when AcoustID misses.
+  This deliberately reverses its abandonment; it does NOT reverse ADR-005.** The tier order is
+  `AcoustID → Shazam → manual re-search → keep-untagged`. Shazam answers only *"what is this?"*; its
+  artist + title feed the existing MusicBrainz search and **beets remains the tagging engine
+  (ADR-005 intact)**. The abandoned `music-cleaner` / secret-mode PRD used ShazamIO **as the engine** —
+  that stays rejected. Same library, different job; the distinction is the whole decision.
+  - **Two conditions, binding.** (1) **Identification only** — Shazam never writes tags, never picks a
+    release, never bypasses MusicBrainz. (2) **Fail-soft** — on any error, timeout, rate-limit or
+    no-match, the track parks exactly as it does today. This is a *condition of the decision*, not an
+    implementation detail: it is the reason the tier is safe on a small sample, because its worst case
+    is the current behaviour.
+  - **Normalisation is load-bearing, not incidental.** Shazam appends `(feat. X)` to titles; MusicBrainz
+    keeps featured artists in the credit, not the recording title. Passing Shazam's fields through
+    **verbatim scored 0 hits on 3 of 4**; stripping the trailing `(feat. …)` took all 4 to **score 100**.
+    Phrase-quote the fields — an unquoted `"<title> <artist>"` search returns garbage (top hits
+    *DJ Muggs — "Jay Z"*, *MERO — "Hussle Nipsey"*). ASCII-folding stylised artist glyphs (`JAŸ-Z`)
+    affects ranking, not hit/miss. ISRC is a cheap *first* probe, never the bridge: it hit for JAY-Z and
+    missed for Nipsey.
+  - **Rationale — evidence, then shape.** Over the owner's real parked queue Shazam identified **4 of 5
+    distinct tracks**, all clearing MusicBrainz at **score 100** (measurement + table in
+    `docs/backlog/T-035.md`). The sample is **n=5**, which would be too thin to justify anything that
+    could mis-tag — it is sufficient here *because* of the fail-soft condition. This also supersedes
+    **T-034's auto-match Layers 0/2**: identifying by audio beats un-mangling a dirty YouTube string.
+  - **Accepted risk, eyes open.** `shazamio` hits Shazam's private, reverse-engineered endpoints and may
+    break with no notice; it adds a network dependency. The owner has explicitly accepted this
+    ("willing to live with that it might not work because it's not an official library"). Mitigation is
+    the fail-soft condition plus keeping Shazam behind a seam that can be removed without touching the
+    pipeline — if it rots, the tier goes quiet and the queue returns to its present size.
+  - **Does not remove the manual escape hatch (T-103).** The one miss was the Nines `"Franklin"`
+    **music-video edit** — the same artist Shazam identified correctly elsewhere. The residual is a
+    particular *cut of audio*, not an obscure artist, and manual re-search / keep-untagged still owns it.
+  (Owner decision, 2026-07-25, on the T-035 rescue-rate measurement.) [2026-07-25]

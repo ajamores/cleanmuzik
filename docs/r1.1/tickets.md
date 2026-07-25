@@ -13,11 +13,18 @@ let the migrate/playlist story (R2) or candidate-art (deferred, ADR-010) creep i
 parallel. The client keystone is **T-101** (surface the queue); **T-102** (lift the lifecycle) depends
 on it; **T-103** (no-candidate exits) depends on both; **T-105** (reskin) skins the finished structure,
 so it goes last. T-101 ∥ T-104 is a clean fan-out (disjoint file sets: `client/` vs `server/`).
+**T-106** (durable staging) is server-internal and independent of the client chain — the owner sequenced
+it **next** (2026-07-25), and T-103's re-search exit is built on top of it, so it lands before T-103.
 
 ---
 
 ### T-101 — Review inbox: client consumes `GET /api/reviews` on cold load
-- **Status:** todo
+- **Status:** **DONE + VERIFIED LIVE** (merged `700df62`; browser `/verify` 2026-07-24). The cold-load
+  hydration was proven end-to-end: 7 reviews durably parked on the real backend (`:8137`), served through
+  the Vite proxy, all 7 rendered by the **Needs-review** inbox on a fresh load with no live card, Review
+  buttons correctly disabled (resolving-from-cold is T-102). Headless half confirmed earlier same session
+  (`GET /api/reviews` returns the durable queue after a restart). *Trap paid for:* a stale Vite dev server
+  served a pre-merge `App.tsx` and nearly booked a false FAIL → `docs/learnings.md` (2026-07-24).
 - **Depends on:** none (backend `GET /api/reviews` exists — T-014). 
 - **Agent:** front-end
 - **What:** Add a top-level **Needs-review inbox** to `App.tsx`, loaded from `GET /api/reviews` on
@@ -42,7 +49,19 @@ so it goes last. T-101 ∥ T-104 is a clean fan-out (disjoint file sets: `client
   the card unmounts** (reload mid-review, resolve from the inbox). Ties to §8 item 5.
 
 ### T-103 — No-candidate park exits (fix the 8b dead-end)
-- **Status:** todo
+- **Status:** todo — **design explored 2026-07-25 (draft, not gated yet).** This ticket widened from
+  "empty candidates" to the general *"candidates can't resolve this → give me another exit"* vertebra,
+  because a wrong-but-present candidate set (the Nipsey reversed-title case) is the same dead-end. Two
+  first-class exits emerged, drawn as flat screens in **`docs/r1.1/design/review-rescue-flow.html`**
+  (6 states) for the ADR-016 gate: **(1) Re-search** — owner types the corrected artist/title, the app
+  re-queries MusicBrainz in-app and repopulates candidates (the everyday gesture); **(2) Keep-untagged**
+  — land the file with owner-supplied tags, *no* MB match, honest trade-off shown (no cover art /
+  auto-genre, since those need a match). Reject stays required. Paste-an-MBID demoted to a quiet
+  "advanced" affordance. **Engine finding:** `resolve_import` / `_forced_match` (`import_seam.py`)
+  already lands an arbitrary recording; the main block is relaxing `_validate_weak_match`
+  (`reviews.py`). Keep-untagged is the bigger lift (land-without-match machinery). **Cross-ref:** the
+  Shazam spike (**backlog T-035**) may auto-rescue many of these upstream — it changes *how often* the
+  manual exit is hit, not *whether* it's needed. Sign-off + the ADR were left pending the owner's call.
 - **Depends on:** T-101, T-102
 - **Agent:** front-end + build (backend resolve path)
 - **What:** A review with **empty candidates** must render working exits, never a dead panel. **Reject**
@@ -55,7 +74,13 @@ so it goes last. T-101 ∥ T-104 is a clean fan-out (disjoint file sets: `client
   driven through the real stack and watched (`/verify`, browser). Ties to §8 item 4.
 
 ### T-104 — Boot reconciliation: job/review agreement (from backlog T-033)
-- **Status:** todo — **HIGH** (real bug, pre-existing on `main`).
+- **Status:** **DONE + VERIFIED LIVE** (merged `90d5854`; `/verify` 2026-07-24). One transactional
+  `reconcile_orphans_on_boot()` (reviews first, then jobs owning a pending review → `review`, then
+  remaining orphans → `error`) replaces the two disagreeing sweeps. Driven through the real ASGI socket on
+  an isolated temp DB seeded with all five orphan shapes: mid-resolve crash (job=running + review=resolving)
+  and submit-resolve-then-restart (job=running + review=pending) both settle to `review` **agreeing** with
+  their `pending` review (`last_error` cleared, T-029 finding #3); bare running/queued orphans → `error`;
+  a durable `review`+`pending` pair untouched; a second boot reconciles `(0,0,0)` (idempotent).
 - **Depends on:** none (server-internal; disjoint from the client tickets — fan out with T-101).
 - **Agent:** build
 - **What:** The two boot sweeps in `JobWorker.start` (`server/app/jobs.py`) don't coordinate:
@@ -84,6 +109,52 @@ so it goes last. T-101 ∥ T-104 is a clean fan-out (disjoint file sets: `client
   + markup are in `docs/r1/design/signal-path-tweaked.html`. This is **ADR-018**.
 - **Done when:** the app renders in Signal Path per the artifact — wordmark A, the single ambient line,
   art where it exists, no spectrum — light/dark both legible, reduced-motion honoured. Ties to §8 item 7.
+
+### T-106 — Parked audio lives in `/tmp` and gets reaped (from backlog T-036)
+- **Status:** todo — **BUG, HIGH. Owner sequenced this next** (2026-07-25), ahead of the Shazam tier
+  build (ADR-019). **Pulled into R1.1** on filing: born in the backlog on the reading that §8 item 1 is
+  satisfiable by restarting `uvicorn` alone (which `/tmp` survives) — but item 1 promises a review
+  survives a *restart*, and a machine reboot reaps `/tmp`. Leaving it in the backlog would tick the box
+  by choosing the gentler restart. `docs/backlog/T-036.md` git-removed on filing; full evidence below.
+- **Depends on:** none (server-internal; disjoint from the client tickets — fans out with T-102/T-103).
+- **Agent:** build (server)
+- **The bug in one line:** a parked review's row is durable; the audio it points at is not. The row
+  outlives the song.
+- **Evidence (2026-07-25, the owner's live DB).** **9 of 10 live reviews point at a `/tmp/cleanmuzik-*`
+  directory that no longer exists.** The 10th is the proof of mechanism: *Frank Ocean — Strawberry
+  Swing*, parked 16:39 that day, **has its audio**. The only variable is **age** — nothing in the app
+  deleted them; the OS reaped the older dirs while they waited. **The UI cannot see this:**
+  `GET /api/reviews` and `GET /api/reviews/{id}` never stat the file, so the inbox renders ten
+  healthy-looking rows, nine of which cannot be resolved. Verified against the running server on `:8137`.
+- **Why it's a gap, not a decision.** Both halves were decided correctly and never introduced to each
+  other. *Retention* was specified emphatically (`docs/r1/spec.md:148` — *"a parked song KEEPS its
+  staging file… deleting it makes the resolve unimplementable"*) and the code honours it
+  (`run_pipeline`'s `finally` skips the `rmtree` when `retain_staging`). *Location* was never chosen:
+  `jobs.py:275` calls `mkdtemp(prefix="cleanmuzik-", dir=staging_root)` and `staging_root` **defaults to
+  the system temp** — the comment at `jobs.py:272` shows the setting was added so *pytest* could stage
+  under a `tmp_path`. The production default was inherited from `tempfile`, not decided. So the app
+  faithfully retains the file in a directory the OS is entitled to delete.
+- **What:** the one-line version (repoint `staging_root`) is a trap — **`/tmp` was doing free garbage
+  collection.** Parked staging dirs are only cleaned at resolve time and a review can sit indefinitely,
+  so a durable root without a sweep trades a broken queue for a filling disk. Four parts:
+  1. **Durable staging root.** Default `staging_root` to a real location (e.g. under `server/data/`),
+     not the system temp. Keep it overridable so tests still stage under `tmp_path`.
+  2. **Own the cleanup `/tmp` was doing.** Sweep orphaned `cleanmuzik-*` dirs with no matching pending
+     review at boot — `Store.reconcile_orphans_on_boot` (T-104) is the obvious home. Without this,
+     item 1 is a disk leak.
+  3. **Fail loudly, not weirdly, on a missing file.** The resolve path has no existence check
+     (`_incoming_detail` guards with `os.path.isfile`; nothing else does). A missing staging file should
+     surface a clear reason, not an opaque beets failure. Ties to T-103's exits.
+  4. **Clear the 9 dead rows — selectively.** *(Owner decision 2026-07-25: delete, don't re-download —
+     they were never tagged, so nothing is lost.)* **Selective is load-bearing:** delete rows whose file
+     is missing, never "clear the queue", which would take the healthy Frank Ocean review with it.
+- **Blast radius:** **T-103**'s re-search exit assumes the audio is still on disk to re-import — built on
+  this hole, it inherits it. Spec §7 promises parked reviews *"can still be resolved"*; today 9 of 10
+  cannot.
+- **Done when:** a review parked before a **machine reboot** is still resolvable after it, demonstrated
+  end-to-end (`/verify`): park a track, restart, resolve, confirm the tagged MP3 lands in Jellyfin. Plus
+  a boot with orphaned staging dirs sweeps them, and the dead rows are gone while the healthy one
+  survives. Ties to §8 items 1 + 8 (the reboot item, added with this ticket).
 
 ---
 

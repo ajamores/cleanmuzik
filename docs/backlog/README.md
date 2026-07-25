@@ -15,6 +15,9 @@ Two tiers live here:
   - [`T-031.md`](T-031.md) — recover the album when it's real (Topic-channel rips, same-album clusters)
   - [`T-032.md`](T-032.md) — browser reload loses all job cards (no restore-on-load)
   - [`T-033.md`](T-033.md) — boot reconciliation strands a review whose resolve was in flight at restart *(pre-existing bug, HIGH)*
+  - [`T-034.md`](T-034.md) — query normalization before the text-search fallback (reversed `Title - Artist`, `ft.`/mixtape cruft) *(likely superseded by T-035)*
+  - [`T-035.md`](T-035.md) — Shazam as a backup fingerprint tier when AcoustID misses *(measured 4/5; **GO — ratified as ADR-019**; build ticket still to write)*
+  - ~~`T-036.md`~~ — parked audio lives in `/tmp` and gets reaped *(BUG, HIGH — **graduated same day into R1.1 as T-106**; it breaks §8 item 1, which promises a review survives a restart. File removed on filing; the evidence lives in `docs/r1.1/tickets.md`.)*
 - **Unscoped ideas** — broader directions not yet worked into tickets:
 
 - Playlist support (batch of tracks from one URL)
