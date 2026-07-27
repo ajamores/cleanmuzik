@@ -669,3 +669,31 @@ Format: `- <date> — what went wrong → the correction / rule now in place`
   data out of a self-cleaning location, the same change must add the sweep — and the sweep's root
   should be **derived from the data it belongs to** (here `db_path.parent`), so a test store can
   never reach production data no matter how the caller wires it.
+- 2026-07-27 — (T-106 review) **A derived path inherits the whole regime of the thing it derives
+  from — including the ones nobody chose.** `staging_root = db_path.parent / "staging"` reads as
+  "beside the DB", and the previous lesson (above) endorses deriving it. But *this* repo lives under
+  `.../OneDrive/Documents/GitHub/`, so the default put every parked review's audio inside a
+  cloud-synced tree: uploads of every download, Files On-Demand able to dehydrate a long-parked MP3
+  into a placeholder WSL can't open (while `isfile` still answers True, so `staging_missing` reports
+  the row healthy), and sync handles that make `rmtree` fail silently. The ticket said "e.g. under
+  `server/data/`" and nobody asked what `server/` was *inside*. Fixed by pointing `DB_PATH` at the
+  Linux filesystem — one value places the whole data dir, so the derivation stayed. Rule: when you
+  derive a data path from a code path, state out loud which filesystem, sync, and backup regime the
+  code path is under — "beside the DB" is only a location, not a policy.
+- 2026-07-27 — (T-106 review) **`os.path.isfile` swallows `OSError` internally, so wrapping it in
+  `try/except OSError` yields an unreachable handler.** `_staging_missing` did exactly that, promising
+  a warning for an unstattable path that could never fire — and worse, returned "missing" for a file
+  that was present but unreadable, which sends the owner to re-download a song already on disk. The
+  code *looked* defensive and was the opposite. Rule: `isfile`/`isdir`/`exists` answer False on error
+  by design; when the difference between "absent" and "unreadable" matters to the caller, call
+  `os.stat` and handle the exception yourself.
+- 2026-07-27 — (T-106 review) **A test that drives an invariant through a path which already
+  normalized the state cannot fail for the reason it claims.** Two sweep tests asserted the
+  load-bearing rules (a `resolving` row still claims its staging; the sweep must precede the worker
+  thread). Both drove `JobWorker.start()` — where `reconcile_orphans_on_boot` has already flipped
+  `resolving` to `pending`, and where an empty queue means the thread never interacts with the sweep.
+  Filtering the claim set to pending-only, or moving the sweep after the thread start, left all 390
+  tests green. The invariant with data loss behind it was guarded by prose only. Rule: for a test
+  whose subject is an *ordering* or a *status* invariant, mutate the code to break it and watch the
+  test fail before believing it. Both replacements here were mutation-proved; call the unit directly
+  rather than through the orchestrator that pre-normalizes its inputs.

@@ -111,9 +111,28 @@ it **next** (2026-07-25), and T-103's re-search exit is built on top of it, so i
   art where it exists, no spectrum — light/dark both legible, reduced-motion honoured. Ties to §8 item 7.
 
 ### T-106 — Parked audio lives in `/tmp` and gets reaped (from backlog T-036)
-- **Status:** **BUILT (not merged) 2026-07-25** on `worktree-t106-durable-staging`; 390 tests green.
-  Items 1–3 done, **item 4 (the owner's 9 dead rows) still open** — it needs the live DB, not the
-  worktree. Owner still to run `/code-review` (agent-invocable skills are user-triggered only).
+- **Status:** **INTEGRATED on `main` 2026-07-27 (`eb5865e`), one gate short of done.** 394 tests green
+  on `main`. **All four items landed and were observed:**
+  - **Item 1+2.** Staging is durable and lives at `/home/armand/cleanmuzik-data/staging` — the
+    **Linux filesystem, not `server/data/`**. That path is inside the OneDrive-synced repo tree, so the
+    original wording would have swapped the OS reaper for a sync engine (uploads of every download;
+    Files On-Demand able to dehydrate a parked MP3 into a placeholder WSL can't open *while `isfile`
+    still answers True*; sync handles making `rmtree` fail silently). Owner decision 2026-07-27.
+    `DB_PATH` places the whole data dir — the beets library DB derives from the same parent — so the
+    "derived, not configured" correction below still holds; there is still no separate staging setting.
+    Documented in `.env.example`; rationale in `docs/learnings.md`.
+  - **Item 4.** The Frank Ocean review was migrated to the new root with its row repointed, then the
+    9 dead rows were deleted **selectively by file-existence**. Inbox is now 1 review,
+    `staging_missing: false`, 5 candidates. DB backed up before the surgery.
+  - **The sweep, observed.** A genuine restart with a planted decoy logged `swept 1 orphaned staging
+    dir(s) on startup`, removed it, and left both the claimed dir and a foreign non-prefixed dir alone.
+  **A high-effort `/code-review` found 10 issues; the 8 code ones are fixed in `7fbde7f`** — reject and
+  transcode now clean up after themselves, the sweep logs its failures and is opt-in to the process
+  that owns the data dir, it runs off the event loop, the unreachable stat warning is reachable, and
+  two sweep tests that passed under mutation were replaced with mutation-proved ones.
+  **Outstanding — the last gate:** the end-to-end `/verify` in Done-when (park a track, restart,
+  resolve, confirm the tagged MP3 lands in Jellyfin). Owner-triggered, and it needs a real download
+  plus a write to the real library.
   **Two corrections to this ticket, made while building it:**
   - **Item 3 was already done.** The claim "the resolve path has no existence check" was wrong —
     `jobs.py:503` has guarded it with a *terminal* `_StageFailure` naming the missing file since
