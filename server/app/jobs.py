@@ -270,9 +270,25 @@ def run_pipeline(
     # One staging dir per job — download/transcode both write here, and it is the
     # single thing to remove on cleanup. Owned here (not left to download_fn's
     # default) so cleanup is unconditional regardless of where a failure lands.
-    # `staging_root` (default: the system temp) lets tests keep staging under a
-    # tmp_path pytest cleans, rather than leaking real /tmp dirs on the parked path.
-    staging_dir = Path(tempfile.mkdtemp(prefix="cleanmuzik-", dir=staging_root))
+    # The root defaults to the store's own (T-106) and is durable: a park retains this
+    # dir, and the system temp is not a place to leave something for days — see
+    # `Store.staging_root`. The parameter still overrides it so tests stage under a
+    # `tmp_path` pytest cleans.
+    root = staging_root if staging_root is not None else store.staging_root
+    try:
+        root.mkdir(parents=True, exist_ok=True)
+        staging_dir = Path(tempfile.mkdtemp(prefix="cleanmuzik-", dir=root))
+    except OSError as exc:
+        # Nowhere to put the download — an unwritable or full data dir. This function
+        # never raises (the worker thread must survive and the job's SSE channel must be
+        # closed by `_finish`), and there is no staging dir yet for the `finally` below
+        # to clean, so it settles here rather than entering the try at all.
+        logger.warning("could not create a staging dir under %s: %s", root, exc)
+        return _finish(
+            store, registry, job_id, bus=bus, status=STATUS_ERROR,
+            stage=STAGE_DOWNLOAD,
+            error=f"could not create a staging directory under {root}: {exc}",
+        )
     retain_staging = False
 
     try:
@@ -501,8 +517,9 @@ def run_resolve(
             return _finish(store, registry, job_id, bus=bus, status=STATUS_DONE)
 
         if not staging_path.is_file():
-            # Staging lives under the system temp dir, so an OS sweep can take the
-            # file while the SQLite row survives. This is TERMINAL (T-029, finding #3):
+            # The file can be gone while the SQLite row survives — a crash between park
+            # and resolve, a hand-cleaned staging dir, or (before T-106 moved staging off
+            # the system temp) an OS sweep. This is TERMINAL (T-029, finding #3):
             # the copy the review exists to land is gone, so no candidate the owner
             # picks can ever succeed — re-parking would only loop. End the job as
             # `error` with the cause named, rather than let beets report a confusing
@@ -833,6 +850,56 @@ def _remove_staging(staging_path: Path) -> None:
         logger.warning("could not remove staging file %s (%s)", staging_path, exc)
 
 
+def sweep_orphan_staging(store: Store) -> int:
+    """Remove staging dirs under `store.staging_root` that no review row points at (T-106).
+
+    The other half of moving staging off the system temp. `/tmp` was doing the app's
+    garbage collection for free: a staging dir is only removed at resolve time, and a
+    review can sit unresolved indefinitely, so a durable root without this sweep trades
+    a broken queue for a filling disk. Owning the retention means owning the cleanup.
+
+    An orphan is a `cleanmuzik-*` dir named by **no** review row — the debris of a job
+    that crashed between `mkdtemp` and its `finally`, or of a row deleted by hand. Every
+    row counts as a claim, not just the pending ones: a `resolving` row is mid-resolve
+    and its file is exactly what's being landed, and matching on status would make this
+    depend on reconciliation order for no gain.
+
+    Boot-only, and it must run **before** the worker thread starts — a dir belonging to
+    a job running right now has no review row yet, so sweeping concurrently would delete
+    a live download. `JobWorker.start` is the one caller for that reason.
+
+    The root is read off the store rather than passed in so a sweep can only ever touch
+    the data dir belonging to the store whose rows it just consulted — a test Store under
+    a `tmp_path` cannot reach the real library's staging.
+    """
+    staging_root = store.staging_root
+    if not staging_root.is_dir():
+        return 0
+    claimed = set()
+    for review in store.list_reviews():
+        if not review.staging_path:
+            continue
+        # The row names the file; the dir that gets removed is its parent, matching
+        # `_remove_staging`. resolve() so a symlinked root can't make a claimed dir
+        # look unclaimed and get swept.
+        claimed.add(Path(review.staging_path).parent.resolve())
+    removed = 0
+    for child in staging_root.iterdir():
+        # Same prefix guard as `_remove_staging`: anything else under the root was put
+        # there by something that isn't us, and is not ours to recursively delete.
+        if not child.name.startswith("cleanmuzik-") or not child.is_dir():
+            continue
+        if child.resolve() in claimed:
+            continue
+        shutil.rmtree(child, ignore_errors=True)
+        # Count what actually went, not what was attempted: `ignore_errors` swallows a
+        # permission failure, and a log line claiming a sweep that didn't happen is
+        # exactly what misleads the next person reading it.
+        if not child.exists():
+            removed += 1
+    return removed
+
+
 def _finish(
     store: Store,
     registry: JobRegistry,
@@ -1027,6 +1094,19 @@ class JobWorker:
                 "(%d job(s) settled to review to agree with them)",
                 reviews_reset, jobs_reviewed,
             )
+        # Then the disk side of the same reconciliation (T-106): staging dirs no review
+        # row claims. Deliberately after the row sweep — that pass can only ever return
+        # a review to `pending`, never delete one, so no dir claimed a moment ago becomes
+        # unclaimed here. Best-effort: an unsweepable disk is a disk-space problem, not a
+        # reason to refuse to accept jobs.
+        try:
+            orphan_dirs = sweep_orphan_staging(self._store)
+            if orphan_dirs:
+                logger.warning(
+                    "swept %d orphaned staging dir(s) on startup", orphan_dirs
+                )
+        except Exception as exc:  # noqa: BLE001 — best-effort by design (see above)
+            logger.warning("could not sweep orphaned staging dirs: %s", exc)
         self._thread = threading.Thread(
             target=self._run, name="cleanmuzik-worker", daemon=True
         )

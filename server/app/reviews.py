@@ -312,6 +312,12 @@ def _hydrate(review: Review, lib=None) -> dict:
         # hydrated shape so a card that reconnects/reloads recovers the reason the live
         # SSE `message` would otherwise have lost (finding #2).
         "last_error": review.last_error,
+        # Whether the copy this review exists to land is still on disk (T-106). The
+        # resolve path already refuses such a row with a clear terminal error, but only
+        # *after* the owner picks a candidate — until then a dead row renders identically
+        # to a live one, which is how 9 unresolvable reviews sat in the inbox looking
+        # healthy. One stat per row, no network. Rendered by the inbox in T-102.
+        "staging_missing": _staging_missing(review.staging_path),
     }
     try:
         if review.rec == DUPLICATE_REC:
@@ -399,13 +405,31 @@ def _duplicate_detail(review: Review, lib=None) -> dict:
     return {"existing": existing, "incoming": _incoming_detail(review.staging_path)}
 
 
+def _staging_missing(staging_path: str) -> bool:
+    """True when the copy a review exists to land is no longer on disk (T-106).
+
+    Answers for every review shape what `_incoming_detail`'s `exists` answers only for a
+    duplicate. Never raises — a row whose path can't even be stat'd still lists, and a
+    queue that 500s is a queue the owner can't empty.
+    """
+    import os
+
+    if not staging_path:
+        return True
+    try:
+        return not os.path.isfile(staging_path)
+    except OSError as exc:
+        logger.warning("could not stat staging file %s (%s)", staging_path, exc)
+        return True
+
+
 def _incoming_detail(staging_path: str) -> dict:
     """The downloaded copy's own numbers, read off the staging file.
 
-    `exists: false` is a real, listable state, not an error: staging lives under the
-    system temp dir, so an OS temp sweep between the park and the resolve can take the
-    file while the SQLite row survives. The owner needs to SEE that (the landing
-    branches will 409) rather than meet a blank panel.
+    `exists: false` is a real, listable state, not an error: the file can be gone while
+    the SQLite row survives — a crash between park and resolve, a hand-cleaned staging
+    dir, or (before T-106 moved staging off the system temp) an OS temp sweep. The owner
+    needs to SEE that (the landing branches will 409) rather than meet a blank panel.
     """
     import os
 

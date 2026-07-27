@@ -510,6 +510,130 @@ def test_worker_start_resets_review_but_never_resurrects_a_terminal_job(tmp_path
     )
 
 
+# --- T-106: staging is durable, and the app owns its cleanup ----------------
+
+
+def test_staging_defaults_beside_the_store_not_the_system_temp(tmp_path):
+    # The bug: `staging_root` defaulted to `tempfile`'s (the system temp), so a parked
+    # review's audio — which spec §5 says is KEPT — sat where the OS was entitled to
+    # reap it. The default now comes off the store, beside its DB.
+    record = {}
+    store = _store(tmp_path)
+    job = store.create_job("https://youtu.be/abc")
+    run_pipeline(
+        job.id, "https://youtu.be/abc",
+        store=store,
+        registry=JobRegistry(),
+        # no staging_root: this is the production default under test
+        download_fn=_fake_download(record),
+        transcode_fn=_fake_transcode,
+        import_fn=lambda *a, **k: [Outcome("landed", 0.95, 0.5, track_id="rec-A")],
+        scan_fn=lambda **k: True,
+    )
+    assert store.staging_root == tmp_path / "staging"
+    assert record["staging_dir"].parent == store.staging_root, (
+        "staging must default beside the store's DB, not to the system temp"
+    )
+
+
+def test_boot_sweep_removes_orphan_staging_but_keeps_claimed_dirs(tmp_path):
+    # Moving staging somewhere durable stops `/tmp` doing the app's garbage collection,
+    # so the app has to do it: debris from a job that died between mkdtemp and its
+    # `finally` goes, and a dir a review row still points at stays.
+    store = _store(tmp_path)
+    store.staging_root.mkdir(parents=True)
+
+    claimed_dir = store.staging_root / "cleanmuzik-keep"
+    claimed_dir.mkdir()
+    claimed_file = claimed_dir / "song.mp3"
+    claimed_file.write_bytes(b"mp3")
+    job = store.create_job("u")
+    store.create_review(job.id, str(claimed_file), "q", ["rec-A"], "none")
+
+    orphan_dir = store.staging_root / "cleanmuzik-orphan"
+    orphan_dir.mkdir()
+    (orphan_dir / "song.mp3").write_bytes(b"mp3")
+
+    worker = JobWorker(store)
+    worker.start()  # sweeps on startup, before the thread takes work
+    worker.stop()
+
+    assert claimed_file.is_file(), "a dir a review row points at is not debris"
+    assert not orphan_dir.exists(), "a dir no review claims must be swept"
+
+
+def test_boot_sweep_keeps_a_resolving_reviews_staging(tmp_path):
+    # Status must not gate the claim: a `resolving` row is mid-resolve and its file is
+    # exactly what is being landed. (It reconciles back to `pending` in the same
+    # startup — but the sweep must not depend on that having happened first.)
+    store = _store(tmp_path)
+    store.staging_root.mkdir(parents=True)
+    staging_dir = store.staging_root / "cleanmuzik-inflight"
+    staging_dir.mkdir()
+    staging_file = staging_dir / "song.mp3"
+    staging_file.write_bytes(b"mp3")
+    job = store.create_job("u")
+    store.update_job_status(job.id, "running")
+    store.create_review(
+        job.id, str(staging_file), "q", ["rec-A"], "none", status=REVIEW_RESOLVING,
+    )
+
+    worker = JobWorker(store)
+    worker.start()
+    worker.stop()
+
+    assert staging_file.is_file()
+
+
+def test_boot_sweep_leaves_foreign_directories_alone(tmp_path):
+    # Same guard as `_remove_staging`: anything under the root without our prefix was
+    # put there by something that isn't us, and is not ours to recursively delete.
+    store = _store(tmp_path)
+    store.staging_root.mkdir(parents=True)
+    foreign = store.staging_root / "someone-elses-data"
+    foreign.mkdir()
+    (foreign / "keep.txt").write_text("not ours")
+    loose = store.staging_root / "cleanmuzik-loose.txt"  # a file, not a dir
+    loose.write_text("not a staging dir")
+
+    assert jobs.sweep_orphan_staging(store) == 0
+    assert (foreign / "keep.txt").is_file()
+    assert loose.is_file()
+
+
+def test_an_uncreatable_staging_root_errors_the_job_rather_than_raising(tmp_path):
+    # run_pipeline never raises: the worker thread must survive and the job's SSE channel
+    # must be closed by `_finish`. Creating the staging root is new work done BEFORE the
+    # try block, so an unwritable data dir has to settle the job itself or the row would
+    # be stranded at `running` with the stream hanging open.
+    store = _store(tmp_path)
+    job = store.create_job("https://youtu.be/abc")
+    blocked = tmp_path / "blocked"
+    blocked.write_text("a file where the staging root should be")
+
+    state = run_pipeline(
+        job.id, "https://youtu.be/abc",
+        store=store,
+        registry=JobRegistry(),
+        staging_root=blocked / "staging",
+        download_fn=lambda *a, **k: pytest.fail("must not reach the download"),
+        transcode_fn=_fake_transcode,
+        import_fn=lambda *a, **k: [],
+        scan_fn=lambda **k: True,
+    )
+    assert state.status == "error"
+    assert "staging directory" in (state.error or "")
+    assert store.get_job(job.id).status == "error", "the durable row must not stay running"
+
+
+def test_boot_sweep_tolerates_a_missing_staging_root(tmp_path):
+    # A first boot, or a wiped data dir: nothing to sweep is not an error, and the
+    # worker must still start.
+    store = _store(tmp_path)
+    assert not store.staging_root.exists()
+    assert jobs.sweep_orphan_staging(store) == 0
+
+
 # --- JobWorker: one at a time, in order -------------------------------------
 
 

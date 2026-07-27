@@ -648,3 +648,24 @@ Format: `- <date> — what went wrong → the correction / rule now in place`
   PATH) builds an isolated env cleanly, and keeps experiment deps (e.g. `shazamio`) **out of the
   project venv**. Both are "spend the one cheap probe" wins — the first looked like YouTube blocking
   us, the second like venvs being broken; neither was true.
+- 2026-07-25 — (T-106, my own ticket wrong within hours of filing) **"The guard is missing" is a
+  claim about a grep, not about the code — check both spellings before writing it down.** T-106 said
+  the resolve path had no existence check on the staging file, citing that `_incoming_detail` guards
+  with `os.path.isfile` and "nothing else does". It did: `jobs.py:503` has raised a *terminal*
+  `_StageFailure` naming the missing file since T-029. The grep was for `isfile`; the guard is
+  spelled `is_file()`. A whole ticket item was scoped to build something that already existed, and it
+  survived filing, a cross-reference into two other documents, and a release-scope decision — because
+  nothing between filing and building re-asked the question. The real gap was one step earlier
+  (neither read endpoint stat'd the file, so a dead row looked healthy in the inbox until clicked),
+  which is a *different* fix. Rule: an absence claim is the one kind that a search can only ever
+  support weakly — before asserting a guard doesn't exist, grep the concept (`is_file`, `isfile`,
+  `exists`) and read the function you're claiming is unguarded.
+- 2026-07-25 — (T-106) **Moving something to durable storage means inheriting the job `/tmp` was
+  doing for free.** Staging was retained on a park exactly as spec §5 demands, in a directory the OS
+  reaps — so 9 of 10 parked reviews lost their audio. The one-line fix (point the root somewhere
+  durable) would have traded a broken queue for a filling disk, because staging dirs are only removed
+  at resolve time and a review can sit forever. The garbage collection was invisible precisely
+  because nobody wrote it: it was a property of the *location*, not of the code. Rule: when you move
+  data out of a self-cleaning location, the same change must add the sweep — and the sweep's root
+  should be **derived from the data it belongs to** (here `db_path.parent`), so a test store can
+  never reach production data no matter how the caller wires it.

@@ -159,6 +159,24 @@ class Store:
     def __init__(self, db_path: Path) -> None:
         self._db_path = db_path
 
+    @property
+    def staging_root(self) -> Path:
+        """Where jobs stage their download + transcode — beside this store's DB (T-106).
+
+        A parked review KEEPS its staging file (spec §5), because that file IS the copy
+        the resolve lands. Until 2026-07-25 the root was `tempfile`'s default, inherited
+        rather than chosen (the override existed so pytest could stage under `tmp_path`),
+        so the OS reaped the audio out from under 9 of 10 parked reviews while their rows
+        survived. The row was durable; the song wasn't.
+
+        Derived from `db_path` rather than configured separately so the two halves of a
+        parked review — the row and the audio — cannot be pointed at different places.
+        That also makes the boot sweep safe by construction: a Store under a pytest
+        `tmp_path` owns a staging root under that same `tmp_path`, so a test can never
+        sweep the real library's parked audio no matter how it wires its worker.
+        """
+        return self._db_path.parent / "staging"
+
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:
         # Row factory so reads map to columns by name, not positional index —
