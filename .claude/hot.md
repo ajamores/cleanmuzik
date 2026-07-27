@@ -56,9 +56,8 @@ Coldplay's original, 0.52). Resolving it would mistag. Park a fresh track instea
   constant, not a setting), or a resolve lands in the real library. The suite already does this — a
   full run with the real `.env` loaded left the live DB untouched.
 - Sandbox: `yt-dlp --js-runtimes node`; `uv venv`, not `python3 -m venv`.
-- **`--reload` did not fire** on a `touch` of a module under `/mnt/c` this session (inotify on DrvFs).
-  A real content edit was not tested — don't rely on either behaviour; restart deliberately.
-- `pkill -f uvicorn` matches its own shell and kills it. Kill by PID.
+- **`--reload` did not fire** on a `touch` of a module under `/mnt/c` this session. A real content
+  edit wasn't tested — don't rely on either behaviour; restart deliberately.
 
 ## Where the rest of the context lives
 
