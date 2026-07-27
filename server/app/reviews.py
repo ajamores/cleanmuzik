@@ -413,14 +413,27 @@ def _staging_missing(staging_path: str) -> bool:
     queue that 500s is a queue the owner can't empty.
     """
     import os
+    import stat
 
     if not staging_path:
         return True
+    # `os.stat`, not `os.path.isfile`: isfile catches OSError *internally* and answers
+    # False, so an unreadable-but-present file is indistinguishable from a reaped one and
+    # the `except` below could never fire. That difference matters to the owner — "audio
+    # gone, re-download it" versus "fix the permissions on your data dir" — and only the
+    # direct stat can tell them apart.
     try:
-        return not os.path.isfile(staging_path)
-    except OSError as exc:
-        logger.warning("could not stat staging file %s (%s)", staging_path, exc)
+        mode = os.stat(staging_path).st_mode
+    except FileNotFoundError:
         return True
+    except OSError as exc:
+        logger.warning(
+            "could not stat staging file %s (%s) — reporting it as missing, but the file "
+            "may well be there and unreadable",
+            staging_path, exc,
+        )
+        return True
+    return not stat.S_ISREG(mode)
 
 
 def _incoming_detail(staging_path: str) -> dict:

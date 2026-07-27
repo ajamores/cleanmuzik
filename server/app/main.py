@@ -55,7 +55,11 @@ async def lifespan(app: FastAPI):
     from app.jobs import JobWorker
 
     worker = JobWorker(get_store(), s)
-    worker.start()
+    # This process owns the data dir, so it is the one place the staging sweep is safe to
+    # opt into (see JobWorker.start). Run on a thread for the same reason as the smoke
+    # check above: the sweep is `rmtree` over however much debris accumulated, on a
+    # DrvFs-mounted dir where deletes are slow, and startup blocks until it returns.
+    await asyncio.to_thread(worker.start, sweep_staging=True)
     # Bind the running loop so the worker thread can hand SSE events to it via
     # call_soon_threadsafe (T-013). Done here — the lifespan runs on the loop — so
     # cross-thread delivery works from the very first event, before any subscriber.

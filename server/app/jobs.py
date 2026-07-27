@@ -306,6 +306,21 @@ def run_pipeline(
         except Exception as exc:  # noqa: BLE001
             raise _StageFailure(STAGE_TRANSCODE, str(exc)) from exc
 
+        # The source download has done its job: nothing downstream reads it (the query,
+        # the import and the resolve all take the MP3), and MP3 320 is the output format
+        # by ADR-002 — there is no re-transcode path that would want the original back.
+        # Under the durable root a parked review retains this dir indefinitely, so
+        # keeping the source doubles the footprint of every park for a file no resolve
+        # ever opens. Best-effort: the MP3 is already on disk, and failing to tidy up is
+        # not a reason to fail a job that otherwise succeeded.
+        if Path(source) != Path(mp3):
+            try:
+                Path(source).unlink(missing_ok=True)
+            except OSError as exc:
+                logger.warning(
+                    "could not remove the transcode source %s (%s)", source, exc
+                )
+
         # 3. Normalize the title for the review-queue display (pure, no failure path).
         query = _read_normalized_query(mp3)
 
@@ -487,6 +502,11 @@ def run_resolve(
     # publish) can still raise; a failure there is reported as a job error, but the
     # review stays RESOLVED.
     committed = False
+    # Bound before the try so the error handlers below can pass it to `_reject`: a
+    # failure at `registry.start`/`get_review` lands there with the row's path never
+    # read, and a bare `staging_path` would raise UnboundLocalError *inside* the handler
+    # that exists to keep this function from raising at all.
+    staging_path: Path | None = None
 
     try:
         registry.start(job_id, stage=STAGE_LAND)
@@ -648,7 +668,7 @@ def run_resolve(
             # Unwinnable (staging gone): don't re-park a review no retry can resolve.
             # Discard the dead row so it leaves the queue, and end the job as `error`
             # with the cause — the two agree, and the owner re-downloads (finding #3).
-            _reject(store, review_id)
+            _reject(store, review_id, staging_path)
         return _finish(
             store, registry, job_id, bus=bus,
             status=STATUS_ERROR, stage=failure.stage, error=failure.message,
@@ -669,7 +689,7 @@ def run_resolve(
         # retryable, everything else errors.
         logger.exception("resolve %s failed unexpectedly", review_id)
         if not committed:
-            _reject(store, review_id)
+            _reject(store, review_id, staging_path)
         return _finish(store, registry, job_id, bus=bus, status=STATUS_ERROR, error=str(exc))
 
 
@@ -744,15 +764,25 @@ def _release(store: Store, review_id: str, last_error: str) -> Review | None:
         return None
 
 
-def _reject(store: Store, review_id: str) -> None:
+def _reject(store: Store, review_id: str, staging_path: Path | None = None) -> None:
     """Discard a review the system cannot resolve (T-029 terminal path, finding #3).
 
     Used when the staging copy is gone: no retry can land it, so the row leaves the
-    queue rather than re-parking into an unwinnable loop. Tolerates a vanished row."""
+    queue rather than re-parking into an unwinnable loop. Tolerates a vanished row.
+
+    Removes the staging dir too, matching the owner-discard branch. A rejected row is a
+    dead end — nothing in the UI can retry from it — and `reviews.staging_path` is NOT
+    NULL, so the row goes on naming the dir and `sweep_orphan_staging` goes on counting
+    it as a claim. Under the durable root (T-106) that combination strands the audio
+    permanently: the OS no longer reaps it and no code path can. Cleanup runs even if
+    the row already vanished — the dir is ours either way.
+    """
     try:
         store.update_review_status(review_id, REVIEW_REJECTED)
     except KeyError:
         logger.error("review %s vanished before it could be discarded", review_id)
+    if staging_path is not None:
+        _remove_staging(staging_path)
 
 
 def _repark_after_release(
@@ -884,6 +914,7 @@ def sweep_orphan_staging(store: Store) -> int:
         # look unclaimed and get swept.
         claimed.add(Path(review.staging_path).parent.resolve())
     removed = 0
+    failed = 0
     for child in staging_root.iterdir():
         # Same prefix guard as `_remove_staging`: anything else under the root was put
         # there by something that isn't us, and is not ours to recursively delete.
@@ -895,8 +926,22 @@ def sweep_orphan_staging(store: Store) -> int:
         # Count what actually went, not what was attempted: `ignore_errors` swallows a
         # permission failure, and a log line claiming a sweep that didn't happen is
         # exactly what misleads the next person reading it.
-        if not child.exists():
+        if child.exists():
+            failed += 1
+        else:
             removed += 1
+    if failed:
+        # The failure needs its own line, or it is indistinguishable from "nothing to
+        # sweep": `ignore_errors` discarded the exception, the return value counts only
+        # successes, and the caller logs only when something went. A root where deletes
+        # keep failing (a held file handle, a permission problem) would otherwise fill
+        # the data dir in complete silence — the "broken queue for a filling disk" trade
+        # this function exists to prevent, minus any way to notice.
+        logger.warning(
+            "could not remove %d orphaned staging dir(s) under %s — they stay until the "
+            "cause is cleared, and the data dir grows meanwhile",
+            failed, staging_root,
+        )
     return removed
 
 
@@ -1070,7 +1115,18 @@ class JobWorker:
         self._queue: queue.Queue = queue.Queue()
         self._thread: threading.Thread | None = None
 
-    def start(self) -> None:
+    def start(self, *, sweep_staging: bool = False) -> None:
+        """Reconcile a previous run's leftovers, then take work.
+
+        `sweep_staging` gates the one destructive step (T-106) and defaults to OFF, so
+        starting a worker is safe by default. The sweep reasons that a dir with no review
+        row belongs to a crashed job — true for the process that owns the data dir, false
+        for a *second* process against the same `DB_PATH`, where such a dir may be a
+        download in flight in the first one. Since verifying against the real server is
+        routine here, a bare `JobWorker(store).start()` in a script or REPL must not be
+        able to delete the owner's in-progress download. `app.main`'s lifespan is the one
+        caller that opts in, because it is the one that owns the data dir.
+        """
         if self._thread is not None:
             return
         # Reconcile jobs AND reviews orphaned by a previous crash/shutdown before
@@ -1099,14 +1155,15 @@ class JobWorker:
         # a review to `pending`, never delete one, so no dir claimed a moment ago becomes
         # unclaimed here. Best-effort: an unsweepable disk is a disk-space problem, not a
         # reason to refuse to accept jobs.
-        try:
-            orphan_dirs = sweep_orphan_staging(self._store)
-            if orphan_dirs:
-                logger.warning(
-                    "swept %d orphaned staging dir(s) on startup", orphan_dirs
-                )
-        except Exception as exc:  # noqa: BLE001 — best-effort by design (see above)
-            logger.warning("could not sweep orphaned staging dirs: %s", exc)
+        if sweep_staging:
+            try:
+                orphan_dirs = sweep_orphan_staging(self._store)
+                if orphan_dirs:
+                    logger.warning(
+                        "swept %d orphaned staging dir(s) on startup", orphan_dirs
+                    )
+            except Exception as exc:  # noqa: BLE001 — best-effort by design (see above)
+                logger.warning("could not sweep orphaned staging dirs: %s", exc)
         self._thread = threading.Thread(
             target=self._run, name="cleanmuzik-worker", daemon=True
         )
