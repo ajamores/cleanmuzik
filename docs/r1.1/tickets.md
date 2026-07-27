@@ -111,7 +111,25 @@ it **next** (2026-07-25), and T-103's re-search exit is built on top of it, so i
   art where it exists, no spectrum — light/dark both legible, reduced-motion honoured. Ties to §8 item 7.
 
 ### T-106 — Parked audio lives in `/tmp` and gets reaped (from backlog T-036)
-- **Status:** todo — **BUG, HIGH. Owner sequenced this next** (2026-07-25), ahead of the Shazam tier
+- **Status:** **BUILT (not merged) 2026-07-25** on `worktree-t106-durable-staging`; 390 tests green.
+  Items 1–3 done, **item 4 (the owner's 9 dead rows) still open** — it needs the live DB, not the
+  worktree. Owner still to run `/code-review` (agent-invocable skills are user-triggered only).
+  **Two corrections to this ticket, made while building it:**
+  - **Item 3 was already done.** The claim "the resolve path has no existence check" was wrong —
+    `jobs.py:503` has guarded it with a *terminal* `_StageFailure` naming the missing file since
+    T-029. The grep behind the claim looked for `isfile` and missed `is_file()`. What was genuinely
+    missing is one step earlier: neither read endpoint stat'd the file, so a dead row rendered
+    identically to a live one until the owner clicked. That half is what got built —
+    `staging_missing` on the hydrated row (`reviews.py`), for the inbox to render in T-102.
+  - **Staging root is derived, not configured.** Item 1 said "default `staging_root` to a real
+    location, keep the setting overridable". It is now `Store.staging_root` = `db_path.parent /
+    "staging"` with **no separate setting**, because a setting invites the row and the audio to be
+    pointed at different places, and because a bare `JobWorker(store)` in a test would otherwise read
+    *production* settings and sweep the real library's parked audio. Deriving it makes a test Store
+    under `tmp_path` own a staging root under that same `tmp_path` — the sweep is safe by
+    construction rather than by everyone remembering to pass settings. Promote to an ADR if this
+    should bind.
+- **Was:** todo — **BUG, HIGH. Owner sequenced this next** (2026-07-25), ahead of the Shazam tier
   build (ADR-019). **Pulled into R1.1** on filing: born in the backlog on the reading that §8 item 1 is
   satisfiable by restarting `uvicorn` alone (which `/tmp` survives) — but item 1 promises a review
   survives a *restart*, and a machine reboot reaps `/tmp`. Leaving it in the backlog would tick the box
@@ -155,6 +173,21 @@ it **next** (2026-07-25), and T-103's re-search exit is built on top of it, so i
   end-to-end (`/verify`): park a track, restart, resolve, confirm the tagged MP3 lands in Jellyfin. Plus
   a boot with orphaned staging dirs sweeps them, and the dead rows are gone while the healthy one
   survives. Ties to §8 items 1 + 8 (the reboot item, added with this ticket).
+- **Observable artifact (2026-07-25, two separate processes — the restart is real, not simulated).**
+  Isolated `DB_PATH` + a monkeypatched `LIBRARY_DIRECTORY`, so nothing touched the real library. The
+  subject is the Nines `"Franklin"` rip (`D5QjfJao9FQ`) — the one that parked **five times** in the
+  owner's real queue and that even Shazam missed (T-035), so the park is genuine, not contrived.
+  **Process A:** real yt-dlp download → transcode → beets gate → parked, `staging_path` under
+  `…/data/staging/cleanmuzik-391h0ykk/`, file on disk. **Process B (the reboot):** a `cleanmuzik-`
+  debris dir planted first, then `JobWorker.start()` → *the parked staging file survived* and *the
+  orphan dir was swept*. Then resolved (MB re-search, `Outro` score 100 →
+  `f5d1bcfb-f66e-400a-948a-e7f9127160de`, the T-103 gesture) → **`Nines/Outro.mp3`, 8.2 MB, 327 kbps,
+  title/artist/genre `Hip Hop` tagged, cover art embedded (mjpeg)**, review `resolved`, staging removed
+  — retention ending exactly where spec §5 says it should. *Caveat, stated plainly:* every review in
+  the owner's real queue has **no candidates**, so the landing half was driven through `run_resolve`
+  directly with a re-searched MBID; route validation would refuse that body today. That is the T-103
+  dead-end, not a T-106 gap, but it means the **through-the-UI** half of this ticket cannot be shown
+  until T-103 lands.
 
 ---
 

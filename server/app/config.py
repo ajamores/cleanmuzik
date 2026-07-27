@@ -40,6 +40,9 @@ class Settings(BaseSettings):
     # On-disk SQLite store (T-002). Must live on disk, not in-memory, so parked
     # reviews survive a restart (spec §7). Overridable via `.env` (e.g. a test
     # DB); the parent dir is created at startup by Store.init_schema().
+    # Staging (T-106) is deliberately NOT a separate setting: it is derived from this
+    # path as `Store.staging_root`, so the review row and the audio it points at always
+    # live in the same data dir. See that property for why.
     db_path: Path = SERVER_DIR / "data" / "cleanmuzik.db"
 
 

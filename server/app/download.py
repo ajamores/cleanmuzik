@@ -240,6 +240,10 @@ def _make_staging_dir() -> Path:
     One unique dir per download keeps concurrent-safe naming trivial and gives
     T-012 a single directory to remove on cleanup. Lives under the system temp
     root, prefixed so it's identifiable.
+
+    **Only the ad-hoc caller reaches this.** `run_pipeline` always passes its own
+    staging dir, rooted at `Store.staging_root` — a job's audio must not land in the
+    system temp, because a park keeps it there for days and the OS reaps it (T-106).
     """
     return Path(tempfile.mkdtemp(prefix="cleanmuzik-"))
 

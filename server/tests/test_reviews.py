@@ -19,6 +19,7 @@ matters more than any happy path here.
 """
 
 import asyncio
+import shutil
 
 import pytest
 from fastapi import FastAPI
@@ -237,6 +238,31 @@ def test_hydration_degrades_a_failed_lookup_to_an_id_only_row(tmp_path, monkeypa
     # silently re-add the structural-null album/year/art_url the ADR deleted.
     assert set(good) == {"candidate_id", "title", "artist", "score"}
     assert "album" not in good and "year" not in good and "art_url" not in good
+
+
+def test_hydration_flags_a_review_whose_staging_audio_is_gone(tmp_path, monkeypatch):
+    # T-106: the resolve path already refuses a dead row with a clear terminal error —
+    # but only AFTER the owner picks a candidate. Until then it rendered identically to
+    # a live one, which is how 9 unresolvable reviews sat in the inbox looking healthy.
+    store = _store(tmp_path)
+    monkeypatch.setattr(reviews_mod, "_hydration_cache", {})
+    import beets.metadata_plugins as mp
+
+    monkeypatch.setattr(
+        mp, "track_for_id",
+        lambda mbid, src: type("TI", (), {"title": "S", "artist": "B"})(),
+    )
+    _, live, _ = _parked(store, tmp_path, candidate_ids=("rec-A",))
+    gone_root = tmp_path / "gone"
+    gone_root.mkdir()
+    _, dead, dead_dir = _parked(store, gone_root, candidate_ids=("rec-B",))
+    shutil.rmtree(dead_dir)  # what an OS temp sweep did to the real queue
+
+    rows = {row["review_id"]: row for row in reviews_mod.hydrate_reviews(store)}
+    assert rows[live.id]["staging_missing"] is False
+    assert rows[dead.id]["staging_missing"] is True
+    # And through the narrow read the panel re-hydrates from, not just the queue.
+    assert reviews_mod.hydrate_review(store, dead.id)["staging_missing"] is True
 
 
 def test_hydration_does_not_treat_a_duplicate_rows_ids_as_candidates(tmp_path, monkeypatch):
@@ -950,7 +976,10 @@ def test_get_reviews_lists_a_parked_song_with_its_shape(client, monkeypatch):
     body = client.get("/api/reviews").json()
     assert len(body) == 1
     row = body[0]
-    assert set(row) == {"review_id", "job_id", "query", "rec", "candidates", "last_error"}
+    assert set(row) == {
+        "review_id", "job_id", "query", "rec", "candidates", "last_error",
+        "staging_missing",  # T-106
+    }
     assert row["rec"] == "medium"
     assert row["query"] == "artist title"
     assert row["candidates"][0]["candidate_id"] == "rec-A"
@@ -967,7 +996,10 @@ def test_get_single_review_returns_its_hydrated_shape(client, monkeypatch):
         mp, "track_for_id", lambda mbid, src: type("TI", (), {"title": "S", "artist": "B"})()
     )
     row = client.get(f"/api/reviews/{review.id}").json()
-    assert set(row) == {"review_id", "job_id", "query", "rec", "candidates", "last_error"}
+    assert set(row) == {
+        "review_id", "job_id", "query", "rec", "candidates", "last_error",
+        "staging_missing",  # T-106
+    }
     assert row["review_id"] == review.id
     assert row["rec"] == "medium"
     assert row["candidates"][0]["candidate_id"] == "rec-A"

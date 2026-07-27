@@ -14,6 +14,7 @@ Two layers:
 """
 
 import asyncio
+import threading
 
 import acoustid
 import pytest
@@ -508,6 +509,228 @@ def test_worker_start_resets_review_but_never_resurrects_a_terminal_job(tmp_path
     assert store.get_job(done_job.id).status == "done", (
         "a terminal job is never resurrected by the boot sweep"
     )
+
+
+# --- T-106: staging is durable, and the app owns its cleanup ----------------
+
+
+def test_staging_defaults_beside_the_store_not_the_system_temp(tmp_path):
+    # The bug: `staging_root` defaulted to `tempfile`'s (the system temp), so a parked
+    # review's audio — which spec §5 says is KEPT — sat where the OS was entitled to
+    # reap it. The default now comes off the store, beside its DB.
+    record = {}
+    store = _store(tmp_path)
+    job = store.create_job("https://youtu.be/abc")
+    run_pipeline(
+        job.id, "https://youtu.be/abc",
+        store=store,
+        registry=JobRegistry(),
+        # no staging_root: this is the production default under test
+        download_fn=_fake_download(record),
+        transcode_fn=_fake_transcode,
+        import_fn=lambda *a, **k: [Outcome("landed", 0.95, 0.5, track_id="rec-A")],
+        scan_fn=lambda **k: True,
+    )
+    assert store.staging_root == tmp_path / "staging"
+    assert record["staging_dir"].parent == store.staging_root, (
+        "staging must default beside the store's DB, not to the system temp"
+    )
+
+
+def test_boot_sweep_removes_orphan_staging_but_keeps_claimed_dirs(tmp_path):
+    # Moving staging somewhere durable stops `/tmp` doing the app's garbage collection,
+    # so the app has to do it: debris from a job that died between mkdtemp and its
+    # `finally` goes, and a dir a review row still points at stays.
+    store = _store(tmp_path)
+    store.staging_root.mkdir(parents=True)
+
+    claimed_dir = store.staging_root / "cleanmuzik-keep"
+    claimed_dir.mkdir()
+    claimed_file = claimed_dir / "song.mp3"
+    claimed_file.write_bytes(b"mp3")
+    job = store.create_job("u")
+    store.create_review(job.id, str(claimed_file), "q", ["rec-A"], "none")
+
+    orphan_dir = store.staging_root / "cleanmuzik-orphan"
+    orphan_dir.mkdir()
+    (orphan_dir / "song.mp3").write_bytes(b"mp3")
+
+    worker = JobWorker(store)
+    worker.start(sweep_staging=True)  # sweeps on startup, before the thread takes work
+    worker.stop()
+
+    assert claimed_file.is_file(), "a dir a review row points at is not debris"
+    assert not orphan_dir.exists(), "a dir no review claims must be swept"
+
+
+def test_boot_sweep_is_off_unless_the_caller_opts_in(tmp_path):
+    # The sweep is the one destructive step, and its "no review row ⇒ crashed job"
+    # reasoning only holds for the process that owns the data dir. A second process on
+    # the same DB_PATH (a verify script, a REPL) would see a live download's dir as an
+    # orphan, so starting a worker must not sweep unless the caller says it owns the dir.
+    store = _store(tmp_path)
+    store.staging_root.mkdir(parents=True)
+    in_flight = store.staging_root / "cleanmuzik-someone-elses-download"
+    in_flight.mkdir()
+    (in_flight / "song.webm").write_bytes(b"audio")
+
+    worker = JobWorker(store)
+    worker.start()  # the default: no sweep
+    worker.stop()
+
+    assert in_flight.is_dir(), (
+        "a bare JobWorker.start() must not delete staging it cannot reason about"
+    )
+
+
+def test_boot_sweep_keeps_a_resolving_reviews_staging(tmp_path):
+    # Status must not gate the claim: a `resolving` row is mid-resolve and its file is
+    # exactly what is being landed.
+    #
+    # Called directly, NOT through `worker.start()`: `reconcile_orphans_on_boot` runs
+    # first there and flips every `resolving` row to `pending`, so a pending-only claim
+    # set would pass this test too and the invariant would be unguarded. The sweep must
+    # not depend on reconciliation having happened first — this is the assertion that
+    # says so.
+    store = _store(tmp_path)
+    store.staging_root.mkdir(parents=True)
+    staging_dir = store.staging_root / "cleanmuzik-inflight"
+    staging_dir.mkdir()
+    staging_file = staging_dir / "song.mp3"
+    staging_file.write_bytes(b"mp3")
+    job = store.create_job("u")
+    store.update_job_status(job.id, "running")
+    store.create_review(
+        job.id, str(staging_file), "q", ["rec-A"], "none", status=REVIEW_RESOLVING,
+    )
+
+    assert jobs.sweep_orphan_staging(store) == 0
+    assert staging_file.is_file()
+
+
+def test_boot_sweep_runs_before_the_worker_thread_starts(tmp_path, monkeypatch):
+    # The ordering is the only thing stopping the sweep from deleting a live download's
+    # staging dir — a job running right now has no review row to claim it. Asserted here
+    # because the guarantee was previously prose only: moving the sweep after
+    # `self._thread.start()` left the whole suite green.
+    order = []
+    real_sweep = jobs.sweep_orphan_staging
+    real_thread_start = threading.Thread.start
+
+    monkeypatch.setattr(
+        jobs, "sweep_orphan_staging",
+        lambda store: (order.append("sweep"), real_sweep(store))[1],
+    )
+
+    def spy_thread_start(self):
+        if self.name == "cleanmuzik-worker":
+            order.append("thread")
+        return real_thread_start(self)
+
+    monkeypatch.setattr(threading.Thread, "start", spy_thread_start)
+
+    store = _store(tmp_path)
+    store.staging_root.mkdir(parents=True)
+    worker = JobWorker(store)
+    worker.start(sweep_staging=True)
+    worker.stop()
+
+    assert order == ["sweep", "thread"], (
+        "the sweep must complete before the worker can pick up a job whose staging dir "
+        f"it would see as unclaimed — got {order}"
+    )
+
+
+def test_transcode_source_is_removed_once_the_mp3_exists(tmp_path):
+    # A park retains its staging dir indefinitely under the durable root, so the source
+    # download would sit there forever beside the MP3 — twice the disk for a file nothing
+    # downstream reads. MP3 320 is the output format (ADR-002); there is no re-transcode.
+    record = {}
+    store = _store(tmp_path)
+    job = store.create_job("https://youtu.be/abc")
+    run_pipeline(
+        job.id, "https://youtu.be/abc",
+        store=store,
+        registry=JobRegistry(),
+        download_fn=_fake_download(record),
+        transcode_fn=_fake_transcode,
+        # Park it, so the staging dir is retained and the question is answerable at all.
+        import_fn=lambda *a, **k: [Outcome("parked", 0.2, 0.0, review_id="rev-9")],
+        scan_fn=lambda **k: True,
+    )
+    staging_dir = record["staging_dir"]
+    assert (staging_dir / "song.mp3").is_file(), "the MP3 is the copy a resolve lands"
+    assert not (staging_dir / "song.webm").exists(), (
+        "the source download is dead weight once the MP3 exists"
+    )
+
+
+def test_reject_removes_the_staging_dir(tmp_path):
+    # A rejected row is a dead end — nothing in the UI retries from it — and
+    # `staging_path` is NOT NULL, so the row keeps claiming its dir against the sweep
+    # forever. Rejecting without cleaning up strands the audio permanently.
+    store = _store(tmp_path)
+    store.staging_root.mkdir(parents=True)
+    staging_dir = store.staging_root / "cleanmuzik-doomed"
+    staging_dir.mkdir()
+    staging_file = staging_dir / "song.mp3"
+    staging_file.write_bytes(b"mp3")
+    job = store.create_job("u")
+    review = store.create_review(job.id, str(staging_file), "q", ["rec-A"], "none")
+
+    jobs._reject(store, review.id, staging_file)
+
+    assert not staging_dir.exists(), "a rejected review's audio has no future reader"
+    assert store.get_review(review.id).status == "rejected"
+
+
+def test_boot_sweep_leaves_foreign_directories_alone(tmp_path):
+    # Same guard as `_remove_staging`: anything under the root without our prefix was
+    # put there by something that isn't us, and is not ours to recursively delete.
+    store = _store(tmp_path)
+    store.staging_root.mkdir(parents=True)
+    foreign = store.staging_root / "someone-elses-data"
+    foreign.mkdir()
+    (foreign / "keep.txt").write_text("not ours")
+    loose = store.staging_root / "cleanmuzik-loose.txt"  # a file, not a dir
+    loose.write_text("not a staging dir")
+
+    assert jobs.sweep_orphan_staging(store) == 0
+    assert (foreign / "keep.txt").is_file()
+    assert loose.is_file()
+
+
+def test_an_uncreatable_staging_root_errors_the_job_rather_than_raising(tmp_path):
+    # run_pipeline never raises: the worker thread must survive and the job's SSE channel
+    # must be closed by `_finish`. Creating the staging root is new work done BEFORE the
+    # try block, so an unwritable data dir has to settle the job itself or the row would
+    # be stranded at `running` with the stream hanging open.
+    store = _store(tmp_path)
+    job = store.create_job("https://youtu.be/abc")
+    blocked = tmp_path / "blocked"
+    blocked.write_text("a file where the staging root should be")
+
+    state = run_pipeline(
+        job.id, "https://youtu.be/abc",
+        store=store,
+        registry=JobRegistry(),
+        staging_root=blocked / "staging",
+        download_fn=lambda *a, **k: pytest.fail("must not reach the download"),
+        transcode_fn=_fake_transcode,
+        import_fn=lambda *a, **k: [],
+        scan_fn=lambda **k: True,
+    )
+    assert state.status == "error"
+    assert "staging directory" in (state.error or "")
+    assert store.get_job(job.id).status == "error", "the durable row must not stay running"
+
+
+def test_boot_sweep_tolerates_a_missing_staging_root(tmp_path):
+    # A first boot, or a wiped data dir: nothing to sweep is not an error, and the
+    # worker must still start.
+    store = _store(tmp_path)
+    assert not store.staging_root.exists()
+    assert jobs.sweep_orphan_staging(store) == 0
 
 
 # --- JobWorker: one at a time, in order -------------------------------------
