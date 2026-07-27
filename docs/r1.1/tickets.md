@@ -62,6 +62,22 @@ it **next** (2026-07-25), and T-103's re-search exit is built on top of it, so i
   (`reviews.py`). Keep-untagged is the bigger lift (land-without-match machinery). **Cross-ref:** the
   Shazam spike (**backlog T-035**) may auto-rescue many of these upstream — it changes *how often* the
   manual exit is hit, not *whether* it's needed. Sign-off + the ADR were left pending the owner's call.
+- **Live proof case, with a known-correct answer (2026-07-27).** The one review left in the owner's
+  queue — **Frank Ocean — Strawberry Swing** (`297ec8fe…`, audio healthy under the new durable root) —
+  is this ticket's dead-end in its purest form: **5 candidates, none of them right**, top match
+  *Strawberry Swing — Coldplay* at 0.52 (his version is a cover of Coldplay's 2008 original, so the
+  title collides while the recording differs). It cannot be resolved correctly today, and rejecting it
+  throws away good audio.
+  **The correct answer exists in MusicBrainz and is not in the candidate list:**
+  `Strawberry Swing — Frank Ocean`, *nostalgia,ULTRA.* (2011-02-16), recording MBID
+  **`908e389b-256c-4f6a-9d75-0e0a81815444`**, returned at **score 100** for
+  `recording:"Strawberry Swing" AND artist:"Frank Ocean"`.
+  That makes this row a **regression fixture rather than a nuisance**: it is a real parked review with
+  an independently-known expected outcome, so re-search can be judged against a fact rather than a
+  vibe. **Done-when for the re-search exit should be demonstrated on this row** — type the corrected
+  artist/title, and the candidate list must come back containing that MBID. Deliberately left parked
+  for that purpose (2026-07-27); do **not** clear it, and do **not** resolve it to the Coldplay
+  candidate, which would file the owner's audio under the wrong artist and burn the fixture.
 - **Depends on:** T-101, T-102
 - **Agent:** front-end + build (backend resolve path)
 - **What:** A review with **empty candidates** must render working exits, never a dead panel. **Reject**
