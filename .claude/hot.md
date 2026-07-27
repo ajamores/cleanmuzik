@@ -21,13 +21,14 @@ CleanMuzik — personal YouTube → Jellyfin music tool. Purpose, stack, constra
 
 ## Current State (2026-07-26)
 
-- **`main` is clean** at `d4d6842` — the docs pile (ADR-019, T-034/035, the R1.1 design screens) is
-  committed.
-- **T-106 is committed on its own branch, not on `main`:** `worktree-t106-durable-staging` at
-  **`50e1d66`**, one commit on top of `d4d6842`. 390 server tests green **there**. The worktree at
-  `.claude/worktrees/t106-durable-staging` is disposable now — the branch holds the work, so pick it
-  up from any checkout with `git checkout worktree-t106-durable-staging` (or review it from `main`
-  with `git diff main..worktree-t106-durable-staging`).
+- **`main` is clean at `d6a7e5e`, pushed** — the docs pile (ADR-019, T-034/035, the R1.1 design
+  screens) plus this board.
+- **T-106 is committed and pushed on its own branch, not on `main`:**
+  `worktree-t106-durable-staging` at **`50e1d66`**, one commit on top of `d4d6842`. 390 server tests
+  green **there**. Nothing is at risk on this machine — pick it up from any checkout with
+  `git checkout worktree-t106-durable-staging`, or review it from `main` with
+  `git diff main..worktree-t106-durable-staging`. The worktree under `.claude/worktrees/` is
+  disposable.
 
 ## ⟹ LIVE THREAD — T-106 is BUILT, not DONE
 
