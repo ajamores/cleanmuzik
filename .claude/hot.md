@@ -1,7 +1,7 @@
 ---
 type: meta
 title: "Hot — cleanmuzik"
-updated: 2026-07-25
+updated: 2026-07-26
 tags:
   - meta
   - hot-cache
@@ -19,49 +19,48 @@ status: evergreen
 CleanMuzik — personal YouTube → Jellyfin music tool. Purpose, stack, constraints and read-order are in
 `CLAUDE.md`; scope in `cleanmuzik-prd.md`. Not restated here.
 
-## Current State (2026-07-25)
+## Current State (2026-07-26)
 
-- **On `main`.** Nothing committed this session — a **pile of uncommitted docs** is staged in the tree:
-  `docs/backlog/T-035.md` (new) · `T-034.md` + backlog `README.md` (reframed) · `docs/r1.1/tickets.md`
-  (T-103 design note) · `docs/r1.1/design/*.html` (new, 2 files) · `docs/learnings.md` · plus the prior
-  session's `docs/r1.1/tickets.md` T-101/T-104 marks. **Commit when ready** (small, then tree is clean).
-- **T-101 + T-104 remain DONE + VERIFIED LIVE** (merged `700df62`, `90d5854`). No verify debt.
-- This session was **design/experiment, no code shipped.** Chased "an easy track parked with junk
-  candidates" → found the fingerprint pipeline is healthy (5 tracks auto-landed happy-path); the Nipsey
-  rip was a *reversed-title* text-search fallback. A 4-lens agent panel → consensus: **don't build the
-  T-034 auto-match tower — build a manual-resolution escape hatch** (re-search + keep-untagged), fold
-  into **T-103**. Flow drawn as 6 flat screens (`docs/r1.1/design/review-rescue-flow.html`).
+- **`main` is clean** at `d4d6842` — the docs pile (ADR-019, T-034/035, the R1.1 design screens) is
+  committed.
+- **T-106 is committed on its own branch, not on `main`:** `worktree-t106-durable-staging` at
+  **`50e1d66`**, one commit on top of `d4d6842`. 390 server tests green **there**. The worktree at
+  `.claude/worktrees/t106-durable-staging` is disposable now — the branch holds the work, so pick it
+  up from any checkout with `git checkout worktree-t106-durable-staging` (or review it from `main`
+  with `git diff main..worktree-t106-durable-staging`).
 
-## ⟹ LIVE THREAD — continue next session
+## ⟹ LIVE THREAD — T-106 is BUILT, not DONE
 
-**Shazam backup-fingerprint spike (`docs/backlog/T-035.md`).** n=1 decisive win: the track AcoustID
-couldn't fingerprint, **Shazam identified cold** (Nipsey Hussle — All Get Right). Identification-only,
-feeds beets/MB (ADR-005 intact). **Next: measure the lift** —
+Durable parked-audio staging (`docs/r1.1/tickets.md` T-106). Three gates left, in order:
 
-1. Run Shazam over **every track in the parked review queue** (real DB ~8 reviews) → count auto-rescues.
-   *That rescue-rate number is the go/no-go.* Harness ready: `scratchpad/shazam-test/` (uv venv +
-   shazamio; audio via `yt-dlp --js-runtimes node`).
-2. Test the truly-obscure parked tracks (the Nines-outro TV-mix) → shows where Shazam *also* fails =
-   the residual the manual escape hatch still must cover.
-3. If go → draft an ADR (add Shazam backup tier) for owner ratification. Cautions: unofficial API; was
-   the *abandoned* engine (different now as a backup ID tier); network dep.
+1. **Owner runs `/code-review`, then `/verify`** on the worktree diff — both are user-triggered; an
+   agent cannot invoke them. (Self-review already caught one regression: an unwritable data dir made
+   `run_pipeline` raise, which its contract forbids. Fixed + tested.)
+2. **Item 4 — the 9 dead review rows** in the live DB. Untouched; needs the real DB with the server
+   stopped, not the worktree. Deletion must be **selective** (see the ticket).
+3. **Merge to `main`** and confirm green there. Until then it is *built*, not *done*.
+
+**Time-sensitive:** the Frank Ocean review is the only one whose audio still exists, and it dies on the
+next reboot — resolve it, or let T-106 land and re-park something to prove the fix on.
 
 ## Also open (not the live thread)
 
-- **T-103 escape-hatch design** — awaiting owner sign-off (ADR-016 gate) + an ADR. Shazam outcome
-  affects *how often* the manual exit is hit, not whether it's needed. Screens filed.
-- **T-102** — original next build ticket (lift review lifecycle out of `TrackCard`). Still valid.
-- **T-034** — Layers 0/2 likely retired by T-035; Layer 1 kept for R2/migrate only.
-- **T-105** Signal Path reskin; **R2** migrate — later.
+- **Shazam build ticket** — ADR-019 is ratified; the tier ticket itself is still unwritten
+  (`docs/backlog/T-035.md`, item 4).
+- **T-103 escape-hatch design** — awaiting owner sign-off (ADR-016 gate). Now also **blocks showing
+  T-106 through the UI**: every parked review has no candidates, so nothing in the queue is resolvable
+  through the route today.
+- **T-102** (lift the review lifecycle out of `TrackCard`) — renders T-106's new `staging_missing`
+  flag. **T-105** reskin, **R2** migrate — later.
 
 ## Verifying
 
 - Owner's real servers: `:8137` (uvicorn `--reload`, real library — **do NOT POST jobs to it**) + `:5173`
-  (Vite — restart after any merge/checkout touching `client/`). Isolate `DB_PATH` to a temp dir for
-  backend checks. Sandbox download gotcha: `yt-dlp --js-runtimes node` (plain pull 403s); `uv venv` not
-  `python3 -m venv`. Both in `docs/learnings.md` (2026-07-24, 2026-07-25).
+  (Vite — restart after any merge/checkout touching `client/`). Isolate `DB_PATH` to a temp dir, and
+  monkeypatch `beets_engine.LIBRARY_DIRECTORY` (a hardcoded constant, not a setting) or a resolve lands
+  in the real library. Sandbox: `yt-dlp --js-runtimes node`; `uv venv`, not `python3 -m venv`.
 
 ## Where the rest of the context lives
 
-`docs/roadmap.md` · `docs/r1.1/` (active) · `docs/r1/adr.md` (ADR-018 newest) · `docs/learnings.md` ·
-`docs/backlog/` (T-035 live) · `docs/r1/design/*.html` · git (tag `r1-single-song`). Business/vault → `/garden`.
+`docs/roadmap.md` · `docs/r1.1/` (active) · `docs/r1/adr.md` (**ADR-019** newest) · `docs/learnings.md` ·
+`docs/backlog/` · `docs/r1/design/*.html` · git (tag `r1-single-song`). Business/vault → `/garden`.
