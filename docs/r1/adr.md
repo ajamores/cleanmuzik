@@ -450,11 +450,23 @@ Format: `ADR-NNN — decision. Rationale. [date]`
   artist + title feed the existing MusicBrainz search and **beets remains the tagging engine
   (ADR-005 intact)**. The abandoned `music-cleaner` / secret-mode PRD used ShazamIO **as the engine** —
   that stays rejected. Same library, different job; the distinction is the whole decision.
-  - **Two conditions, binding.** (1) **Identification only** — Shazam never writes tags, never picks a
-    release, never bypasses MusicBrainz. (2) **Fail-soft** — on any error, timeout, rate-limit or
-    no-match, the track parks exactly as it does today. This is a *condition of the decision*, not an
-    implementation detail: it is the reason the tier is safe on a small sample, because its worst case
-    is the current behaviour.
+  - **Three conditions, binding.** (1) **Identification only** — Shazam never writes tags, never picks
+    a release, never bypasses MusicBrainz. (2) **Fail-soft** — on any error, timeout, rate-limit or
+    no-match, the track parks exactly as it does today. (3) **A Shazam-derived match may never
+    auto-land** — it populates review candidates for the owner to confirm and cannot by itself reach
+    the 0.90 auto-accept bar (ADR-006), no matter how well its query scores at MusicBrainz. These are
+    *conditions of the decision*, not implementation details: together they are the reason the tier is
+    safe on a small sample, because its worst case is the current behaviour.
+  - **Condition 3 was added 2026-07-27, after conditions 1–2 were shown to have a hole.** Run against
+    Frank Ocean's *Strawberry Swing* — a **cover sung over Coldplay's original instrumental** —
+    Shazam did not miss. It returned **Coldplay, Viva La Vida, ISRC `GBAYE1600219`**: confident, wrong,
+    and none of "error, timeout, rate-limit or no-match". Fail-soft never engages. `Coldplay /
+    Strawberry Swing` then scores **100** at MusicBrainz, so under conditions 1–2 alone the tier
+    converts a track the system had **correctly refused to guess at** into a confidently mistagged
+    auto-land. This is a class, not a one-off: anything built over another artist's master —
+    interpolations, mixtape cuts, most of *nostalgia, ULTRA* — fingerprints as the original, because
+    most of the mix genuinely *is* the original. Shazam gets a vote, not a verdict. The 4/5 rescue rate
+    is unaffected; the tier still earns its place. (Measured, table in `docs/backlog/T-035.md`.)
   - **Normalisation is load-bearing, not incidental.** Shazam appends `(feat. X)` to titles; MusicBrainz
     keeps featured artists in the credit, not the recording title. Passing Shazam's fields through
     **verbatim scored 0 hits on 3 of 4**; stripping the trailing `(feat. …)` took all 4 to **score 100**.
@@ -472,7 +484,11 @@ Format: `ADR-NNN — decision. Rationale. [date]`
     ("willing to live with that it might not work because it's not an official library"). Mitigation is
     the fail-soft condition plus keeping Shazam behind a seam that can be removed without touching the
     pipeline — if it rots, the tier goes quiet and the queue returns to its present size.
-  - **Does not remove the manual escape hatch (T-103).** The one miss was the Nines `"Franklin"`
-    **music-video edit** — the same artist Shazam identified correctly elsewhere. The residual is a
-    particular *cut of audio*, not an obscure artist, and manual re-search / keep-untagged still owns it.
+  - **Does not remove the manual escape hatch (T-103) — it strengthens the case for it.** Two residual
+    classes, neither an obscure artist: the Nines `"Franklin"` **music-video edit** (a particular *cut*
+    of audio; Shazam identified the same artist correctly elsewhere) and the **cover-over-the-original
+    -instrumental** case above, where Shazam answers confidently and wrongly. Manual re-search /
+    keep-untagged owns both. Frank Ocean's *Strawberry Swing* is the live fixture: audio intact,
+    AcoustID silent, Shazam wrong, and the correct recording sitting in MusicBrainz at score 100
+    waiting for a human to point at it.
   (Owner decision, 2026-07-25, on the T-035 rescue-rate measurement.) [2026-07-25]

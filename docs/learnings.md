@@ -697,3 +697,17 @@ Format: `- <date> — what went wrong → the correction / rule now in place`
   whose subject is an *ordering* or a *status* invariant, mutate the code to break it and watch the
   test fail before believing it. Both replacements here were mutation-proved; call the unit directly
   rather than through the orchestrator that pre-normalizes its inputs.
+- 2026-07-27 — (ADR-019) **"Fail-soft" only covers the failures you enumerated — and a confident wrong
+  answer isn't one of them.** ADR-019 was ratified on the reasoning that its worst case equals current
+  behaviour, because "on any error, timeout, rate-limit or no-match the track parks as today". Running
+  Shazam against Frank Ocean's *Strawberry Swing* — a cover sung over Coldplay's actual master —
+  returned **Coldplay**, with the original's album, label and ISRC attached. Not an error, not a
+  no-match: a clean, high-confidence, wrong identification, which then scores 100 at MusicBrainz and
+  would have auto-landed the owner's file under the wrong artist. The safety argument had a hole
+  exactly the width of the case nobody listed. Two rules. (1) **An audio fingerprint identifies the
+  recording, not the performance** — anything built over another artist's master (covers,
+  interpolations, mixtape cuts) matches the original by design, because most of the mix genuinely *is*
+  the original; treat it as a normal input, not an edge case. (2) When a decision rests on "worst case
+  = today", **write the enumeration out and then attack it** — the dangerous outcome is rarely the
+  absence of an answer, it's a plausible one. Fixed by adding condition 3: a third-party
+  identification may populate candidates but may never clear the auto-accept bar on its own.
