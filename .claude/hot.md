@@ -1,7 +1,7 @@
 ---
 type: meta
 title: "Hot — cleanmuzik"
-updated: 2026-07-27
+updated: 2026-07-29
 tags:
   - meta
   - hot-cache
@@ -19,44 +19,46 @@ status: evergreen
 CleanMuzik — personal YouTube → Jellyfin music tool. Purpose, stack, constraints and read-order are in
 `CLAUDE.md`; scope in `cleanmuzik-prd.md`. Not restated here.
 
-## Current State (2026-07-27)
+## Current State (2026-07-29)
 
-- **`main` clean at `26b1e8d`. Eight commits unpushed** — T-106 and its docs. Push after the verify.
-- **Servers are down.** Nothing on `:8137` or `:5173`; start both before verifying.
-- **Data dir is `/home/armand/cleanmuzik-data/`** (Linux fs, set by `DB_PATH` in `.env`) — app DB,
-  beets library DB and staging root. Jellyfin library unchanged at `/mnt/c/.../Music/CleanMuzik`.
-- **Queue is 1 healthy review**: Frank Ocean — Strawberry Swing, audio present, 5 candidates. The
-  9 dead rows are deleted; the only DB backup was scratchpad-only and is gone.
+- **`main` is 9 commits ahead of origin, plus 9 modified files uncommitted** — today's doc filings
+  (`learnings.md`, `r1.1/tickets.md`, `backlog/T-035.md`), a `<meta charset="utf-8">` added to all five
+  `docs/**/design/*.html`, and **the owner's own README edit** (run commands — left as-is, not mine).
+- **Both servers up**: `:8137` backend, `:5173` client. **Serve `docs/**/design/*.html` over HTTP for any
+  owner review** — an open from the OneDrive tree truncated the T-103 screens silently (learnings
+  2026-07-29). `cd docs/r1.1/design && python3 -m http.server 8901`.
+- **Queue is 2 reviews**: Frank Ocean *Strawberry Swing* and Nines *Outro (Official Audio)* (added
+  today, 5 wrong candidates). Both audio present. Both are now T-103 fixtures with known-correct MBIDs.
+- **Library is 9 tracks** — Jay-Z *Wishing on a Star* landed today via auto-tag (323 kbps, art
+  embedded).
 
-## ⟹ LIVE THREAD — T-106's last gate
+## ⟹ LIVE THREAD — build T-103
 
-**Owner runs `/verify` next session.** Everything else in T-106 landed and was observed (see
-`docs/r1.1/tickets.md`). What's left is the Done-when end-to-end: park a track → restart the server →
-resolve → confirm the tagged MP3 320 lands in Jellyfin.
+**Design signed off 2026-07-29, ratified as ADR-020. T-103 is ready to build and is the critical path.**
+Start with ADR-020's binding consequence 1: relax `_validate_weak_match` (`reviews.py:168`), which today
+refuses any recording that isn't already a candidate — the single thing making re-search impossible. The
+landing machinery it calls (`resolve_import` / `_forced_match`) already lands an arbitrary recording.
 
-**Use a fresh track, not the Frank Ocean row.** All 5 of its candidates are wrong and it is now
-T-103's regression fixture. Then push.
+**Verify T-103 and T-106 together** — one park→re-search→resolve→land run closes both gates. Fixtures are
+already in the queue with known-correct MBIDs (Frank Ocean `908e389b…`, Nines *Outro* `f5d1bcfb…`).
 
 ## Also open (not the live thread)
 
-- **T-103 escape-hatch design** — awaiting owner sign-off (ADR-016 gate). Frank Ocean is the live
-  example of the case it exists for; the reasoning is filed in ADR-019 and `docs/backlog/T-035.md`.
-- **Shazam build ticket** — still unwritten (`T-035.md` item 4). It now has a prerequisite: the
-  pipeline must be able to tell a Shazam-derived match from an AcoustID one, or ADR-019's new
-  condition 3 can't be enforced.
-- **T-102** (lift the review lifecycle out of `TrackCard`) renders T-106's `staging_missing` flag.
-  **T-105** reskin, **R2** migrate — later.
-- **Worth an ADR?** "The data dir is placed by `DB_PATH` and must not sit in a cloud-synced tree"
-  constrains future code but lives only in `learnings.md`. Owner's call to promote.
+- **T-106 is BUILT, not done** — reboot half proven on the real machine today; resolve half folded into
+  T-103's `/verify` by owner decision. Full reasoning on its status line in `docs/r1.1/tickets.md`.
+- **T-102** then **T-105** (reskin, last). Do not fan out T-102 ∥ T-103 — overlapping client files.
+- **`docs/backlog/T-037.md` — filed today, untriaged.** Split artist folders + missing genre tag.
+- **LLM-as-disambiguator tier** — raised and deliberately deferred today; reasoning filed in
+  `docs/backlog/T-035.md`. Sequenced after T-103 and after the Shazam tier.
 
 ## Verifying
 
-- Isolate `DB_PATH` to a temp dir **and** monkeypatch `beets_engine.LIBRARY_DIRECTORY` (a hardcoded
-  constant, not a setting), or a resolve lands in the real library. The suite already does this.
-- Sandbox: `yt-dlp --js-runtimes node`; `uv venv`, not `python3 -m venv`.
-- **`--reload` did not fire** on a `touch` of a module under `/mnt/c`. Restart deliberately.
+- Isolate `DB_PATH` **and** monkeypatch `beets_engine.LIBRARY_DIRECTORY` (a hardcoded constant), or a
+  resolve lands in the real library. The suite already does this.
+- A yt-dlp `403` at the download stage may be **transient** — retry once before diagnosing.
+- `--reload` did not fire on a `touch` under `/mnt/c`. Restart deliberately.
 
 ## Where the rest of the context lives
 
 `docs/roadmap.md` · `docs/r1.1/` (active) · `docs/r1/adr.md` (**ADR-019** newest) · `docs/learnings.md`
-· `docs/backlog/` · `docs/r1/design/*.html` · git (tag `r1-single-song`). Business/vault → `/garden`.
+· `docs/backlog/` · `docs/r1.1/design/*.html` · git (tag `r1-single-song`). Business/vault → `/garden`.
