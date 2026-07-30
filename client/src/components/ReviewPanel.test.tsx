@@ -25,10 +25,18 @@ beforeEach(() => {
 function mockBackend(opts: {
   review?: unknown | (() => Response)
   resolve?: () => Response
+  /** `POST /reviews/{id}/search` (T-103). A function so a test can answer differently
+   *  on a second call — "search again" has to actually re-query. */
+  search?: () => Response
 }) {
   return vi.spyOn(globalThis, 'fetch').mockImplementation((input, init) => {
     const url = String(input)
     const method = init?.method ?? 'GET'
+    if (url.includes('/search')) {
+      return Promise.resolve(
+        opts.search?.() ?? jsonResponse({ artist: '', title: '', candidates: [] }),
+      )
+    }
     if (url.includes('/resolve')) {
       return Promise.resolve(opts.resolve?.() ?? jsonResponse({ ok: true }))
     }
@@ -364,5 +372,229 @@ describe('duplicate — "you already have this; keep which?"', () => {
     )
     fireEvent.click(await screen.findByRole('button', { name: /try again/i }))
     await waitFor(() => expect(screen.getByText('192 kbps')).toBeInTheDocument())
+  })
+})
+
+/**
+ * Re-search — the exit that fixes the dead-end (T-103, ADR-020 exit 1).
+ *
+ * The dead-end has two shapes and both are covered: an EMPTY candidate list, and a
+ * wrong-but-present one. The second is the trap — five confident-looking rows are
+ * indistinguishable from useful ones until you read them — so "None of these?" has to
+ * be reachable even when the list looks fine.
+ */
+describe('re-search — correcting the question', () => {
+  const FOUND = {
+    artist: 'Frank Ocean',
+    title: 'Strawberry Swing',
+    candidates: [
+      {
+        candidate_id: '908e389b-256c-4f6a-9d75-0e0a81815444',
+        title: 'Strawberry Swing',
+        artist: 'Frank Ocean',
+        score: 0.889,
+      },
+    ],
+  }
+
+  it('pre-fills the form with what the machine searched with', () => {
+    mockBackend({})
+    render(
+      <ReviewPanel
+        reviewId="rev-1"
+        rec="none"
+        query="Frank Ocean - Strawberry Swing"
+        candidates={[]}
+        // The real fixture's shape: yt-dlp wrote the UPLOADER into the artist tag.
+        guess={{ artist: 'Jon Hunt Playlists', title: 'Frank Ocean - Strawberry Swing' }}
+        onResolved={() => {}}
+      />,
+    )
+    // Showing the wrong values IS the point — it's how the owner spots the mistake.
+    expect(screen.getByLabelText(/artist/i)).toHaveValue('Jon Hunt Playlists')
+    expect(screen.getByLabelText(/title/i)).toHaveValue('Frank Ocean - Strawberry Swing')
+  })
+
+  it('opens the form unprompted when there is nothing to pick from', () => {
+    mockBackend({})
+    render(
+      <ReviewPanel reviewId="rev-1" rec="none" query="q" candidates={[]} onResolved={() => {}} />,
+    )
+    // A candidate-less park has no list to say "none of these" about.
+    expect(screen.getByRole('button', { name: /re-search/i })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /none of these/i })).not.toBeInTheDocument()
+  })
+
+  it('keeps the form behind a control when there ARE candidates to pick', () => {
+    mockBackend({})
+    render(
+      <ReviewPanel reviewId="rev-1" rec="low" query="q" candidates={CANDIDATES} onResolved={() => {}} />,
+    )
+    expect(screen.queryByRole('button', { name: /re-search/i })).not.toBeInTheDocument()
+    // But it must still be reachable: a wrong-but-present list is the harder dead-end.
+    fireEvent.click(screen.getByRole('button', { name: /none of these/i }))
+    expect(screen.getByRole('button', { name: /re-search/i })).toBeInTheDocument()
+  })
+
+  it('falls back to the raw query when no guess rode along', () => {
+    mockBackend({})
+    render(
+      <ReviewPanel reviewId="rev-1" rec="none" query="Outro" candidates={[]} onResolved={() => {}} />,
+    )
+    expect(screen.getByLabelText(/title/i)).toHaveValue('Outro')
+    expect(screen.getByLabelText(/artist/i)).toHaveValue('')
+  })
+
+  it('swaps the two fields in one click', () => {
+    mockBackend({})
+    render(
+      <ReviewPanel
+        reviewId="rev-1"
+        rec="none"
+        query="q"
+        candidates={[]}
+        guess={{ artist: 'All Get Right', title: 'Nipsey Hussle' }}
+        onResolved={() => {}}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: /swap/i }))
+    expect(screen.getByLabelText(/artist/i)).toHaveValue('Nipsey Hussle')
+    expect(screen.getByLabelText(/title/i)).toHaveValue('All Get Right')
+  })
+
+  it('sends the corrected terms and replaces the list with what comes back', async () => {
+    const fetchMock = mockBackend({ search: () => jsonResponse(FOUND) })
+    render(
+      <ReviewPanel
+        reviewId="rev-1"
+        rec="low"
+        query="q"
+        candidates={CANDIDATES}
+        onResolved={() => {}}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: /none of these/i }))
+    fireEvent.change(screen.getByLabelText(/artist/i), { target: { value: 'Frank Ocean' } })
+    fireEvent.change(screen.getByLabelText(/title/i), { target: { value: 'Strawberry Swing' } })
+    fireEvent.click(screen.getByRole('button', { name: /re-search/i }))
+
+    await waitFor(() =>
+      expect(screen.getByRole('radiogroup', { name: /new results/i })).toBeInTheDocument(),
+    )
+    const call = fetchMock.mock.calls.find((c: unknown[]) => String(c[0]).includes('/search'))
+    expect(JSON.parse((call![1] as RequestInit).body as string)).toEqual({
+      artist: 'Frank Ocean',
+      title: 'Strawberry Swing',
+    })
+    // The parked candidates are gone from the list — they were the wrong answer.
+    expect(screen.queryByText('Freestyle')).not.toBeInTheDocument()
+  })
+
+  it('lands the re-searched recording, which was never a parked candidate', async () => {
+    // The whole point of ADR-020's first binding consequence, end to end on the client.
+    const onResolved = vi.fn()
+    const fetchMock = mockBackend({ search: () => jsonResponse(FOUND) })
+    render(
+      <ReviewPanel
+        reviewId="rev-1"
+        rec="none"
+        query="q"
+        candidates={[]}
+        onResolved={onResolved}
+      />,
+    )
+    fireEvent.change(screen.getByLabelText(/title/i), { target: { value: 'Strawberry Swing' } })
+    fireEvent.click(screen.getByRole('button', { name: /re-search/i }))
+    // The best result is preselected, so accepting is one click.
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /accept/i })).toBeEnabled(),
+    )
+    fireEvent.click(screen.getByRole('button', { name: /accept/i }))
+    await waitFor(() => expect(onResolved).toHaveBeenCalledOnce())
+    expect(resolveBody(fetchMock)).toEqual({
+      choice: '908e389b-256c-4f6a-9d75-0e0a81815444',
+    })
+  })
+
+  it('an empty result is not a dead panel — the form stays open to try again', async () => {
+    let calls = 0
+    mockBackend({
+      search: () => {
+        calls += 1
+        return calls === 1
+          ? jsonResponse({ artist: 'Nines', title: 'Nonsense', candidates: [] })
+          : jsonResponse(FOUND)
+      },
+    })
+    render(
+      <ReviewPanel reviewId="rev-1" rec="none" query="q" candidates={[]} onResolved={() => {}} />,
+    )
+    fireEvent.change(screen.getByLabelText(/title/i), { target: { value: 'Nonsense' } })
+    fireEvent.click(screen.getByRole('button', { name: /re-search/i }))
+
+    await waitFor(() => expect(screen.getByText(/no record of that/i)).toBeInTheDocument())
+    // ADR-020 consequence 2: exits, never a terminal state. Reject stays, and the form
+    // is still there to search with different terms.
+    expect(screen.getByRole('button', { name: /reject/i })).toBeEnabled()
+    const searchAgain = screen.getByRole('button', { name: /re-search/i })
+    expect(searchAgain).toBeEnabled()
+
+    // And searching again genuinely re-queries rather than showing a cached miss.
+    fireEvent.change(screen.getByLabelText(/title/i), { target: { value: 'Strawberry Swing' } })
+    fireEvent.click(searchAgain)
+    await waitFor(() => expect(screen.getByText('Strawberry Swing')).toBeInTheDocument())
+  })
+
+  it('keeps the corrected terms when the form is closed and reopened', async () => {
+    // The bug an altitude review caught: a successful search collapsed the form, and
+    // reopening it REMOUNTED it, re-seeding both fields from `guess` — silently binning
+    // what the owner typed. Not an edge case: ADR-020's amendment measured that
+    // MusicBrainz almost never returns nothing, so "many results, all wrong" is the
+    // normal outcome and a SECOND search is the ordinary next move.
+    mockBackend({ search: () => jsonResponse(FOUND) })
+    render(
+      <ReviewPanel
+        reviewId="rev-1"
+        rec="low"
+        query="q"
+        candidates={CANDIDATES}
+        guess={{ artist: 'Jon Hunt Playlists', title: 'wrong title' }}
+        onResolved={() => {}}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: /none of these/i }))
+    fireEvent.change(screen.getByLabelText(/artist/i), { target: { value: 'Frank Ocean' } })
+    fireEvent.change(screen.getByLabelText(/title/i), { target: { value: 'Strawberry Swing' } })
+    fireEvent.click(screen.getByRole('button', { name: /re-search/i }))
+
+    // Results arrive and the form collapses.
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: /re-search/i })).not.toBeInTheDocument(),
+    )
+    fireEvent.click(screen.getByRole('button', { name: /none of these/i }))
+    expect(screen.getByLabelText(/artist/i)).toHaveValue('Frank Ocean')
+    expect(screen.getByLabelText(/title/i)).toHaveValue('Strawberry Swing')
+  })
+
+  it('a failed search leaves the panel usable, not stuck on "Searching…"', async () => {
+    mockBackend({ search: () => jsonResponse({ detail: 'MusicBrainz is unreachable' }, 503) })
+    render(
+      <ReviewPanel reviewId="rev-1" rec="none" query="q" candidates={[]} onResolved={() => {}} />,
+    )
+    fireEvent.change(screen.getByLabelText(/title/i), { target: { value: 'Outro' } })
+    fireEvent.click(screen.getByRole('button', { name: /re-search/i }))
+    await waitFor(() =>
+      expect(screen.getByText(/MusicBrainz is unreachable/i)).toBeInTheDocument(),
+    )
+    // A search changes nothing server-side, so unlike a resolve the button must return.
+    expect(screen.getByRole('button', { name: /re-search/i })).toBeEnabled()
+  })
+
+  it('refuses to search with both fields empty', () => {
+    mockBackend({})
+    render(
+      <ReviewPanel reviewId="rev-1" rec="none" query="" candidates={[]} onResolved={() => {}} />,
+    )
+    expect(screen.getByRole('button', { name: /re-search/i })).toBeDisabled()
   })
 })

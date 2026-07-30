@@ -25,11 +25,7 @@ export class ApiError extends Error {
  * rather than inventing its own.
  */
 export async function createJob(url: string): Promise<CreateJobResponse> {
-  return request<CreateJobResponse>('/api/jobs', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ url }),
-  })
+  return postJson<CreateJobResponse>('/api/jobs', { url })
 }
 
 /** `GET /api/jobs/{id}` — the job status snapshot (spec §6). */
@@ -98,6 +94,23 @@ export interface DuplicateDetail {
   incoming: DuplicateIncoming
 }
 
+/**
+ * What the machine *searched with*, for the re-search form to pre-fill (T-103).
+ *
+ * `title` is the normalized query the park actually used; `artist` is the staging
+ * file's embedded artist tag (yt-dlp's `--embed-metadata`). **Neither is a claim of
+ * correctness** — showing the owner what was searched is how the mistake becomes
+ * visible (ADR-020). On the real fixtures `artist` has been the uploader's channel
+ * name and `title` has held both fields in one string, so the form must let the owner
+ * edit freely rather than trust these.
+ *
+ * Null on a duplicate row, which asks a different question.
+ */
+export interface ReviewGuess {
+  artist: string | null
+  title: string | null
+}
+
 /** One row of `GET /api/reviews`. `rec === "duplicate"` selects the keep-which
  *  branch and carries `duplicate`; every other `rec` is a weak match with
  *  `candidates`. */
@@ -108,6 +121,7 @@ export interface ReviewRow {
   rec: string
   candidates: ReviewCandidate[]
   duplicate?: DuplicateDetail
+  guess?: ReviewGuess | null
   /** Why the last resolve attempt re-parked this row (T-029), or null on a first
    *  park. Persisted server-side so it survives the reconnect/reload this endpoint
    *  recovers from — the live SSE `message` is gone by then. */
@@ -139,6 +153,38 @@ export async function getReview(reviewId: string): Promise<ReviewRow> {
   return request<ReviewRow>(`/api/reviews/${encodeURIComponent(reviewId)}`)
 }
 
+/** What `POST /api/reviews/{id}/search` answers with. The terms are echoed back
+ *  **trimmed** — the exact strings that went to MusicBrainz, not the raw field values —
+ *  so the card's "searched again for" line reports what was really asked rather than
+ *  what was typed. (It does not survive a reload; a reload unmounts the panel and the
+ *  results reset to the parked list.) An empty `candidates` is a real answer —
+ *  "MusicBrainz doesn't have this" — and the card renders exits from it, never a dead
+ *  panel (ADR-020). */
+export interface ReviewSearchResult {
+  artist: string
+  title: string
+  candidates: ReviewCandidate[]
+}
+
+/**
+ * `POST /api/reviews/{id}/search` — re-query MusicBrainz with the owner's corrected
+ * terms (ADR-020 exit 1).
+ *
+ * A **read**: it stores nothing and leaves the row `pending`, so it can be repeated as
+ * many times as it takes. The recording the owner then picks goes back through
+ * {@link resolveReview}, which since ADR-020 accepts a recording that was never in the
+ * parked candidate list — that relaxation is what makes this endpoint useful.
+ */
+export async function searchReview(
+  reviewId: string,
+  terms: { artist: string; title: string },
+): Promise<ReviewSearchResult> {
+  return postJson<ReviewSearchResult>(
+    `/api/reviews/${encodeURIComponent(reviewId)}/search`,
+    terms,
+  )
+}
+
 /** The two resolve body shapes (spec §6), keyed by the review's `rec`. A weak
  *  match sends a `candidate_id` or `"reject"`; a duplicate sends one of the three
  *  keep-which choices, with a `suffix` required for (and only for) `keep_both`. */
@@ -157,14 +203,21 @@ export async function resolveReview(
   reviewId: string,
   body: ResolveBody,
 ): Promise<{ ok: boolean }> {
-  return request<{ ok: boolean }>(
+  return postJson<{ ok: boolean }>(
     `/api/reviews/${encodeURIComponent(reviewId)}/resolve`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    },
+    body,
   )
+}
+
+/** The request contract every POST shares. `request` owns the ERROR contract; this
+ *  owns the shape of the call, so the JSON content-type is stated once rather than at
+ *  each call site (where a typo surfaces as a puzzling FastAPI 422 at runtime). */
+async function postJson<T>(path: string, body: unknown): Promise<T> {
+  return request<T>(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
 }
 
 /** Fetch + the error contract every route shares: an ApiError with the server's

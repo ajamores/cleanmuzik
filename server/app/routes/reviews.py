@@ -16,7 +16,7 @@ import logging
 
 from fastapi import APIRouter, HTTPException, Request
 
-from app.db import get_store
+from app.db import REVIEW_PENDING, get_store
 from app.reviews import (
     ResolveValidationError,
     hydrate_review,
@@ -57,6 +57,59 @@ async def get_review_row(review_id: str, request: Request) -> dict:
     return row
 
 
+def _pending_review(store, review_id: str):
+    """The row, or the two ways it can't be acted on: 404 gone, 409 already claimed.
+
+    Shared by `/search` and `/resolve` because they ask the same precondition for the
+    same reason — a row that is mid-landing has already had its decision handed to the
+    worker, so neither a new decision nor new candidates for it can mean anything.
+    (`routes/jobs.py` repeats a 404-only `get_job` preamble and never checks a status,
+    so there was nothing there to reuse.)
+    """
+    review = store.get_review(review_id)
+    if review is None:
+        raise HTTPException(status_code=404, detail=f"No review {review_id}.")
+    if review.status != REVIEW_PENDING:
+        raise HTTPException(
+            status_code=409, detail=f"Review {review_id} is already {review.status}."
+        )
+    return review
+
+
+@router.post("/reviews/{review_id}/search")
+async def search_review(review_id: str, payload: dict) -> dict:
+    """Re-query MusicBrainz with the owner's corrected terms (T-103, ADR-020 exit 1).
+
+    A **read**, not a decision: it stores nothing and leaves the row `pending`, so the
+    owner can search as many times as it takes. The recording they eventually pick
+    travels back through `/resolve`, which since ADR-020 accepts a recording that was
+    never in the parked candidate list.
+
+    Off the event loop for the same reason as the two GETs — it is network-bound, and it
+    goes to a thread rather than to the sequential job worker because queueing a search
+    behind a running download would make the form feel broken. ADR-001 governs the
+    *pipeline*, which this isn't.
+
+    An empty `candidates` list is a **200, not a 404**: "MusicBrainz doesn't have this"
+    is the answer, and the client renders the two remaining exits (ADR-020 consequence
+    2 — never a dead panel). The terms are echoed back so the card can say what it
+    searched for without trusting its own local state.
+    """
+    from app.mb_search import SearchTermsError, clean_terms, search_recordings
+
+    review = _pending_review(get_store(), review_id)
+
+    try:
+        artist, title = clean_terms((payload or {}).get("artist"), (payload or {}).get("title"))
+    except SearchTermsError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    candidates = await asyncio.to_thread(
+        search_recordings, artist, title, staging_path=review.staging_path
+    )
+    return {"artist": artist, "title": title, "candidates": candidates}
+
+
 @router.post("/reviews/{review_id}/resolve")
 def resolve_review(review_id: str, payload: dict, request: Request) -> dict[str, bool]:
     """Apply the owner's decision and resume the import (spec §6).
@@ -71,14 +124,7 @@ def resolve_review(review_id: str, payload: dict, request: Request) -> dict[str,
     safely open a fresh EventSource on the next line (see `JobWorker.submit_resolve`).
     """
     store = get_store()
-    review = store.get_review(review_id)
-    if review is None:
-        raise HTTPException(status_code=404, detail=f"No review {review_id}.")
-    if review.status != "pending":
-        raise HTTPException(
-            status_code=409,
-            detail=f"Review {review_id} is already {review.status}.",
-        )
+    review = _pending_review(store, review_id)
 
     try:
         resolve_request = validate_resolve_body(review, payload)

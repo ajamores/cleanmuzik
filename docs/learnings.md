@@ -757,3 +757,85 @@ Format: `- <date> — what went wrong → the correction / rule now in place`
   before the CSS — count the DOM nodes against the source rather than reading the stylesheet. Same
   family as T-106's data-dir decision: sync engines lie about file state while `isfile` still answers
   True.
+- 2026-07-29 — (T-103 build) **beets' singleton distance ignores the artist by default, which makes a
+  cover version literally unrankable.** Measured on the parked Frank Ocean fixture: with
+  `track_distance(item, info)` as beets calls it (`incl_artist=False`), *Strawberry Swing* by **Coldplay**
+  and by **Frank Ocean** score an identical **0.571** — not close, identical. His version is a cover of
+  Coldplay's 2008 original, so the title collides and the only distinguishing field is the one being
+  discarded. That tie *is* the T-103 dead-end, and it is invisible if you only look at the parked
+  candidate list. With `incl_artist=True`: Frank Ocean 0.667, Coldplay 0.467. Rule: any scoring on the
+  re-search path passes `incl_artist=True` — the owner just corrected the artist, so ignoring it throws
+  away the only thing they told us. Pinned by a test that asserts the flag, not the score.
+- 2026-07-29 — (T-103 build) **A *guessed* track duration actively corrupts candidate ranking; a *real*
+  one is the strongest discriminator available.** Passing an invented 193 s lifted three wrong candidates
+  above the right one, because their true MusicBrainz durations happened to sit nearer the invention
+  (Yesca — *Strawberry's* went 0.400 → 0.584). Read off the actual staging file instead, the same field
+  is decisive: Frank Ocean 0.667 → **0.889**, and it is the *only* thing separating five different
+  recordings all titled "Nines — Outro" (they tie at 0.667 without it; one reaches 0.889 with it). Rule:
+  duration comes from the file or is left unset — **never** defaulted to 0.0 or a placeholder. An
+  unreadable staging file (a normal T-106 state) must yield `None`, not a number.
+- 2026-07-29 — (T-103 build) **MusicBrainz text search almost never returns zero results, so "not in the
+  database" is not detectable by an empty list.** ADR-020's screen 04 ("MusicBrainz doesn't have this
+  one") is drawn for `candidates == []`, and that state is far rarer than the design assumes: searching
+  the deliberate nonsense `artist="zzqx bootleg crew" title="qqzzxx unreleased vault rip 47"` returned
+  **25 results** — MusicBrainz matched loose tokens (`rip`, `vault`) and served Double 99's *Rip Groove*
+  at 0.403 and 24 more. The genuine failure mode is therefore **"25 results, all obviously wrong, best
+  score ~0.40"**, which is the same wrong-but-present dead-end one level down, not an empty panel.
+  Consequences: (1) the empty state is still correct where it occurs and stays, but it must not be the
+  **only** door to keep-untagged — that exit has to be reachable whenever the owner says so, not gated
+  on a result count that will rarely be zero (this reshapes T-103's second slice); (2) resist the obvious
+  fix of a "best score below X ⇒ declare it absent" threshold — inventing a confidence bar is exactly
+  what ADR-006/ADR-010 refuse, and it would misfire on the Nines fixture, whose correct answer sits at
+  0.757 among five near-identical rows.
+- 2026-07-29 — (T-103 build, caught by the DoD's acceptance check) **A payload the design depends on can
+  be absent from *one* of the two transports that carry the same row, and the half that works is the
+  half you test first.** The re-search form pre-fills Artist and Title separately; the review row carried
+  only `query`, one string. Adding `guess` to the hydrated `GET /api/reviews` row made it work — on the
+  path taken after a reload. The **everyday** path is a live park the owner fixes on the spot, which
+  renders from the `track.review_required` SSE frame, where `guess` did not exist. So the pre-fill would
+  have demoed perfectly and been empty exactly when it mattered. Rule: when a field is added for the UI,
+  enumerate **every** transport that feeds that component — SSE frame, list GET, single-row GET — and
+  build it in one shared helper (`reviews.guess_terms`) called from all of them. Same shape as the ADR-010
+  cover-art miss: the question "can the payload deliver this?" has to be asked per transport, not per API.
+- 2026-07-30 — (T-103 slice A, four parallel `/simplify` reviewers) **The obvious way to hydrate
+  MusicBrainz search results costs 27 seconds a call, and it looks instant in every test.** The re-search
+  endpoint searched (1 request) and then resolved each result by id the way `item_candidates` does —
+  and beets' MusicBrainz plugin does **not** override `tracks_for_ids`, so that falls through to
+  `(self.track_for_id(i) for i in ids)`: one `GET /ws/2/recording/{id}` each, through a shared **1.0
+  req/s** limiter. Measured on the live server: **26.8 / 28.9 / 27.7 s** for three identical searches —
+  no cache to warm, flat every time — against 0.3–1.0 s after the fix. Worse, that limiter is the *same*
+  token bucket the acquire pipeline uses, so one re-search starved a running import of MusicBrainz for
+  the whole 27 s. The 25 lookups were pure waste: they fetch aliases, ISRCs and work/artist relations,
+  while everything downstream reads only `track_id`, `title`, `artist`, `length` — **all four already in
+  the single search response.** Rules: (1) before hydrating a list of ids against a rate-limited API, ask
+  what the list response already carries; (2) latency of this class is invisible to unit tests and to a
+  reviewer reading a diff — it has to be *timed against the running thing*; (3) when raising a result
+  limit, check whether the limit multiplies a per-item request, because 5→25 was free before this fix
+  and 5× the wall-clock after it.
+- 2026-07-30 — (T-103 slice A) **A justification I didn't check cost 30 duplicated lines.** I hand-rolled
+  beets' search sequence rather than calling its public `tag_item`, on the stated grounds that raising
+  `search_limit` would mutate *global* config and widen the acquire path's candidate lists. A reviewer
+  checked: `search_limit` is a **per-plugin** config node, not the global tree, so a scoped set/restore
+  would have bought the wider limit without forking anything. The instinct (don't mutate shared global
+  state from a request thread) was right; the fact underneath it was wrong, and I wrote the fork *and a
+  docstring defending it* without verifying the premise. Rule: when a docstring is about to assert why
+  the library's own function can't be used, verify that sentence the way a finding gets verified —
+  a confident *rationale* is exactly what stops the next reader from re-checking it.
+- 2026-07-30 — (T-103 slice A) **beets normalizes MusicBrainz's `artist-credit` to `artist_credit`, and
+  reading the hyphenated name fails silently as a ranking bug, not an error.** Building the row parser
+  off the raw MusicBrainz API docs produced `artist=None` on every result — and because title and
+  duration still scored, the list came back *plausibly ordered* with the right answer at rank 0. The only
+  symptoms were "Unknown artist" on every row and a silently dead `incl_artist=True`, i.e. the feature's
+  own load-bearing finding neutralised. Rule: build API-shape test fixtures from a **captured real
+  response**, never from the upstream docs, when a client library sits in between; and when a field is
+  load-bearing for scoring, assert its *value* in a test, not just that rows come back.
+- 2026-07-30 — (T-103 slice A, altitude review) **State that must survive a UI element belongs to the
+  element's parent, and "it works in the tested case" hid the opposite.** The owner's corrected
+  artist/title lived inside the re-search form. A successful search collapsed that form; re-opening it
+  remounted the component, which re-seeded both fields from the machine's original guess — silently
+  discarding the correction. The empty-result case *appeared* to work, but only by accident: the form
+  happened to stay mounted, so its state survived. And the broken path is the mainline, per the same
+  day's ADR-020 amendment: MusicBrainz almost never returns nothing, so "many results, all wrong" and a
+  second search is the ordinary flow. Rule: when a component's state represents the **user's input**
+  rather than the request in flight, hold it above anything that conditionally unmounts — and write the
+  test for the *survives-a-round-trip* path, not only the failure path that keeps the component alive.

@@ -67,7 +67,7 @@ from app.import_seam import (
 )
 from app.jellyfin import JellyfinScanError, trigger_scan
 from app.normalize import normalize_title
-from app.reviews import CHOICE_REJECT, CHOICE_REPLACE, ResolveRequest
+from app.reviews import CHOICE_REJECT, CHOICE_REPLACE, ResolveRequest, guess_terms
 from app.transcode import transcode_to_mp3_320
 
 logger = logging.getLogger("cleanmuzik")
@@ -356,6 +356,7 @@ def run_pipeline(
                     bus, job_id,
                     review_id=parked.id, rec=parked.rec, query=query,
                     candidates=_id_only_candidates(parked.candidate_ids),
+                    staging_path=parked.staging_path,
                 )
                 return _finish(
                     store, registry, job_id, bus=bus,
@@ -374,6 +375,7 @@ def run_pipeline(
                 bus, job_id,
                 review_id=parked.review_id, rec=parked.rec, query=query,
                 candidates=parked.candidates or [],
+                staging_path=mp3,
             )
             return _finish(
                 store, registry, job_id, bus=bus,
@@ -841,6 +843,7 @@ def _repark_after_release(
             bus, job_id,
             review_id=review_id, rec=review.rec, query=review.query,
             candidates=_id_only_candidates(review.candidate_ids),
+            staging_path=review.staging_path,
             message=message,
         )
         return _finish(
@@ -1044,19 +1047,27 @@ def _emit_review_required(
     rec: str | None,
     query: str,
     candidates: list[dict],
+    staging_path,
     message: str | None = None,
 ) -> None:
     """Publish the spec §6 `track.review_required` event — the one emit shape, in one
     place (T-029, finding #4). Three paths park a job: `run_pipeline`'s rich park and its
     post-park recovery, plus `run_resolve`'s re-park. They differ only in `candidates`
     (rich vs id-only) and whether a re-park `message` rides along; sharing this stops a
-    future contract change (as `message` just was) from being applied to two of three."""
+    future contract change (as `message` just was) from being applied to two of three.
+
+    `staging_path` is here only to build `guess` — the re-search form's pre-fill (T-103).
+    The **guess** is built here rather than by each caller so all three park paths carry
+    it: the live park is the everyday case the owner fixes on the spot, and a pre-fill
+    present only on the `GET /api/reviews` re-hydration would be empty exactly when it
+    matters most."""
     payload = {
         "job_id": job_id,
         "review_id": review_id,
         "rec": rec,
         "query": query,
         "candidates": candidates,
+        "guess": guess_terms(staging_path, query),
     }
     if message is not None:
         payload["message"] = message

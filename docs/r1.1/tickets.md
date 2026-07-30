@@ -49,14 +49,48 @@ it **next** (2026-07-25), and T-103's re-search exit is built on top of it, so i
   the card unmounts** (reload mid-review, resolve from the inbox). Ties to §8 item 5.
 
 ### T-103 — No-candidate park exits (fix the 8b dead-end)
-- **Status:** **READY TO BUILD — design SIGNED OFF 2026-07-29; ADR-016 gate passed; ratified as
-  ADR-020.** The owner reviewed the six flat screens in `docs/r1.1/design/review-rescue-flow.html` and
-  approved them unchanged. This is now **the critical path for R1.1**: it unblocks T-106's last gate
-  (verify them together — one run proves both) and feeds T-102's inbox row. Build against ADR-020's four
-  binding consequences, the first of which is relaxing `_validate_weak_match` (`reviews.py:168`).
-  *Sign-off hazard worth knowing:* the owner's first read of the screens was **truncated** by OneDrive
-  and showed neither screen 05 nor 06 — serve design artifacts over HTTP for review
-  (`docs/learnings.md`, 2026-07-29).
+- **Status:** **EXIT 1 (re-search) BUILT — not yet on `main`, and not yet browser-verified. Exit 2
+  (keep-untagged) NOT started.** Owner chose the two-slice order on 2026-07-29: land re-search first
+  (it closes T-106's gate), then build keep-untagged. Branch `t103-research`; 418 server tests + 52
+  client tests green.
+  - **What landed in slice A.** `_validate_weak_match` relaxed per ADR-020 consequence 1 — membership in
+    `candidate_ids` is no longer required, replaced by an MBID *shape* check, with listed candidates
+    still accepted whatever their shape. New `app/mb_search.py` + `POST /api/reviews/{id}/search`
+    (stateless read: stores nothing, leaves the row `pending`, repeatable). New `guess` field on
+    **both** transports — the hydrated row and the `track.review_required` SSE frame — feeding the
+    form's pre-fill. Client: the re-search form, swap, new-results list, and the empty state.
+  - **`/verify` — done for the engine and the route, NOT for the browser.** Both fixtures re-searched
+    over HTTP against the running `:8137`: Frank Ocean's known-correct `908e389b…` comes back **first at
+    0.889** (it was absent from the parked list entirely), and Nines' `f5d1bcfb…` is present at 0.757.
+    Then the full **park → re-search → resolve → land** was driven on a **copy** of the fixture audio
+    into an **isolated** temp DB + temp beets library: landed `Frank Ocean/Strawberry Swing.mp3`, MP3
+    **320 kbps**, `mb_trackid` = the re-searched recording, cover art embedded (426 KB), genre Soul,
+    year 2011. The fixtures were deliberately **not** consumed — both are still parked.
+  - **Review pass done 2026-07-30** (four parallel reviewers: reuse / simplification / efficiency /
+    altitude). Two findings were defects, not polish, and both are fixed:
+    - **27 s per search → 0.3–1.0 s.** Rows are now built from the single MusicBrainz search response;
+      the per-id `tracks_for_ids` hydration is gone. It was 26 serialised requests through beets'
+      1.0 req/s limiter — the *same* limiter the acquire pipeline uses, so a re-search also starved a
+      running import for the duration. Ranking is unchanged (Frank Ocean 0.889 first, Coldplay 0.610).
+    - **The owner's corrected terms were being discarded.** They lived in the re-search form; a
+      successful search collapsed it, and re-opening remounted it and re-seeded from `guess`. Terms now
+      live in `WeakMatchPanel`, with a regression test. This is the mainline path per the amendment
+      below, not an edge case.
+    - Also applied: shared `_pending_review` 404/409 preamble, `postJson` in `api.ts`, one shared
+      `.review__field`/`.review__input` CSS pair, flattened `_validate_weak_match`, `guess_terms` guard,
+      derived `searchOpen`. Four learnings filed. Suites: **421 server, 53 client**, green.
+  - **Still open before this is done:** (1) the browser half — the form, swap, empty state and
+    `EventSource` behaviour through the Vite proxy need the owner at `:5173`; (2) merge to `main`;
+    (3) slice B, keep-untagged, whose entry point must change per the **ADR-020 amendment** (an empty
+    result is not how "not in MusicBrainz" presents — see below).
+  - **Design was signed off 2026-07-29** on the six flat screens in
+    `docs/r1.1/design/review-rescue-flow.html`; ADR-016 gate passed; ratified as ADR-020. *Sign-off
+    hazard worth knowing:* the owner's first read was **truncated** by OneDrive and showed neither
+    screen 05 nor 06 — serve design artifacts over HTTP for review (`docs/learnings.md`, 2026-07-29).
+  - **Screen 04's premise was measured wrong and the ADR is amended.** "MusicBrainz doesn't have this
+    one" is drawn for an empty result; MusicBrainz text search almost never returns zero (a nonsense
+    query returned 25 rows). The real dead-end shape is *many results, all wrong*. Keep-untagged
+    therefore cannot be gated on an empty list — ADR-020 amendment + `docs/learnings.md`.
 - **Was:** todo — **design explored 2026-07-25 (draft, not gated yet).** This ticket widened from
   "empty candidates" to the general *"candidates can't resolve this → give me another exit"* vertebra,
   because a wrong-but-present candidate set (the Nipsey reversed-title case) is the same dead-end. Two

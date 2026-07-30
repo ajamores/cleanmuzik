@@ -54,6 +54,7 @@ tagged library file, which has album/year/art for free (see `_duplicate_detail`)
 """
 
 import logging
+import re
 import threading
 import unicodedata
 from dataclasses import dataclass
@@ -73,6 +74,11 @@ CHOICE_KEEP_EXISTING = "keep_existing"
 CHOICE_REPLACE = "replace"
 CHOICE_KEEP_BOTH = "keep_both"
 DUPLICATE_CHOICES = frozenset({CHOICE_KEEP_EXISTING, CHOICE_REPLACE, CHOICE_KEEP_BOTH})
+
+# A MusicBrainz recording id. Since ADR-020 a resolve may name a recording that was
+# never in the row's candidate list (the re-search exit), so this shape check is what
+# replaced membership as the weak-match guard — see `_validate_weak_match`.
+_MBID = re.compile(r"[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}")
 
 # Bounds on the owner-typed `keep_both` suffix (spec §6). It reaches a filesystem path
 # by way of the title tag, so it is bounded — but this is about not producing a file
@@ -157,7 +163,22 @@ def validate_resolve_body(review: Review, body: dict | None) -> ResolveRequest:
 
 
 def _validate_weak_match(review: Review, body: dict, choice: str) -> ResolveRequest:
-    """`{choice: "<candidate_id>"}` or `{choice: "reject"}` (spec §6)."""
+    """`{choice: "<recording_mbid>"}` or `{choice: "reject"}` (spec §6, ADR-020).
+
+    **Candidate-list membership is deliberately NOT required** (ADR-020's first binding
+    consequence). Until 2026-07-29 this refused any recording that wasn't already in
+    `review.candidate_ids`, which made re-search unimplementable: the whole point of
+    re-searching is that the right recording was missing from the parked list. The
+    landing machinery this feeds — `resolve_import` → `ResolveSession._forced_match` —
+    already handles an arbitrary recording (it falls back to `track_for_id` for exactly
+    the drifted-candidate case), so the guard was blocking a path that worked.
+
+    What replaces it is a **shape** check, not a membership one: a recording MBID is a
+    UUID, and anything else is a client bug worth failing on here rather than handing to
+    beets. An MBID that is well-formed but doesn't exist at MusicBrainz still fails
+    safely one layer down — `_forced_match` returns None and the resolve surfaces
+    `ResolveError`, leaving the row in the queue (learnings 2026-07-12, merged MBIDs).
+    """
     if choice in DUPLICATE_CHOICES:
         raise ResolveValidationError(
             f"'{choice}' answers a duplicate review; this one (rec={review.rec!r}) "
@@ -166,12 +187,20 @@ def _validate_weak_match(review: Review, body: dict, choice: str) -> ResolveRequ
     if choice == CHOICE_REJECT:
         return ResolveRequest(CHOICE_REJECT)
     if choice not in review.candidate_ids:
-        # An empty candidate list is a real park shape (no fingerprint match AND no
-        # usable title — learnings 2026-07-14), so say so rather than imply a typo.
-        known = ", ".join(review.candidate_ids) or "none — this song parked with no candidates"
-        raise ResolveValidationError(
-            f"'{choice}' is not a candidate of this review. Candidates: {known}. "
-            f"Send 'reject' to discard the song."
+        # The shape rule applies only OFF the list: the row vouches for its own
+        # candidates, so a listed id lands whatever it looks like, and the new guard
+        # can't become a second, stricter gate on the path that already worked.
+        if not _MBID.fullmatch(choice):
+            # Not "unknown candidate" any more — an off-list MBID is legitimate, so the
+            # only remaining error is a choice that could not be a recording at all.
+            raise ResolveValidationError(
+                f"'{choice}' is neither 'reject' nor a MusicBrainz recording id. Pick a "
+                f"candidate, re-search for the right recording, or send 'reject' to discard."
+            )
+        # Worth a log line: a landing that bypassed the parked candidates is the
+        # re-search path in action, and the interesting half of this route's traffic.
+        logger.info(
+            "review %s resolving onto off-list recording %s (re-searched)", review.id, choice
         )
     return ResolveRequest(choice, recording_id=choice)
 
@@ -318,6 +347,10 @@ def _hydrate(review: Review, lib=None) -> dict:
         # to a live one, which is how 9 unresolvable reviews sat in the inbox looking
         # healthy. One stat per row, no network. Rendered by the inbox in T-102.
         "staging_missing": _staging_missing(review.staging_path),
+        # What the machine searched with, for the re-search form to pre-fill (T-103).
+        # Null on a duplicate row, which asks a different question and already carries
+        # the incoming file's tags in `duplicate.incoming`. Filled in below.
+        "guess": None,
     }
     try:
         if review.rec == DUPLICATE_REC:
@@ -327,9 +360,58 @@ def _hydrate(review: Review, lib=None) -> dict:
                 _candidate(cid, review.candidate_scores.get(cid))
                 for cid in review.candidate_ids
             ]
+            row["guess"] = guess_terms(review.staging_path, review.query)
     except Exception as exc:  # noqa: BLE001 — one bad row must not blank the queue
         logger.warning("could not hydrate review %s (%s) — listing it bare", review.id, exc)
     return row
+
+
+def guess_terms(staging_path, query: str | None) -> dict:
+    """What the machine *searched with*, so the re-search form can pre-fill it (T-103).
+
+    Public because **two transports carry it and both must agree**: this hydrated row
+    (`GET /api/reviews`), and the `track.review_required` SSE event that `jobs.py`
+    emits. The live path is the everyday one — paste a URL, watch it park, fix it there
+    and then — so a pre-fill that existed only on the GET would appear to work and then
+    be empty exactly when it is most needed. One builder, both paths.
+
+    Two fields from two different places, because that is genuinely where they live:
+
+    - **`title` is the review's `query`** — the normalized title (T-006) that the park
+      actually searched on. Not re-derived here; it is the real input to the real search.
+    - **`artist` is the staging file's embedded artist tag** — yt-dlp's
+      `--embed-metadata` (T-004) — which is what beets had to work with and is nowhere
+      in the review row.
+
+    **These are the machine's guess, not a claim of correctness, and the point of
+    showing them is that the owner can see where it went wrong.** ADR-020 calls the
+    pre-fill deliberate for exactly this reason. On the real fixtures the failure shapes
+    are messier than a clean artist/title swap, which is why nothing here tries to
+    "fix" them by splitting on a dash:
+
+      - Frank Ocean — artist `'Jon Hunt Playlists'` (the uploader's channel), title
+        `'Frank Ocean - Strawberry Swing'` (both real fields, in one string).
+      - Nines — artist `'Nines'`, title `'Outro'`: already correct, so the form opens
+        pre-filled with terms that just work.
+
+    Splitting the title on its dash would guess about a guess, and would have turned the
+    second case from right into wrong. The owner reads two fields and edits them.
+
+    Never raises and never touches the network: a row whose staging file is gone (T-106)
+    still renders a form, pre-filled with the title alone.
+    """
+    artist = None
+    # Guard rather than let the exception handler cover it: a missing path is a
+    # DOCUMENTED normal state (T-106), and `MediaFile(str(None))` would open a file
+    # literally named "None" before failing.
+    if staging_path:
+        try:
+            from mediafile import MediaFile
+
+            artist = MediaFile(str(staging_path)).artist
+        except Exception as exc:  # noqa: BLE001 — no tag just means an emptier form
+            logger.debug("no embedded artist to pre-fill from %s (%s)", staging_path, exc)
+    return {"artist": artist or None, "title": query or None}
 
 
 def _candidate(recording_id: str, score: float | None = None) -> dict:

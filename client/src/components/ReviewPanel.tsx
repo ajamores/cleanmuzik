@@ -1,11 +1,13 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   ApiError,
   getReview,
   resolveReview,
+  searchReview,
   type DuplicateDetail,
   type ResolveBody,
   type ReviewCandidate,
+  type ReviewGuess,
 } from '../api'
 import './ReviewPanel.css'
 
@@ -21,6 +23,9 @@ interface ReviewPanelProps {
   /** Weak-match candidates, straight off the `track.review_required` event. Empty
    *  for a duplicate (its detail is fetched) or a candidate-less park. */
   candidates: ReviewCandidate[]
+  /** What the machine searched with, to pre-fill the re-search form (T-103, ADR-020).
+   *  Absent/null just means an empty form. */
+  guess?: ReviewGuess | null
   /** Called after a resolve is accepted by the server. The card re-subscribes on
    *  this; the panel then unmounts as the job leaves `review_required`. */
   onResolved: () => void
@@ -47,6 +52,7 @@ export function ReviewPanel({
   rec,
   query,
   candidates,
+  guess,
   onResolved,
   message,
 }: ReviewPanelProps) {
@@ -83,8 +89,10 @@ export function ReviewPanel({
         />
       ) : (
         <WeakMatchPanel
+          reviewId={reviewId}
           query={query}
           candidates={candidates}
+          guess={guess}
           submitting={submitting}
           onSubmit={submit}
         />
@@ -102,19 +110,45 @@ export function ReviewPanel({
 // --- weak match --------------------------------------------------------------
 
 interface WeakMatchProps {
+  reviewId: string
   query: string
   candidates: ReviewCandidate[]
+  guess?: ReviewGuess | null
   submitting: boolean
   onSubmit: (body: ResolveBody) => void
 }
 
+/** The last re-search, or null when the list is still the park's own guesses. `artist`
+ *  and `title` are the server's TRIMMED echo — the exact strings that went to
+ *  MusicBrainz — so the header reports what was asked, not what was typed. */
+interface Searched {
+  artist: string
+  title: string
+  rows: ReviewCandidate[]
+}
+
 /**
- * "Which of these is it?" — a candidate is picked and accepted, or the song is
- * rejected. Accept and reject carry equal weight on purpose: the field is five
- * weak, similar scores by construction (a strong match would have auto-tagged),
- * so "none of these" is a first-class answer, not an exception.
+ * "Which of these is it?" — a candidate is picked and accepted, the search is
+ * corrected, or the song is rejected. Accept and reject carry equal weight on purpose:
+ * the field is five weak, similar scores by construction (a strong match would have
+ * auto-tagged), so "none of these" is a first-class answer, not an exception.
+ *
+ * **Re-search is the third answer (T-103, ADR-020 exit 1)**, and the one that fixes the
+ * dead-end: when every candidate is wrong — or there are none — picking from the list
+ * cannot help, because the *question* was wrong. The form re-queries MusicBrainz with
+ * the owner's own words and replaces the list with what comes back.
  */
-function WeakMatchPanel({ query, candidates, submitting, onSubmit }: WeakMatchProps) {
+function WeakMatchPanel({
+  reviewId,
+  query,
+  candidates,
+  guess,
+  submitting,
+  onSubmit,
+}: WeakMatchProps) {
+  const [searched, setSearched] = useState<Searched | null>(null)
+  const shown = searched?.rows ?? candidates
+
   // Default to the top candidate, but only among those that can actually be
   // accepted: an id-only fallback row (seam raised at park) has a null candidate_id
   // and can't be resolved, so it must not be the default selection. Lazy initializer
@@ -123,32 +157,76 @@ function WeakMatchPanel({ query, candidates, submitting, onSubmit }: WeakMatchPr
     () => candidates.find((c) => c.candidate_id)?.candidate_id ?? null,
   )
 
+  // **The owner's correction lives HERE, not in the form**, so collapsing the form is
+  // presentation rather than data loss. It was in the form until a review caught the
+  // consequence: after a successful search the form closes, and re-opening it remounted
+  // the component, re-seeding both fields from `guess` — silently discarding what the
+  // owner typed. That is not an edge case, it is the mainline: ADR-020's amendment
+  // measured that MusicBrainz almost never returns nothing, so the real dead-end is
+  // "many results, all wrong" and the SECOND search is the ordinary next move.
+  const [artist, setArtist] = useState(guess?.artist ?? '')
+  const [title, setTitle] = useState(guess?.title ?? query)
+
+  // Derived, not tracked: the form is open when there is nothing to pick from, or when
+  // the owner asked for it. Expressing the rule once here keeps it from being re-stated
+  // at each transition — the version that tracked it had to re-assert "stay open if the
+  // result was empty" inside the success handler, which is where a bug would hide.
+  const [opened, setOpened] = useState(false)
+  const searchOpen = shown.length === 0 || opened
+
   function accept(e: React.FormEvent) {
     e.preventDefault()
     if (submitting || !choice) return
     onSubmit({ choice })
   }
 
+  /** Adopt a search's results and preselect its best row, so Accept is one click. */
+  function adopt(result: Searched) {
+    setSearched(result)
+    setChoice(result.rows.find((c) => c.candidate_id)?.candidate_id ?? null)
+    // Collapse the form on success; `searchOpen` keeps it open by itself when the
+    // result was empty, because then there is still nothing to pick from.
+    setOpened(false)
+  }
+
   return (
     <form className="review__weak" onSubmit={accept}>
       <p className="review__query">
-        {query ? (
+        {searched ? (
+          <>
+            Searched again for{' '}
+            <span className="review__query-term">
+              {[searched.artist, searched.title].filter(Boolean).join(' — ')}
+            </span>
+            {searched.rows.length === 0 ? ' — no results.' : '.'}
+          </>
+        ) : query ? (
           <>
             Searched <span className="review__query-term">{query}</span> — no
-            confident match. Pick the right one, or reject.
+            confident match. Pick the right one, correct the search, or reject.
           </>
         ) : (
-          'No title could be read from the file — pick the right match below, or reject.'
+          'No title could be read from the file — correct the search below, or reject.'
         )}
       </p>
 
-      {candidates.length === 0 ? (
+      {shown.length === 0 ? (
         <p className="review__empty">
-          No candidates were found for this song. Reject it to discard the download.
+          {searched
+            ? // The honest reading, and the reason it is not an error: the owner just
+              // asked MusicBrainz directly, in their own words. A miss means the
+              // recording genuinely isn't in the database — normal for bootlegs,
+              // mixtape rips and YouTube-only mixes.
+              'MusicBrainz has no record of that. Try different terms, or reject the download.'
+            : 'No candidates were found for this song. Correct the search, or reject it to discard the download.'}
         </p>
       ) : (
-        <ul className="review__candidates" role="radiogroup" aria-label="Candidate matches">
-          {candidates.map((c, i) => (
+        <ul
+          className="review__candidates"
+          role="radiogroup"
+          aria-label={searched ? 'New results' : 'Candidate matches'}
+        >
+          {shown.map((c, i) => (
             <CandidateRow
               key={c.candidate_id ?? `id-only-${i}`}
               candidate={c}
@@ -160,6 +238,27 @@ function WeakMatchPanel({ query, candidates, submitting, onSubmit }: WeakMatchPr
             />
           ))}
         </ul>
+      )}
+
+      {searchOpen ? (
+        <ReSearchForm
+          reviewId={reviewId}
+          artist={artist}
+          title={title}
+          onArtist={setArtist}
+          onTitle={setTitle}
+          disabled={submitting}
+          onResults={adopt}
+        />
+      ) : (
+        <button
+          type="button"
+          className="review__btn review__btn--ghost review__none-of-these"
+          disabled={submitting}
+          onClick={() => setOpened(true)}
+        >
+          None of these? Search again
+        </button>
       )}
 
       <div className="review__actions">
@@ -180,6 +279,153 @@ function WeakMatchPanel({ query, candidates, submitting, onSubmit }: WeakMatchPr
         </button>
       </div>
     </form>
+  )
+}
+
+interface ReSearchFormProps {
+  reviewId: string
+  /** Controlled by `WeakMatchPanel` so the correction outlives this component — see the
+   *  comment on its `artist`/`title` state for what went wrong when it didn't. */
+  artist: string
+  title: string
+  onArtist: (v: string) => void
+  onTitle: (v: string) => void
+  disabled: boolean
+  onResults: (result: Searched) => void
+}
+
+/**
+ * "None of these? Search again" — the correction, pre-filled with the machine's guess.
+ *
+ * **The pre-fill is the teaching moment, not a convenience** (ADR-020). Seeing that the
+ * artist field holds the uploader's channel name, or that the title holds both fields
+ * in one string, is what makes the mistake obvious — and on the real fixtures those are
+ * exactly the shapes it takes. Nothing here tries to repair the guess: a heuristic
+ * split would be a guess about a guess, and one of the two live fixtures arrives
+ * already correct.
+ *
+ * Purely presentational as to the terms — it renders and edits what the parent holds,
+ * and owns only the in-flight state (`searching` / `error`) that dies with the request.
+ *
+ * Not a nested `<form>` (invalid HTML, and it would submit the accept form): the
+ * re-search button is a plain button whose handler does the fetch, and Enter inside a
+ * field is bound to it explicitly so the keyboard path still works.
+ */
+function ReSearchForm({
+  reviewId,
+  artist,
+  title,
+  onArtist,
+  onTitle,
+  disabled,
+  onResults,
+}: ReSearchFormProps) {
+  const [searching, setSearching] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  // A search can outlive this component — the job may progress and unmount the whole
+  // panel while it is still in flight. Without this the response lands on a dead tree
+  // and React warns; with the pre-fix 27-second round-trip it was near-certain rather
+  // than theoretical. Kept even though the search is now ~1s: the window is smaller,
+  // not gone.
+  const live = useRef(true)
+  useEffect(() => {
+    live.current = true
+    return () => {
+      live.current = false
+    }
+  }, [])
+
+  const empty = !artist.trim() && !title.trim()
+
+  async function run() {
+    if (disabled || searching || empty) return
+    setSearching(true)
+    setError(null)
+    try {
+      const result = await searchReview(reviewId, { artist, title })
+      if (!live.current) return
+      onResults({ artist: result.artist, title: result.title, rows: result.candidates })
+    } catch (err) {
+      if (!live.current) return
+      setError(
+        err instanceof Error ? err.message : 'Could not search MusicBrainz.',
+      )
+    } finally {
+      // Unlike a resolve, a search leaves the panel mounted whatever happens — it
+      // changes nothing server-side — so the button must always come back.
+      if (live.current) setSearching(false)
+    }
+  }
+
+  /** These inputs sit inside the accept `<form>`, so a bare Enter would submit THAT —
+   *  landing whatever candidate is selected instead of running the search the owner
+   *  just typed. Bind Enter to the search explicitly. */
+  function onEnter(e: React.KeyboardEvent) {
+    if (e.key !== 'Enter') return
+    e.preventDefault()
+    void run()
+  }
+
+  return (
+    <div className="review__research">
+      <p className="review__research-head">
+        Correct the search — this is what was looked up
+      </p>
+      <div className="review__research-fields">
+        <label className="review__field">
+          Artist
+          <input
+            type="text"
+            className="review__input review__input--inset"
+            value={artist}
+            disabled={disabled || searching}
+            onChange={(e) => onArtist(e.target.value)}
+            onKeyDown={onEnter}
+          />
+        </label>
+        <label className="review__field">
+          Title
+          <input
+            type="text"
+            className="review__input review__input--inset"
+            value={title}
+            disabled={disabled || searching}
+            onChange={(e) => onTitle(e.target.value)}
+            onKeyDown={onEnter}
+          />
+        </label>
+      </div>
+
+      <div className="review__research-actions">
+        <button
+          type="button"
+          className="review__btn review__btn--ghost"
+          disabled={disabled || searching}
+          // The commonest single correction: yt-dlp splits "Artist - Title" the wrong
+          // way round often enough that swapping is worth one click.
+          onClick={() => {
+            onArtist(title)
+            onTitle(artist)
+          }}
+        >
+          Swap
+        </button>
+        <button
+          type="button"
+          className="review__btn review__btn--accept"
+          disabled={disabled || searching || empty}
+          onClick={() => void run()}
+        >
+          {searching ? 'Searching…' : 'Re-search'}
+        </button>
+      </div>
+
+      {error && (
+        <p className="review__error" role="alert">
+          {error}
+        </p>
+      )}
+    </div>
   )
 }
 
@@ -397,11 +643,11 @@ function DuplicatePanel({ reviewId, submitting, onSubmit }: DuplicateProps) {
       </div>
 
       <div className="review__keep-both">
-        <label className="review__suffix-label">
+        <label className="review__field">
           Keep both — label the new copy
           <input
             type="text"
-            className="review__suffix-input"
+            className="review__input"
             value={suffix}
             maxLength={60}
             disabled={submitting || incomingGone}

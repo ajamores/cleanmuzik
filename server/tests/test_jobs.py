@@ -367,6 +367,11 @@ def test_sse_parked_emits_review_required_with_candidates(tmp_path):
     assert rr["candidates"][0]["candidate_id"] == "rec-A"
     assert rr["candidates"][0]["score"] == 0.8
     assert set(rr["candidates"][0]) == {"candidate_id", "title", "artist", "score"}
+    # T-103: the re-search form's pre-fill rides the LIVE event, not just the GET
+    # re-hydration — parking-then-fixing-on-the-spot is the everyday case, and a
+    # pre-fill that only appeared after a reload would be empty when it matters most.
+    assert set(rr["guess"]) == {"artist", "title"}
+    assert rr["guess"]["title"] == rr["query"] or rr["guess"]["title"] is None
 
 
 def test_sse_job_queued_carries_list_kind(tmp_path):

@@ -262,7 +262,10 @@
   border-top: 1px solid var(--border);
 }
 
-.review__suffix-label {
+/* One labelled text input, shared by the keep-both suffix and the re-search form.
+   They were byte-identical apart from the input's background, which is the modifier
+   below — the same shape as .review__btn / --accept / --ghost above. */
+.review__field {
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -272,7 +275,7 @@
   min-width: 160px;
 }
 
-.review__suffix-input {
+.review__input {
   font-family: var(--sans);
   font-size: 13px;
   padding: 7px 10px;
@@ -282,9 +285,57 @@
   color: var(--text-h);
 }
 
-.review__suffix-input:focus {
+.review__input:focus {
   outline: none;
   border-color: var(--accent);
+}
+
+/* The re-search box sits on --bg, so its fields need to lift off it. */
+.review__input--inset {
+  background: var(--card-bg);
+}
+
+/* --- re-search (T-103, ADR-020 exit 1) ------------------------------------ */
+
+/* A ghost button: the "None of these?" control is a peer of picking a candidate, not
+   a call to action competing with Accept. Quiet until the list turns out to be wrong. */
+.review__btn--ghost {
+  background: transparent;
+}
+
+.review__none-of-these {
+  align-self: flex-start;
+  margin-top: 12px;
+}
+
+/* Inset and outlined so the correction reads as a distinct move on the card rather
+   than another row in the candidate list. */
+.review__research {
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 10px;
+  background: var(--bg);
+}
+
+.review__research-head {
+  margin: 0 0 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-h);
+}
+
+.review__research-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.review__research-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
 }
 
 .review__error {

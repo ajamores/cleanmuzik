@@ -114,9 +114,32 @@ def test_weak_match_accepts_reject_and_lands_nothing():
     assert not req.lands
 
 
-def test_weak_match_rejects_an_unknown_candidate():
-    with pytest.raises(ResolveValidationError, match="not a candidate"):
-        validate_resolve_body(_review("medium", ("rec-A",)), {"choice": "rec-ZZZ"})
+def test_weak_match_accepts_an_off_list_recording_so_re_search_can_land(caplog):
+    # ADR-020's first binding consequence, and the reason T-103 was unbuildable before:
+    # a re-searched recording is BY DEFINITION not in the parked candidate list, so
+    # membership can't be the gate. The old behaviour ("not a candidate" → 400) is
+    # deliberately gone. `_forced_match` handles an arbitrary recording already.
+    off_list = "908e389b-256c-4f6a-9d75-0e0a81815444"  # the Frank Ocean fixture's answer
+    with caplog.at_level("INFO", logger="cleanmuzik"):
+        req = validate_resolve_body(_review("none", ()), {"choice": off_list})
+    assert req == ResolveRequest(off_list, recording_id=off_list)
+    assert req.lands
+    # The interesting half of the traffic is logged as such.
+    assert "off-list" in caplog.text
+
+
+def test_weak_match_still_rejects_a_choice_that_is_not_a_recording_id():
+    # Membership stopped being the guard; shape took over. A word that could never be a
+    # recording is still a client bug worth failing here rather than handing to beets.
+    with pytest.raises(ResolveValidationError, match="MusicBrainz recording id"):
+        validate_resolve_body(_review("medium", ("rec-A",)), {"choice": "not-an-mbid"})
+
+
+def test_weak_match_accepts_a_listed_candidate_whatever_its_shape():
+    # The row vouches for its own candidates, so the shape rule must not become a
+    # second, stricter gate on the path that already worked.
+    req = validate_resolve_body(_review("medium", ("rec-A",)), {"choice": "rec-A"})
+    assert req == ResolveRequest("rec-A", recording_id="rec-A")
 
 
 def test_weak_match_rejects_a_duplicate_choice():
@@ -126,9 +149,14 @@ def test_weak_match_rejects_a_duplicate_choice():
         validate_resolve_body(_review("medium"), {"choice": "replace"})
 
 
-def test_empty_candidate_park_says_so_rather_than_implying_a_typo():
-    with pytest.raises(ResolveValidationError, match="parked with no candidates"):
-        validate_resolve_body(_review("none", ()), {"choice": "rec-A"})
+def test_an_empty_candidate_park_is_no_longer_a_dead_end():
+    # The 2026-07-23 dead-end, from the validation layer's side: a row that parked with
+    # NO candidates used to be able to answer only 'reject'. Now the owner can re-search
+    # and land the result, which is the whole of T-103's "Done when".
+    empty = _review("none", ())
+    assert validate_resolve_body(empty, {"choice": "reject"}).choice == "reject"
+    found = "f5d1bcfb-0000-4000-8000-000000000000"
+    assert validate_resolve_body(empty, {"choice": found}).recording_id == found
 
 
 def test_duplicate_rejects_a_candidate_id_choice():
@@ -979,6 +1007,7 @@ def test_get_reviews_lists_a_parked_song_with_its_shape(client, monkeypatch):
     assert set(row) == {
         "review_id", "job_id", "query", "rec", "candidates", "last_error",
         "staging_missing",  # T-106
+        "guess",  # T-103: what the machine searched with, for the re-search form
     }
     assert row["rec"] == "medium"
     assert row["query"] == "artist title"
@@ -999,6 +1028,7 @@ def test_get_single_review_returns_its_hydrated_shape(client, monkeypatch):
     assert set(row) == {
         "review_id", "job_id", "query", "rec", "candidates", "last_error",
         "staging_missing",  # T-106
+        "guess",  # T-103
     }
     assert row["review_id"] == review.id
     assert row["rec"] == "medium"
@@ -1055,6 +1085,141 @@ def test_a_failed_hand_off_releases_the_claim_so_the_owner_can_retry(client, mon
     assert client.store.get_review(review.id).status == "pending", (
         "a failed hand-off must leave the review retryable, not stranded in `resolving`"
     )
+
+
+def test_the_guess_pre_fills_from_the_query_and_the_embedded_artist(tmp_path, monkeypatch):
+    # The payload gap this ticket had to close first: the re-search form pre-fills two
+    # fields, and the review row only ever carried one string. `title` is the real
+    # normalized query; `artist` comes off the staging file's embedded tag.
+    import mediafile
+
+    from app.reviews import guess_terms
+
+    class _Media:
+        # A real fixture's tag: yt-dlp wrote the UPLOADER here, not the artist. Which is
+        # the point of showing it — the owner sees what the machine had to work with.
+        def __init__(self, _path):
+            self.artist = "Jon Hunt Playlists"
+
+    monkeypatch.setattr(mediafile, "MediaFile", _Media)
+    guess = guess_terms("/staging/song.mp3", "Frank Ocean - Strawberry Swing")
+    assert guess == {
+        "artist": "Jon Hunt Playlists",
+        "title": "Frank Ocean - Strawberry Swing",
+    }
+
+
+def test_the_guess_survives_a_staging_file_that_is_gone(tmp_path):
+    # T-106: the audio can be gone while the row lives. The form must still open with
+    # the title rather than the panel failing to render.
+    from app.reviews import guess_terms
+
+    assert guess_terms(tmp_path / "gone.mp3", "Outro") == {"artist": None, "title": "Outro"}
+    assert guess_terms(None, None) == {"artist": None, "title": None}
+
+
+def _fake_search(monkeypatch, rows, *, spy=None):
+    """Stand in for the MusicBrainz round-trip; record how the route called it."""
+    import app.mb_search as mb_search
+
+    def _search(artist, title, *, staging_path=None):
+        if spy is not None:
+            spy.append({"artist": artist, "title": title, "staging_path": staging_path})
+        return rows
+
+    monkeypatch.setattr(mb_search, "search_recordings", _search)
+
+
+def test_search_returns_candidates_and_echoes_the_terms(client, monkeypatch):
+    _, review, _ = _parked(client.store, client.tmp_path, rec="none", candidate_ids=())
+    calls = []
+    _fake_search(
+        monkeypatch,
+        [{"candidate_id": "908e389b-256c-4f6a-9d75-0e0a81815444",
+          "title": "Strawberry Swing", "artist": "Frank Ocean", "score": 0.889}],
+        spy=calls,
+    )
+    resp = client.post(
+        f"/api/reviews/{review.id}/search",
+        json={"artist": "  Frank Ocean  ", "title": "Strawberry Swing"},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    # Echoed back trimmed, so the card can say what it searched for without trusting
+    # its own local state after a reload.
+    assert body["artist"] == "Frank Ocean"
+    assert body["title"] == "Strawberry Swing"
+    assert body["candidates"][0]["candidate_id"] == "908e389b-256c-4f6a-9d75-0e0a81815444"
+    # The parked audio is handed down so its real duration can discriminate.
+    assert calls[0]["staging_path"] == review.staging_path
+
+
+def test_search_is_a_read_and_leaves_the_row_untouched(client, monkeypatch):
+    # The whole reason `_validate_weak_match` had to relax instead: re-search stores
+    # nothing, so the recording the owner picks is by definition off-list.
+    _, review, _ = _parked(client.store, client.tmp_path, candidate_ids=("rec-A",))
+    _fake_search(monkeypatch, [{"candidate_id": "x", "title": "T", "artist": "A", "score": 1.0}])
+    client.post(f"/api/reviews/{review.id}/search", json={"artist": "A", "title": "T"})
+    after = client.store.get_review(review.id)
+    assert after.status == "pending", "a search must not claim the row"
+    assert after.candidate_ids == ["rec-A"], "a search must not rewrite the parked candidates"
+    assert client.worker.resolved == [], "a search is not a decision"
+
+
+def test_search_finding_nothing_is_a_200_not_a_404(client, monkeypatch):
+    # ADR-020 consequence 2: never a dead panel. "MusicBrainz doesn't have this" is an
+    # answer the card renders two exits from — it is not an error.
+    _, review, _ = _parked(client.store, client.tmp_path, rec="none", candidate_ids=())
+    _fake_search(monkeypatch, [])
+    resp = client.post(f"/api/reviews/{review.id}/search", json={"title": "Some Bootleg"})
+    assert resp.status_code == 200
+    assert resp.json()["candidates"] == []
+
+
+def test_search_can_be_repeated_because_it_never_claims(client, monkeypatch):
+    # "Search again" from the empty state has to actually work more than once — the
+    # resolve route's single-claim rule must not have leaked onto this one.
+    _, review, _ = _parked(client.store, client.tmp_path, rec="none", candidate_ids=())
+    _fake_search(monkeypatch, [])
+    for _ in range(3):
+        assert client.post(
+            f"/api/reviews/{review.id}/search", json={"title": "Outro"}
+        ).status_code == 200
+
+
+def test_search_with_no_terms_is_400(client, monkeypatch):
+    _, review, _ = _parked(client.store, client.tmp_path)
+    _fake_search(monkeypatch, [])
+    resp = client.post(f"/api/reviews/{review.id}/search", json={"artist": " ", "title": ""})
+    assert resp.status_code == 400
+    assert "artist, a title, or both" in resp.json()["detail"]
+
+
+def test_search_unknown_review_404(client):
+    assert client.post("/api/reviews/nope/search", json={"title": "x"}).status_code == 404
+
+
+def test_search_on_a_claimed_row_is_409(client, monkeypatch):
+    # Mid-landing the decision is already with the worker; new candidates could only
+    # mislead. Mirrors /resolve.
+    _, review, _ = _parked(client.store, client.tmp_path)
+    client.store.claim_review(review.id)
+    _fake_search(monkeypatch, [])
+    assert client.post(
+        f"/api/reviews/{review.id}/search", json={"title": "x"}
+    ).status_code == 409
+
+
+def test_a_re_searched_recording_reaches_the_worker(client):
+    # The end of the re-search path through the real route: a recording that was never
+    # in the parked list is accepted and handed over, which is what ADR-020 unblocked.
+    job, review, _ = _parked(client.store, client.tmp_path, rec="none", candidate_ids=())
+    found = "908e389b-256c-4f6a-9d75-0e0a81815444"
+    resp = client.post(f"/api/reviews/{review.id}/resolve", json={"choice": found})
+    assert resp.status_code == 200
+    assert client.worker.resolved == [
+        (job.id, review.id, ResolveRequest(found, recording_id=found))
+    ]
 
 
 def test_double_click_resolve_is_409_and_enqueues_once(client):

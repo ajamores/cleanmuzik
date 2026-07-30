@@ -1,5 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
-import { ApiError, getJob, getReview, type ReviewCandidate } from '../api'
+import {
+  ApiError,
+  getJob,
+  getReview,
+  type ReviewCandidate,
+  type ReviewGuess,
+} from '../api'
 import { ReviewPanel } from './ReviewPanel'
 import './TrackCard.css'
 
@@ -147,6 +153,11 @@ interface ReviewInfo {
   rec: string | null
   query: string
   candidates: ReviewCandidate[]
+  /** What the machine searched with, for the re-search form's pre-fill (T-103). Rides
+   *  BOTH transports — the live event and the `GET` re-hydration — so the form is
+   *  pre-filled on the everyday path (park, then fix it on the spot), not only after
+   *  a reload. */
+  guess?: ReviewGuess | null
   /** Set only when a resume FAILED and re-parked this same review (T-029): the reason
    *  the previous pick couldn't be applied, so the owner isn't silently sent back to
    *  the panel. Absent on a first park. */
@@ -346,6 +357,7 @@ export function TrackCard({
           message && prev?.reviewId === reviewId
             ? prev.candidates
             : asCandidates(data.candidates),
+        guess: asGuess(data.guess),
         message,
       }))
       setReviewEpoch((n) => n + 1)
@@ -426,6 +438,7 @@ export function TrackCard({
           rec: row.rec,
           query: row.query,
           candidates: row.candidates,
+          guess: row.guess,
           // The reason a re-park happened is persisted on the row (T-029, finding #2),
           // so it survives the reconnect/reload this path recovers from — the live SSE
           // `message` is already gone by the time we're here.
@@ -606,6 +619,7 @@ export function TrackCard({
             rec={review.rec}
             query={review.query}
             candidates={review.candidates}
+            guess={review.guess}
             message={review.message}
             // Re-subscribe for the resume episode. The panel stays mounted (and its
             // buttons disabled) until this moves the stage off `review_required`.
@@ -700,6 +714,19 @@ function stepState(
 
 function asString(v: unknown): string | null {
   return typeof v === 'string' ? v : null
+}
+
+/**
+ * The re-search form's pre-fill, narrowed off an SSE frame (T-103).
+ *
+ * Null when the frame carries nothing usable — the form then opens empty rather than
+ * the panel failing to render. Both fields are independently nullable: a staging file
+ * with no artist tag, or a park with no readable title, is a normal state.
+ */
+function asGuess(v: unknown): ReviewGuess | null {
+  if (!v || typeof v !== 'object') return null
+  const o = v as Record<string, unknown>
+  return { artist: asString(o.artist), title: asString(o.title) }
 }
 
 /**

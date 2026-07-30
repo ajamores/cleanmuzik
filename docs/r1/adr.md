@@ -526,4 +526,14 @@ Format: `ADR-NNN — decision. Rationale. [date]`
   - **Blast radius.** Unblocks **T-106**'s last gate, whose end-to-end resolve cannot be demonstrated
     through the route until re-search exists (see T-106's status line) — the two verify together. Feeds
     **T-102**, which owns the inbox row that renders these exits.
+  - **Amendment (2026-07-29, from building exit 1): consequence 2's trigger was wrong, its rule
+    stands.** "An empty re-search result is not a dead panel" assumed an empty result is how "not in
+    MusicBrainz" presents. Measured: it almost never is. A deliberate-nonsense search returned **25
+    results** (MusicBrainz matches loose tokens), so the real shape is *many results, all wrong, best
+    score ~0.40* — the wrong-but-present dead-end again, one level down. The empty state stays and
+    stays correct where it occurs, but **keep-untagged must not be gated on it**: exit 2 is reachable
+    whenever the owner says so, not only when a result count hits zero. And no threshold is added to
+    infer absence from a low score — inventing a confidence bar is what ADR-006/ADR-010 refuse, and it
+    would misfire on the Nines fixture (correct answer at 0.757 among five near-identical rows). Full
+    measurement in `docs/learnings.md`.
   (Owner decision, 2026-07-29, on sign-off of the six-screen flow.) [2026-07-29]
