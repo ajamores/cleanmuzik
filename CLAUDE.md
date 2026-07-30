@@ -11,7 +11,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 5. **`docs/r1/architecture.md`** — the stack diagram + open technical seams (single home)
 6. **`docs/r1/adr.md`** — binding decisions; do not silently reverse one
 7. **`docs/learnings.md`** — mistakes already paid for; don't repeat them
-8. **`.claude/hot.md`** — live session state + what's next
+8. **`docs/engines/`** — what the external tools actually do: capabilities, hard limits, cost model
+   (what one call costs in *requests*), and the gotchas already paid for. Read the page for any
+   engine you're about to touch **before** writing a rationale about it. Every non-obvious claim
+   carries its provenance (`[source]` with `file:line` · `[measured]` · `[assumed]`); if you rely on
+   an `[assumed]`, verify it and promote it rather than quoting it. (T-038)
+9. **`.claude/hot.md`** — live session state + what's next
 
 **Current phase: R1 build, ticket by ticket.** The review-queue seam is proven (the beets
 spike → ADR-006/007), the spec is written and signed off, and `docs/r1/tickets.md` holds the

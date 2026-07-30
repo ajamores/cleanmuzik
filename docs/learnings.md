@@ -839,3 +839,36 @@ Format: `- <date> — what went wrong → the correction / rule now in place`
   second search is the ordinary flow. Rule: when a component's state represents the **user's input**
   rather than the request in flight, hold it above anything that conditionally unmounts — and write the
   test for the *survives-a-round-trip* path, not only the failure path that keeps the component alive.
+- 2026-07-30 — (T-038) **Writing down what a tool does found two of our own docs asserting things the
+  source contradicts — and both had been read many times without being checked.** Neither was found by
+  a review; they were found by the act of having to cite a line number.
+  1. **`.env.example` said `ACOUSTID_APIKEY` buys "higher rate limits". It buys nothing.** chroma passes
+     its own hardcoded `API_KEY` into every lookup (`beetsplug/chroma.py:43,111`), unconditionally; the
+     config key is the *user* key for **submission**, read only by the `beet submit` CLI subcommand
+     (`chroma.py:274,402`), which this app never invokes. `beets_engine.py:110-113` had it right the
+     whole time — the two files disagreed in the repo for weeks and nothing forced the comparison.
+  2. **T-038's own filing carried a claim the source refutes.** It recorded that `tag_item` "internally
+     calls `item_candidates`, which is the 27-second path". True only without `search_ids`: with them,
+     `match.py:505-522` takes the `tracks_for_ids` branch and **returns before `item_candidates` is ever
+     reached**. The conclusion held anyway, which is exactly why nobody checked.
+  The irony is the lesson: the ticket was filed because *"a project rule stated absolutely, without its
+  scope"* cost a session — and the ticket text then made the same move about a different function.
+  Rules: (1) **a claim about a dependency's behaviour is not documentation until it carries a
+  `file:line`** — the act of finding the line is the check, and it is cheap; (2) **when two files in the
+  repo describe the same external fact, one of them is probably stale** — nothing reconciles them, so
+  the doc that gets read (a `.env.example` an owner copies) can be wrong for weeks behind a code comment
+  that is right; (3) a rationale inherited from an earlier session gets verified like a finding, not
+  quoted like a source. → `docs/engines/` exists to be the single home for this class.
+- 2026-07-30 — (T-038, owner correction) **Standing up a new doc store duplicated the existing ones,
+  because I wrote the pages before writing the boundary.** The six `docs/engines/` pages copied lessons
+  already in `learnings.md` ("breadth in a validator is not safety", "the cleaned value is what must
+  travel") and restated chunks of ADR-010 and ADR-019 — seven passages, caught by the owner asking
+  whether the new directory repeated existing content, not by me. The irony sits one layer up: the same
+  session's own lesson was *"when two files describe the same fact, one is probably stale"*, and I then
+  created six more files describing facts that already had homes. Rule: **a new store gets its boundary
+  written down BEFORE its first page, not after** — one incident yields several sentences (a tool fact,
+  a rule, a decision, a scope item) and each has exactly one owner, so the useful test is *"if this tool
+  were swapped out tomorrow, would this sentence be deleted?"* Yes → it's a tool fact. No → it belongs
+  to another store and this page gets a link. Summarising a measurement and pointing at the full record
+  is a citation; copying the reasoning is duplication. The boundary table now lives in
+  `docs/engines/README.md` so the next session inherits it instead of rediscovering it.
