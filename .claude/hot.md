@@ -21,35 +21,37 @@ CleanMuzik — personal YouTube → Jellyfin music tool. Purpose, stack, constra
 
 ## Current State (2026-07-30)
 
-- **On branch `t103-research` at `aeaba57`, one commit ahead of `main`, working tree clean.**
-  `main` is unchanged at `1976bbd`. Nothing is pushed.
-- **Both servers up**: `:8137` backend, `:5173` client. The client has changed a lot — **restart Vite
+- **On branch `t103-research`, ahead of `main`, working tree clean, nothing pushed.** `main` itself is
+  untouched by this session. The tip is this board's own commit; the T-103 slice-A work is the commit
+  beneath it. (Don't pin a SHA here — the last board named one and was wrong the moment it was saved.)
+- **Both servers up**: `:8137` backend, `:5173` client. The client changed heavily — **restart Vite
   before browser-verifying**, or it may serve a stale transform (learnings 2026-07-24).
 - **Queue still holds the 2 fixtures**, both `pending` with audio on disk: Frank Ocean *Strawberry
   Swing* (9.4 MB) and Nines *Outro* (7.6 MB). Deliberately not consumed — they have known-correct
-  MBIDs. Library unchanged at 9 artist folders.
+  MBIDs, and slice A was verified against a *copy* into a temp library. Library unchanged, 9 artists.
 
 ## ⟹ NEXT: T-038 first, then finish T-103
 
-The owner asked for **T-038** (`docs/backlog/T-038.md`) to be written **first in the next session** —
-capability/limitation notes for beets, MusicBrainz and ShazamIO. It is a foundation ticket filed
-because T-103's review round cost a session to rework.
+**T-038** (`docs/backlog/T-038.md`) — capability/limitation notes for beets, MusicBrainz and ShazamIO.
+Owner asked for this **before more build work**: it is the foundation ticket filed because T-103's
+review round cost a session to rework.
 
-Then T-103 slice A needs two things to be **done**: the **browser pass** at `:5173` (the form, swap,
-empty state, `EventSource` through the Vite proxy — needs the owner), then **merge to `main`**.
-Slice B (keep-untagged) follows. Full status on T-103's entry in `docs/r1.1/tickets.md`.
+Then T-103 slice A needs two things to be **done**: the **browser pass** at `:5173` (form, swap, empty
+state, `EventSource` through the Vite proxy — needs the owner), then **merge to `main`**. Slice B
+(keep-untagged) follows, and its entry point must change per the ADR-020 amendment. Full status on
+T-103's entry in `docs/r1.1/tickets.md`.
 
 ## Also open (not the live thread)
 
 - **T-106 is BUILT, not done** — its last gate closes with T-103's browser `/verify`.
 - **T-102** then **T-105** (reskin, last). Do not fan out T-102 ∥ T-103 — overlapping client files.
 - `docs/backlog/` — **T-037** (tag-quality; half-answered by T-103's verify run), **T-035**
-  (LLM-disambiguator, deferred), **T-038** (the notes above).
+  (LLM-disambiguator, deferred), **T-038** (above).
 
 ## Verifying
 
 - Isolate `DB_PATH` **and** patch `LIBRARY_DIRECTORY` in **both** `beets_engine` *and* `import_seam`
-  (it is imported by name, so patching one is not enough), or a resolve lands in the real library.
+  (imported by name, so patching one is not enough), or a resolve lands in the real library.
 - A yt-dlp `403` at download may be **transient** — retry once before diagnosing.
 
 ## Where the rest of the context lives
