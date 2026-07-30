@@ -11,4 +11,9 @@ A self-hosted web app for cleaning and tagging your music library via audio fing
 
 ## Getting Started
 
-WIP
+## Run Server
+./.venv/bin/uvicorn app.main:app --reload --port 8137 
+
+## Run Frontend
+npm run dev 
+
