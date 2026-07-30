@@ -21,9 +21,8 @@ CleanMuzik — personal YouTube → Jellyfin music tool. Purpose, stack, constra
 
 ## Current State (2026-07-29)
 
-- **`main` is 9 commits ahead of origin, plus 9 modified files uncommitted** — today's doc filings
-  (`learnings.md`, `r1.1/tickets.md`, `backlog/T-035.md`), a `<meta charset="utf-8">` added to all five
-  `docs/**/design/*.html`, and **the owner's own README edit** (run commands — left as-is, not mine).
+- **`main` clean and in sync with origin** at `a8c1e39` — everything from 2026-07-29 is pushed. No
+  code changed today; the session produced ADR-020, five learnings, T-037, and a charset fix.
 - **Both servers up**: `:8137` backend, `:5173` client. **Serve `docs/**/design/*.html` over HTTP for any
   owner review** — an open from the OneDrive tree truncated the T-103 screens silently (learnings
   2026-07-29). `cd docs/r1.1/design && python3 -m http.server 8901`.
