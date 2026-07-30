@@ -1,7 +1,7 @@
 ---
 type: meta
 title: "Hot — cleanmuzik"
-updated: 2026-07-29
+updated: 2026-07-30
 tags:
   - meta
   - hot-cache
@@ -19,45 +19,40 @@ status: evergreen
 CleanMuzik — personal YouTube → Jellyfin music tool. Purpose, stack, constraints and read-order are in
 `CLAUDE.md`; scope in `cleanmuzik-prd.md`. Not restated here.
 
-## Current State (2026-07-29)
+## Current State (2026-07-30)
 
-- **`main` clean and in sync with origin** at `a8c1e39` — everything from 2026-07-29 is pushed. No
-  code changed today; the session produced ADR-020, five learnings, T-037, and a charset fix.
-- **Both servers up**: `:8137` backend, `:5173` client. **Serve `docs/**/design/*.html` over HTTP for any
-  owner review** — an open from the OneDrive tree truncated the T-103 screens silently (learnings
-  2026-07-29). `cd docs/r1.1/design && python3 -m http.server 8901`.
-- **Queue is 2 reviews**: Frank Ocean *Strawberry Swing* and Nines *Outro (Official Audio)* (added
-  today, 5 wrong candidates). Both audio present. Both are now T-103 fixtures with known-correct MBIDs.
-- **Library is 9 tracks** — Jay-Z *Wishing on a Star* landed today via auto-tag (323 kbps, art
-  embedded).
+- **On branch `t103-research` at `aeaba57`, one commit ahead of `main`, working tree clean.**
+  `main` is unchanged at `1976bbd`. Nothing is pushed.
+- **Both servers up**: `:8137` backend, `:5173` client. The client has changed a lot — **restart Vite
+  before browser-verifying**, or it may serve a stale transform (learnings 2026-07-24).
+- **Queue still holds the 2 fixtures**, both `pending` with audio on disk: Frank Ocean *Strawberry
+  Swing* (9.4 MB) and Nines *Outro* (7.6 MB). Deliberately not consumed — they have known-correct
+  MBIDs. Library unchanged at 9 artist folders.
 
-## ⟹ LIVE THREAD — build T-103
+## ⟹ NEXT: T-038 first, then finish T-103
 
-**Design signed off 2026-07-29, ratified as ADR-020. T-103 is ready to build and is the critical path.**
-Start with ADR-020's binding consequence 1: relax `_validate_weak_match` (`reviews.py:168`), which today
-refuses any recording that isn't already a candidate — the single thing making re-search impossible. The
-landing machinery it calls (`resolve_import` / `_forced_match`) already lands an arbitrary recording.
+The owner asked for **T-038** (`docs/backlog/T-038.md`) to be written **first in the next session** —
+capability/limitation notes for beets, MusicBrainz and ShazamIO. It is a foundation ticket filed
+because T-103's review round cost a session to rework.
 
-**Verify T-103 and T-106 together** — one park→re-search→resolve→land run closes both gates. Fixtures are
-already in the queue with known-correct MBIDs (Frank Ocean `908e389b…`, Nines *Outro* `f5d1bcfb…`).
+Then T-103 slice A needs two things to be **done**: the **browser pass** at `:5173` (the form, swap,
+empty state, `EventSource` through the Vite proxy — needs the owner), then **merge to `main`**.
+Slice B (keep-untagged) follows. Full status on T-103's entry in `docs/r1.1/tickets.md`.
 
 ## Also open (not the live thread)
 
-- **T-106 is BUILT, not done** — reboot half proven on the real machine today; resolve half folded into
-  T-103's `/verify` by owner decision. Full reasoning on its status line in `docs/r1.1/tickets.md`.
+- **T-106 is BUILT, not done** — its last gate closes with T-103's browser `/verify`.
 - **T-102** then **T-105** (reskin, last). Do not fan out T-102 ∥ T-103 — overlapping client files.
-- **`docs/backlog/T-037.md` — filed today, untriaged.** Split artist folders + missing genre tag.
-- **LLM-as-disambiguator tier** — raised and deliberately deferred today; reasoning filed in
-  `docs/backlog/T-035.md`. Sequenced after T-103 and after the Shazam tier.
+- `docs/backlog/` — **T-037** (tag-quality; half-answered by T-103's verify run), **T-035**
+  (LLM-disambiguator, deferred), **T-038** (the notes above).
 
 ## Verifying
 
-- Isolate `DB_PATH` **and** monkeypatch `beets_engine.LIBRARY_DIRECTORY` (a hardcoded constant), or a
-  resolve lands in the real library. The suite already does this.
-- A yt-dlp `403` at the download stage may be **transient** — retry once before diagnosing.
-- `--reload` did not fire on a `touch` under `/mnt/c`. Restart deliberately.
+- Isolate `DB_PATH` **and** patch `LIBRARY_DIRECTORY` in **both** `beets_engine` *and* `import_seam`
+  (it is imported by name, so patching one is not enough), or a resolve lands in the real library.
+- A yt-dlp `403` at download may be **transient** — retry once before diagnosing.
 
 ## Where the rest of the context lives
 
-`docs/roadmap.md` · `docs/r1.1/` (active) · `docs/r1/adr.md` (**ADR-019** newest) · `docs/learnings.md`
-· `docs/backlog/` · `docs/r1.1/design/*.html` · git (tag `r1-single-song`). Business/vault → `/garden`.
+`docs/roadmap.md` · `docs/r1.1/` (active) · `docs/r1/adr.md` (**ADR-020 + its amendment** newest) ·
+`docs/learnings.md` · `docs/backlog/` · `docs/r1.1/design/*.html` · git. Business/vault → `/garden`.
