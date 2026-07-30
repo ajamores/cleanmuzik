@@ -49,7 +49,15 @@ it **next** (2026-07-25), and T-103's re-search exit is built on top of it, so i
   the card unmounts** (reload mid-review, resolve from the inbox). Ties to §8 item 5.
 
 ### T-103 — No-candidate park exits (fix the 8b dead-end)
-- **Status:** todo — **design explored 2026-07-25 (draft, not gated yet).** This ticket widened from
+- **Status:** **READY TO BUILD — design SIGNED OFF 2026-07-29; ADR-016 gate passed; ratified as
+  ADR-020.** The owner reviewed the six flat screens in `docs/r1.1/design/review-rescue-flow.html` and
+  approved them unchanged. This is now **the critical path for R1.1**: it unblocks T-106's last gate
+  (verify them together — one run proves both) and feeds T-102's inbox row. Build against ADR-020's four
+  binding consequences, the first of which is relaxing `_validate_weak_match` (`reviews.py:168`).
+  *Sign-off hazard worth knowing:* the owner's first read of the screens was **truncated** by OneDrive
+  and showed neither screen 05 nor 06 — serve design artifacts over HTTP for review
+  (`docs/learnings.md`, 2026-07-29).
+- **Was:** todo — **design explored 2026-07-25 (draft, not gated yet).** This ticket widened from
   "empty candidates" to the general *"candidates can't resolve this → give me another exit"* vertebra,
   because a wrong-but-present candidate set (the Nipsey reversed-title case) is the same dead-end. Two
   first-class exits emerged, drawn as flat screens in **`docs/r1.1/design/review-rescue-flow.html`**
@@ -127,8 +135,29 @@ it **next** (2026-07-25), and T-103's re-search exit is built on top of it, so i
   art where it exists, no spectrum — light/dark both legible, reduced-motion honoured. Ties to §8 item 7.
 
 ### T-106 — Parked audio lives in `/tmp` and gets reaped (from backlog T-036)
-- **Status:** **INTEGRATED on `main` 2026-07-27 (`eb5865e`), one gate short of done.** 394 tests green
-  on `main`. **All four items landed and were observed:**
+- **Status:** **INTEGRATED on `main` 2026-07-27 (`eb5865e`). BUILT, not done — the last gate is
+  BLOCKED ON T-103, not on the owner.** 394 tests green on `main`. **All four items landed and were
+  observed:**
+  - **The reboot half is now PROVEN on the owner's real machine (2026-07-28).** WSL booted 08:52;
+    the Frank Ocean staging file (`WgPXj2fEiW8.mp3`, 9.4 MB) was written 2026-07-27 08:56 and was
+    still on disk after the boot. A WSL restart is exactly what reaped the original nine `/tmp` dirs,
+    so this is the bug's own failure mode, survived — observed rather than argued, and it required no
+    setup. This is the substance of the ticket.
+  - **The resolve half cannot be demonstrated until T-103 lands.** Four downloads on 2026-07-28
+    failed to produce a *resolvable* park: two auto-tagged past the queue (AcoustID had them), one
+    parked with five wrong candidates (Nines *Outro (Official Audio)* — the correct
+    `f5d1bcfb-f66e-400a-948a-e7f9127160de` is at MB score 100 and was not among them), and the
+    duplicate branch turned out to be unreachable (see `learnings.md` 2026-07-28: it parks only on a
+    strictly-higher bitrate, and everything this app lands is already MP3 320). `_validate_weak_match`
+    (`reviews.py:168`) refuses any recording that isn't already a candidate, so the gate structurally
+    requires T-103's re-search. **Owner decision 2026-07-28: fold this gate into T-103's `/verify`** —
+    one run proves both, and T-106 stays *built* until then rather than being called done on evidence
+    that doesn't exist. The 2026-07-25 note already said this ("the through-the-UI half of this ticket
+    cannot be shown until T-103 lands"); it was filed as a caveat and should have been on the status
+    line.
+  - **Two incidental confirmations from the same session.** Reject cleans up its own staging dir (the
+    `7fbde7f` fix, observed). The beets library DB survived the data-dir move intact — 8 items, all
+    with `mb_trackid` — so the move cost no library memory.
   - **Item 1+2.** Staging is durable and lives at `/home/armand/cleanmuzik-data/staging` — the
     **Linux filesystem, not `server/data/`**. That path is inside the OneDrive-synced repo tree, so the
     original wording would have swapped the OS reaper for a sync engine (uploads of every download;

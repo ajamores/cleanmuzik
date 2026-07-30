@@ -492,3 +492,38 @@ Format: `ADR-NNN — decision. Rationale. [date]`
     AcoustID silent, Shazam wrong, and the correct recording sitting in MusicBrainz at score 100
     waiting for a human to point at it.
   (Owner decision, 2026-07-25, on the T-035 rescue-rate measurement.) [2026-07-25]
+- **ADR-020 — A parked review gets two first-class exits: *re-search* and *keep-untagged*. Reject stays
+  required; pasting an MBID is a quiet advanced affordance, not the primary gesture.** Ratifies the
+  T-103 design the owner signed off on the six flat screens in
+  `docs/r1.1/design/review-rescue-flow.html` (ADR-016 gate passed 2026-07-29).
+  - **The hole it closes.** Today a parked review's only real exit is **Reject**, which throws away good
+    audio. That is wrong whenever the owner *knows the answer and the machine doesn't* — which is not an
+    edge case but two recurring classes: an empty candidate list, and a **wrong-but-present** one. The
+    second is the trap: a confident-looking list of five candidates is indistinguishable from a useful
+    one until you read it. Frank Ocean's *Strawberry Swing* and Nines *Outro* are both live fixtures
+    with independently-known correct MBIDs (`908e389b…` and `f5d1bcfb…`, each at MusicBrainz score 100).
+  - **Exit 1 — re-search (the everyday gesture).** The owner corrects the artist/title and the app
+    re-queries MusicBrainz in-app, repopulating candidates. The form is **pre-filled with what the
+    machine guessed**, deliberately: seeing that it read `Title - Artist` backwards is what makes the
+    correction obvious. This is the mainline exit and the one that must feel cheap.
+  - **Exit 2 — keep-untagged (the last resort).** The file lands with owner-supplied tags and **no**
+    MusicBrainz match, with the trade-off stated on the card: no cover art, no auto-genre, because both
+    require a match. For bootlegs, mixtape rips and YouTube-only mixes that genuinely aren't in the
+    database. *In the library beats in the trash*, and it can be re-tagged later.
+  - **Binding consequences.** (1) `_validate_weak_match` (`reviews.py:168`) must relax — today it refuses
+    any recording that isn't already a candidate, which is exactly what makes re-search impossible; the
+    landing machinery it would call (`resolve_import` / `_forced_match` in `import_seam.py`) already
+    lands an arbitrary recording. (2) **An empty re-search result is not a dead panel** — it offers
+    *search again* and *keep-untagged*, never a terminal state. (3) Keep-untagged must not fabricate a
+    match: no invented MBID, no borrowed release, and the absence must be visible in the library, not
+    papered over. (4) Reject survives unchanged — this adds exits, it does not remove the one that
+    discards.
+  - **Why this and not more automation.** ADR-019's Shazam tier and the deferred LLM-disambiguator tier
+    (`docs/backlog/T-035.md`) both change *how often* this exit is reached, never *whether* it is needed:
+    each has a class it answers confidently and wrongly. A manual exit is the only one whose failure
+    mode is the owner's own judgement. **This ADR is therefore a prerequisite for both**, not an
+    alternative to either.
+  - **Blast radius.** Unblocks **T-106**'s last gate, whose end-to-end resolve cannot be demonstrated
+    through the route until re-search exists (see T-106's status line) — the two verify together. Feeds
+    **T-102**, which owns the inbox row that renders these exits.
+  (Owner decision, 2026-07-29, on sign-off of the six-screen flow.) [2026-07-29]
