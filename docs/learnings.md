@@ -711,3 +711,49 @@ Format: `- <date> — what went wrong → the correction / rule now in place`
   = today", **write the enumeration out and then attack it** — the dangerous outcome is rarely the
   absence of an answer, it's a plausible one. Fixed by adding condition 3: a third-party
   identification may populate candidates but may never clear the auto-accept bar on its own.
+- 2026-07-28 — (T-106 gate) **"It parked once" is not "it parks on demand" — and a *resolvable* park is
+  a different thing again.** Four downloads were spent trying to produce one parked review that could be
+  resolved through `POST /api/reviews/{id}/resolve`, and none of them got there. Two auto-tagged
+  (AcoustID had the fingerprint, so they cleared the 0.90 bar and never entered the queue). One parked
+  with five candidates, none correct — and the correct recording (`f5d1bcfb…`, Nines *Outro*) sits in
+  MusicBrainz at score 100, so this is the T-103 dead-end reproduced, not bad luck. Rule: the gate needs
+  a park **whose candidate list contains the right answer**, and nothing in the pipeline guarantees one;
+  `_validate_weak_match` (`reviews.py:168`) refuses any recording that isn't already a candidate.
+  T-106's own note predicted this on 2026-07-25 and it was read as a caveat rather than as a blocker.
+  **Read a "cannot be shown until X lands" caveat as a dependency on the ticket's status line, not as
+  prose.**
+- 2026-07-28 — (T-106 gate) **The duplicate branch is not a back door to the resolve path.** The plan was
+  to sidestep the candidate problem with a duplicate review, whose resolve derives the recording from
+  the row itself (`reviews.py:193`) and so cannot dead-end. It never parks: `_resolve_duplicate`
+  (`import_seam.py:717`) only parks when the new copy's bitrate is **strictly higher** than every
+  existing copy, and everything this app lands is already MP3 320. Same quality ⇒ silent skip, job
+  reports `done`, nothing lands, staging cleaned. Correct per T-009/ADR-009. Rule: before designing a
+  test around a branch, read the condition that *enters* it — "a duplicate parks" was inferred from the
+  existence of `_validate_duplicate`, which is the *exit*.
+- 2026-07-28 — **A yt-dlp `HTTP Error 403: Forbidden` at the download stage can be purely transient.**
+  One job errored at `download`; the same URL through the same code succeeded minutes later, unchanged.
+  The `--js-runtimes node` theory (from the 2026-07-19 sandbox note) was tested directly and
+  **refuted** — with and without a JS runtime the same video downloaded byte-identically (3,385,336 B).
+  Rule: retry once before diagnosing a 403, and do not carry the JS-runtime explanation over to it; that
+  note is about metadata extraction in this sandbox, not a blanket cause of download 403s.
+- 2026-07-28 — **Every hand-written design artifact in `docs/**/design/` was missing
+  `<meta charset="utf-8">`** — all five files. Served over HTTP or opened from disk the browser falls
+  back to a legacy encoding and every em-dash, curly quote and middot renders as `â€”` / `â€™`. The
+  design gate (ADR-016) exists to have the owner *read* these screens, so mojibake in the prose is a
+  defect in the gate itself. Rule: a flat HTML screen still needs the charset meta; it is the one line
+  that isn't optional when the file has no server setting it.
+- 2026-07-29 — **A design artifact opened from the OneDrive-synced tree can render *truncated*, and it
+  looks exactly like a design bug.** The owner reviewing the T-103 screens saw screen 04's card render
+  as an empty box with only its icon, and the page **ended there** — screens 05 and 06 absent. Nothing
+  was wrong with the file: served over `python3 -m http.server` to a clean browser, all six sections
+  were present and screen 04's card held 409 characters across four blocks (title, empty-state panel,
+  three buttons, paste-a-link line). On a later open he saw 05 and 06, so the short read was transient —
+  OneDrive serving a partially-hydrated copy. **Browsers render half an HTML file silently**, auto-closing
+  whatever is open, so truncation presents as "this screen is blank/broken", never as an error. Two
+  rules. (1) This undermines the ADR-016 design gate *at its own premise* — the gate's whole value is the
+  owner reading the screens, and a short read makes him sign off on less than exists, or reject a screen
+  that is fine. **Serve design artifacts over HTTP for review; do not hand over a path into the synced
+  tree.** (2) When a rendering complaint is "everything after point X is missing", suspect the file
+  before the CSS — count the DOM nodes against the source rather than reading the stylesheet. Same
+  family as T-106's data-dir decision: sync engines lie about file state while `isfile` still answers
+  True.
