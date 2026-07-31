@@ -858,7 +858,7 @@ Format: `- <date> — what went wrong → the correction / rule now in place`
   repo describe the same external fact, one of them is probably stale** — nothing reconciles them, so
   the doc that gets read (a `.env.example` an owner copies) can be wrong for weeks behind a code comment
   that is right; (3) a rationale inherited from an earlier session gets verified like a finding, not
-  quoted like a source. → `docs/engines/` exists to be the single home for this class.
+  quoted like a source.
 - 2026-07-30 — (T-038, owner correction) **Standing up a new doc store duplicated the existing ones,
   because I wrote the pages before writing the boundary.** The six `docs/engines/` pages copied lessons
   already in `learnings.md` ("breadth in a validator is not safety", "the cleaned value is what must
@@ -870,5 +870,26 @@ Format: `- <date> — what went wrong → the correction / rule now in place`
   a rule, a decision, a scope item) and each has exactly one owner, so the useful test is *"if this tool
   were swapped out tomorrow, would this sentence be deleted?"* Yes → it's a tool fact. No → it belongs
   to another store and this page gets a link. Summarising a measurement and pointing at the full record
-  is a citation; copying the reasoning is duplication. The boundary table now lives in
-  `docs/engines/README.md` so the next session inherits it instead of rediscovering it.
+  is a citation; copying the reasoning is duplication. **`docs/engines/` was subsequently removed** —
+  16 of its 19 load-bearing claims were already in this file; the 3 genuinely new facts are below; the
+  organized-by-tool retrieval it provided is cheaper to re-derive (grep the source) than to maintain.
+- 2026-07-30 — (T-038, reference) **beets' `musicbrainz.ratelimit` config key is silently ignored
+  against the official host — setting it looks like tuning and does nothing.** The MusicBrainz plugin
+  registers `ratelimit` and `ratelimit_interval` as config keys, but when `host` is `musicbrainz.org`
+  (the default), it hardcodes `rate_limit = 1.0` and skips the config entirely `[source]`
+  `beetsplug/_utils/musicbrainz.py:586-606`. The config-honoured path only fires for a local mirror.
+  No warning, no error. Rule: when a config key exists but behaviour doesn't change, check whether the
+  dependency short-circuits it for the default host — a no-op config is the quietest wrong answer.
+- 2026-07-30 — (T-038, reference) **An AcoustID lookup failure is indistinguishable from "no match"
+  downstream — both return `None`, and the failure is logged at `debug`.** `chroma.py`'s
+  `acoustid_match` catches `AcoustidError` and returns `None` — the same value it returns when the
+  track genuinely has no match `[source]` `beetsplug/chroma.py:95-124`. The service error is
+  `log.debug`, so at default level it is invisible. Consequence: **an AcoustID miss rate computed from
+  parked reviews is an upper bound, not a miss rate** — it counts outages, rate-limit rejections, and
+  genuine unknowns identically. Check the debug log before quoting one.
+- 2026-07-30 — (T-038, reference) **Only the first 120 seconds of audio are fingerprinted, and only
+  the single best AcoustID result is considered.** `MAX_AUDIO_LENGTH = 120` `[source]`
+  `acoustid.py:43`; `result = res["results"][0]` `[source]` `chroma.py:127`, bounded further by
+  `MAX_RECORDINGS = 5` and `MAX_RELEASES = 5` `[source]` `chroma.py:47-48`. Two tracks that differ
+  only after two minutes are indistinguishable to this tier. Below `SCORE_THRESH = 0.5` `[source]`
+  `chroma.py:44,128`, a match is silently discarded.
