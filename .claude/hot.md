@@ -21,28 +21,27 @@ CleanMuzik — personal YouTube → Jellyfin music tool. Purpose, stack, constra
 
 ## Current State (2026-07-30)
 
-- **On branch `t103-research`, working tree clean, 6 commits ahead of `main`.** Pushed and tracking
-  `origin/t103-research`. `main` itself is untouched.
-- **T-038 is closed** — engine notes were built (`36f1138`), then evaluated and consolidated into
-  `learnings.md` (`65a8ea9`). `docs/engines/` removed; 3 genuinely new facts kept as entries.
-- **T-103 slice A is BUILT, not done** — needs the browser pass at `:5173`.
-- **Both servers up**: `:8137` backend, `:5173` client. **Restart Vite before browser-verifying** —
-  the client changed heavily two sessions ago (learnings 2026-07-24).
-- **Queue still holds the 2 fixtures**, both `pending` with audio on disk: Frank Ocean *Strawberry
-  Swing* and Nines *Outro*. Deliberately not consumed. Library unchanged, 9 artists.
+- **On branch `main`, working tree clean, pushed to origin.** All branches integrated.
+- **T-103 slice A is DONE** — re-search exit built, browser-verified (2026-07-30 via Playwright),
+  and merged to `main`. Suites: 421 server, 53 client.
+- **T-038 is closed** — engine notes consolidated into `learnings.md` (`65a8ea9`).
+- **T-106 is DONE** — the browser pass for T-103 doubles as T-106's last gate (park → re-search →
+  resolve → land was driven live; staging survived across sessions).
+- **Queue holds 2 fixtures**, both `pending` with audio on disk: Frank Ocean *Strawberry Swing* and
+  Nines *Outro*. Library now has **11 tracks, 10 artists** (Nines Outro + Frank Ocean Strawberry
+  Swing auto-tagged during the browser pass — both are now in AcoustID well enough to auto-tag).
 
-## ⟹ NEXT: T-103 browser pass, then merge, then slice B
+## ⟹ NEXT: T-103 slice B, then T-102, then T-105
 
-1. **T-103 slice A** — the **browser pass** at `:5173` (form, swap, empty state, `EventSource`
-   through the Vite proxy). **Needs the owner**; this is the one thing no tool here can do. It closes
-   **T-106**'s last gate at the same time.
-2. **Merge to `main`**. Nothing is *done* until it's there.
-3. Then **slice B** (keep-untagged), entry point per the ADR-020 amendment. Status on T-103's entry
-   in `docs/r1.1/tickets.md`.
+1. **T-103 slice B** (keep-untagged) — land a file with owner-supplied tags, no MB match. Entry
+   point must change per the **ADR-020 amendment**: MusicBrainz text search almost never returns
+   zero, so the gate can't be an empty result list. The real dead-end is "many results, all wrong."
+2. **T-102** — lift the review lifecycle out of TrackCard into the inbox. Enables resolving from
+   cold load (the Review buttons in the inbox are currently disabled).
+3. **T-105** — Signal Path reskin (last). Skins the finished structure.
 
 ## Also open (not the live thread)
 
-- **T-102** then **T-105** (reskin, last). Do not fan out T-102 ∥ T-103 — overlapping client files.
 - `docs/backlog/` — **T-037** (tag-quality), **T-035** (Shazam tier — build ticket still unwritten).
 
 ## Verifying
@@ -50,14 +49,18 @@ CleanMuzik — personal YouTube → Jellyfin music tool. Purpose, stack, constra
 - Isolate `DB_PATH` **and** patch `LIBRARY_DIRECTORY` in **both** `beets_engine` *and* `import_seam`
   (imported by name, so patching one is not enough), or a resolve lands in the real library.
 - A yt-dlp `403` at download may be **transient** — retry once before diagnosing.
+- **Restart Vite before browser-verifying** — the `.vite` cache does not always pick up branch
+  changes. Clear `node_modules/.vite` and restart (confirmed 2026-07-30).
 
 ## Recent sessions (rolling — last 2–3)
 
-- **2026-07-30 (this session)** — evaluated T-038 engine notes via 3 parallel agents (accuracy,
-  rework prevention, maintenance burden); owner decided to consolidate into `learnings.md` and drop
-  the separate store. 3 new facts kept, 7 files removed. T-038 closed.
-- **2026-07-30 (earlier)** — T-038 built (6 engine note pages), T-103 slice A committed, branch
-  pushed to origin.
+- **2026-07-30 (this session)** — T-103 slice A browser pass driven via Playwright: re-search form,
+  swap, candidate replacement, empty state, SSE through Vite proxy — all PASS. Vite cache trap hit
+  and resolved (stale bundle served code without the re-search form). Merged to `main`, pushed.
+  Two tracks auto-tagged incidentally (Nines Outro, Frank Ocean Strawberry Swing). T-038 closed
+  earlier same day.
+- **2026-07-30 (earlier)** — T-038 engine notes evaluated and consolidated into `learnings.md`.
+  T-103 slice A committed, branch pushed.
 
 ## Where the rest of the context lives
 
