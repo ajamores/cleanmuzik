@@ -67,9 +67,11 @@ logger = logging.getLogger("cleanmuzik")
 # The `rec` value that marks a duplicate park (import_seam._park_duplicate).
 DUPLICATE_REC = "duplicate"
 
-# Resolve choices. The weak-match branch takes a candidate id or REJECT; the
-# duplicate branch takes exactly one of DUPLICATE_CHOICES (ADR-009 addendum).
+# Resolve choices. The weak-match branch takes a candidate id, REJECT, or
+# KEEP_UNTAGGED (ADR-020 exit 2); the duplicate branch takes exactly one of
+# DUPLICATE_CHOICES (ADR-009 addendum).
 CHOICE_REJECT = "reject"
+CHOICE_KEEP_UNTAGGED = "keep_untagged"
 CHOICE_KEEP_EXISTING = "keep_existing"
 CHOICE_REPLACE = "replace"
 CHOICE_KEEP_BOTH = "keep_both"
@@ -96,17 +98,22 @@ class ResolveRequest:
     a weak match, or (for `replace`/`keep_both`) the duplicate row's existing-copy
     recording id, which is by construction the SAME recording as the incoming file —
     that identity is exactly how T-009 detected the duplicate. It is None for the two
-    discard branches, which land nothing.
+    discard branches and for `keep_untagged` (ADR-020 exit 2), which lands the file
+    with owner-supplied tags and no MusicBrainz match.
     """
 
     choice: str
     recording_id: str | None = None
     suffix: str | None = None
+    manual_title: str | None = None
+    manual_artist: str | None = None
+    manual_album: str | None = None
+    manual_year: int | None = None
 
     @property
     def lands(self) -> bool:
         """Whether this decision puts a file in the library (vs. discarding it)."""
-        return self.recording_id is not None
+        return self.recording_id is not None or self.choice == CHOICE_KEEP_UNTAGGED
 
 
 class ResolveValidationError(Exception):
@@ -163,7 +170,12 @@ def validate_resolve_body(review: Review, body: dict | None) -> ResolveRequest:
 
 
 def _validate_weak_match(review: Review, body: dict, choice: str) -> ResolveRequest:
-    """`{choice: "<recording_mbid>"}` or `{choice: "reject"}` (spec §6, ADR-020).
+    """`{choice: "<recording_mbid>"|"reject"|"keep_untagged"}` (spec §6, ADR-020).
+
+    Three exits for a weak match:
+    - A recording MBID (from the candidate list or a re-search) → land with that match.
+    - `reject` → discard the download.
+    - `keep_untagged` (ADR-020 exit 2) → land with owner-supplied tags, no MB match.
 
     **Candidate-list membership is deliberately NOT required** (ADR-020's first binding
     consequence). Until 2026-07-29 this refused any recording that wasn't already in
@@ -186,23 +198,99 @@ def _validate_weak_match(review: Review, body: dict, choice: str) -> ResolveRequ
         )
     if choice == CHOICE_REJECT:
         return ResolveRequest(CHOICE_REJECT)
+    if choice == CHOICE_KEEP_UNTAGGED:
+        return _validate_keep_untagged(body)
     if choice not in review.candidate_ids:
-        # The shape rule applies only OFF the list: the row vouches for its own
-        # candidates, so a listed id lands whatever it looks like, and the new guard
-        # can't become a second, stricter gate on the path that already worked.
         if not _MBID.fullmatch(choice):
-            # Not "unknown candidate" any more — an off-list MBID is legitimate, so the
-            # only remaining error is a choice that could not be a recording at all.
             raise ResolveValidationError(
-                f"'{choice}' is neither 'reject' nor a MusicBrainz recording id. Pick a "
-                f"candidate, re-search for the right recording, or send 'reject' to discard."
+                f"'{choice}' is neither 'reject', 'keep_untagged', nor a MusicBrainz "
+                f"recording id. Pick a candidate, re-search for the right recording, "
+                f"keep the file with your own tags, or send 'reject' to discard."
             )
-        # Worth a log line: a landing that bypassed the parked candidates is the
-        # re-search path in action, and the interesting half of this route's traffic.
         logger.info(
             "review %s resolving onto off-list recording %s (re-searched)", review.id, choice
         )
     return ResolveRequest(choice, recording_id=choice)
+
+
+_TITLE_MAX = 200
+_ARTIST_MAX = 200
+_ALBUM_MAX = 200
+_YEAR_MIN = 1900
+_YEAR_MAX = 2100
+
+
+def _validate_keep_untagged(body: dict) -> ResolveRequest:
+    """`{choice: "keep_untagged", artist: "...", title: "..."}` (ADR-020 exit 2).
+
+    Validates the owner-supplied tags that will be written directly to the file before
+    a beets as-is import. `artist` and `title` are required (a nameless file can't be
+    organized by `$artist/$title`); `album` and `year` are optional extras from the
+    signed-off screen 05.
+
+    The same sanitization as `keep_both`'s suffix: strip control characters and reject
+    path separators, since these reach a filesystem path via the beets path template.
+    """
+    raw_artist = body.get("artist")
+    raw_title = body.get("title")
+
+    if not isinstance(raw_artist, str) or not raw_artist.strip():
+        raise ResolveValidationError(
+            "'keep_untagged' requires an 'artist' — beets needs it for the file path."
+        )
+    if not isinstance(raw_title, str) or not raw_title.strip():
+        raise ResolveValidationError(
+            "'keep_untagged' requires a 'title' — beets needs it for the file path."
+        )
+
+    artist = _sanitize_tag(raw_artist, "artist", _ARTIST_MAX)
+    title = _sanitize_tag(raw_title, "title", _TITLE_MAX)
+
+    album: str | None = None
+    if "album" in body and body["album"] is not None:
+        raw_album = body["album"]
+        if not isinstance(raw_album, str):
+            raise ResolveValidationError("'album' must be a string.")
+        if raw_album.strip():
+            album = _sanitize_tag(raw_album, "album", _ALBUM_MAX)
+
+    year: int | None = None
+    if "year" in body and body["year"] is not None:
+        raw_year = body["year"]
+        if not isinstance(raw_year, int):
+            raise ResolveValidationError("'year' must be an integer.")
+        if not (_YEAR_MIN <= raw_year <= _YEAR_MAX):
+            raise ResolveValidationError(
+                f"'year' must be between {_YEAR_MIN} and {_YEAR_MAX}."
+            )
+        year = raw_year
+
+    return ResolveRequest(
+        CHOICE_KEEP_UNTAGGED,
+        manual_title=title,
+        manual_artist=artist,
+        manual_album=album,
+        manual_year=year,
+    )
+
+
+def _sanitize_tag(raw: str, field_name: str, max_len: int) -> str:
+    """Clean an owner-typed tag value: strip control chars, reject path separators."""
+    cleaned = "".join(c for c in raw if unicodedata.category(c)[0] != "C").strip()
+    if not cleaned:
+        raise ResolveValidationError(
+            f"'{field_name}' must not be empty or whitespace-only."
+        )
+    if illegal := _SUFFIX_ILLEGAL.intersection(cleaned):
+        raise ResolveValidationError(
+            f"'{field_name}' must not contain a path separator "
+            f"({''.join(sorted(illegal))})."
+        )
+    if len(cleaned) > max_len:
+        raise ResolveValidationError(
+            f"'{field_name}' must be at most {max_len} characters (got {len(cleaned)})."
+        )
+    return cleaned
 
 
 def _validate_duplicate(review: Review, body: dict, choice: str) -> ResolveRequest:

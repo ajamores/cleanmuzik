@@ -185,14 +185,15 @@ export async function searchReview(
   )
 }
 
-/** The two resolve body shapes (spec §6), keyed by the review's `rec`. A weak
- *  match sends a `candidate_id` or `"reject"`; a duplicate sends one of the three
- *  keep-which choices, with a `suffix` required for (and only for) `keep_both`. */
+/** The three resolve body shapes (spec §6), keyed by the review's `rec`. A weak
+ *  match sends a candidate_id, `"reject"`, or `"keep_untagged"` (ADR-020 exit 2);
+ *  a duplicate sends one of the three keep-which choices. */
 export type ResolveBody =
   | { choice: string }
   | { choice: 'keep_existing' }
   | { choice: 'replace' }
   | { choice: 'keep_both'; suffix: string }
+  | { choice: 'keep_untagged'; artist: string; title: string; album?: string; year?: number }
 
 /**
  * `POST /api/reviews/{id}/resolve` — apply the owner's decision and resume the

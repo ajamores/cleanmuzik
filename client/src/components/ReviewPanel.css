@@ -338,6 +338,68 @@
   margin-top: 10px;
 }
 
+/* --- keep-untagged (ADR-020 exit 2) ---------------------------------------- */
+
+.review__btn--manual {
+  background: transparent;
+  color: var(--warn);
+  border-color: var(--warn);
+  margin-left: auto;
+}
+
+.review__btn--manual:hover:not(:disabled) {
+  background: var(--warn);
+  color: #fff;
+  border-color: var(--warn);
+}
+
+.review__btn--reject {
+  background: transparent;
+}
+
+.review__keep {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.review__keep-head {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--warn);
+}
+
+.review__keep-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+@media (max-width: 480px) {
+  .review__keep-fields {
+    grid-template-columns: 1fr;
+  }
+}
+
+.review__input--required {
+  border-color: var(--warn);
+}
+
+.review__optional {
+  opacity: 0.6;
+  font-style: italic;
+}
+
+.review__tradeoff {
+  font-size: 12px;
+  color: var(--warn);
+  border-left: 2px solid var(--warn);
+  padding: 6px 0 6px 10px;
+  margin: 0;
+}
+
 .review__error {
   margin: 10px 0 0;
   font-size: 13px;

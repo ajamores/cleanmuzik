@@ -1197,6 +1197,150 @@ def resolve_import(
     return session.finalize_outcomes()
 
 
+class KeepUntaggedSession(FingerprintTrustSession):
+    """Imports a parked staging file as-is with owner-supplied tags (ADR-020 exit 2).
+
+    The owner has looked at the candidates, searched MusicBrainz themselves, and
+    decided the recording genuinely isn't in the database. This session writes the
+    owner's tags to the file and returns `Action.ASIS` — beets organizes it per the
+    path template and registers it in the library, but applies no MusicBrainz match.
+
+    Consequences per ADR-020:
+    - No `mb_trackid` (no fabricated MBID, no borrowed release).
+    - No cover art (fetchart/embedart need a release to query).
+    - No auto-genre (lastgenre runs but needs a match to seed from).
+    - `ftintitle` still fires (it reads the item's tags, not the match).
+
+    The junk yt-dlp embedded (channel name, upload date, genre "Entertainment") is
+    cleared before import — ADR-013's intent, even though `from_scratch` only fires
+    for matched imports.
+    """
+
+    def __init__(
+        self,
+        lib,
+        *,
+        manual_title: str,
+        manual_artist: str,
+        manual_album: str | None = None,
+        manual_year: int | None = None,
+        **kwargs,
+    ):
+        kwargs.setdefault("dominance_fn", _no_dominance)
+        super().__init__(lib, **kwargs)
+        self.manual_title = manual_title
+        self.manual_artist = manual_artist
+        self.manual_album = manual_album
+        self.manual_year = manual_year
+
+    def choose_item(self, task):
+        """Write the owner's tags and accept as-is."""
+        self._write_manual_tags(task.item)
+        self._accepted.append((task, None, Dominance(0.0, 0.0, ())))
+        logger.info(
+            "keep-untagged %s: artist=%r title=%r",
+            self.staging_path,
+            self.manual_artist,
+            self.manual_title,
+        )
+        return Action.ASIS
+
+    def _write_manual_tags(self, item) -> None:
+        """Clear yt-dlp junk and write the owner's fields onto the staging file."""
+        from mutagen import File as MutagenFile
+
+        audio = MutagenFile(os.fsdecode(item.path), easy=True)
+        if audio is None:
+            raise ResolveError(
+                f"cannot read the staging file's tags — is it a valid MP3? "
+                f"({os.fsdecode(item.path)})"
+            )
+        audio.delete()
+        audio["title"] = self.manual_title
+        audio["artist"] = self.manual_artist
+        if self.manual_album:
+            audio["album"] = self.manual_album
+        if self.manual_year:
+            audio["date"] = str(self.manual_year)
+        audio.save()
+
+        item.title = self.manual_title
+        item.artist = self.manual_artist
+        if self.manual_album:
+            item.album = self.manual_album
+        if self.manual_year:
+            item.year = self.manual_year
+
+    def finalize_outcomes(self) -> list[Outcome]:
+        """Settle the as-is import — same shape as the matched path."""
+        for task, _match, dominance in self._accepted:
+            skipped = bool(getattr(task, "skip", False))
+            if skipped:
+                logger.info(
+                    "keep-untagged %s but beets skipped it — not landed",
+                    self.staging_path,
+                )
+            art_embedded = False
+            self.outcomes.append(
+                Outcome(
+                    "skipped" if skipped else "landed",
+                    top_score=0.0,
+                    gap=0.0,
+                    track_id=None,
+                    art_embedded=art_embedded,
+                    chosen={
+                        "title": self.manual_title,
+                        "artist": self.manual_artist,
+                        "album": self.manual_album,
+                        "year": self.manual_year,
+                    },
+                    tags=None if skipped else _landed_tags(task.item, art_embedded),
+                    landed_path=None if skipped else _item_path(task.item),
+                )
+            )
+        self._accepted.clear()
+        return self.outcomes
+
+
+def resolve_asis_import(
+    staging_path: bytes | str,
+    *,
+    store: Store,
+    job_id: str,
+    query: str = "",
+    manual_title: str,
+    manual_artist: str,
+    manual_album: str | None = None,
+    manual_year: int | None = None,
+    lib: library.Library | None = None,
+    settings: Settings | None = None,
+) -> list[Outcome]:
+    """Land a parked staging file with owner-supplied tags (ADR-020 exit 2).
+
+    The keep-untagged twin of `resolve_import`: same receipt shape, but writes the
+    owner's tags instead of forcing a MusicBrainz recording. Raises `ResolveError` on
+    a file that can't be read; any other exception is a beets organize failure.
+    """
+    s = settings or get_settings()
+    configure_beets(s)
+    _configure_import_options()
+    lib = lib or get_library(s)
+
+    session = KeepUntaggedSession(
+        lib,
+        store=store,
+        job_id=job_id,
+        staging_path=staging_path,
+        query=query,
+        manual_title=manual_title,
+        manual_artist=manual_artist,
+        manual_album=manual_album,
+        manual_year=manual_year,
+    )
+    session.run()
+    return session.finalize_outcomes()
+
+
 def import_song(
     staging_path: bytes | str,
     *,

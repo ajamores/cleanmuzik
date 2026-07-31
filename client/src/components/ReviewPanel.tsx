@@ -149,30 +149,20 @@ function WeakMatchPanel({
   const [searched, setSearched] = useState<Searched | null>(null)
   const shown = searched?.rows ?? candidates
 
-  // Default to the top candidate, but only among those that can actually be
-  // accepted: an id-only fallback row (seam raised at park) has a null candidate_id
-  // and can't be resolved, so it must not be the default selection. Lazy initializer
-  // — the scan runs once, not on every render.
   const [choice, setChoice] = useState<string | null>(
     () => candidates.find((c) => c.candidate_id)?.candidate_id ?? null,
   )
 
-  // **The owner's correction lives HERE, not in the form**, so collapsing the form is
-  // presentation rather than data loss. It was in the form until a review caught the
-  // consequence: after a successful search the form closes, and re-opening it remounted
-  // the component, re-seeding both fields from `guess` — silently discarding what the
-  // owner typed. That is not an edge case, it is the mainline: ADR-020's amendment
-  // measured that MusicBrainz almost never returns nothing, so the real dead-end is
-  // "many results, all wrong" and the SECOND search is the ordinary next move.
+  // The owner's correction lives HERE, not in the form — collapsing the form is
+  // presentation rather than data loss. These also seed the keep-untagged form.
   const [artist, setArtist] = useState(guess?.artist ?? '')
   const [title, setTitle] = useState(guess?.title ?? query)
 
-  // Derived, not tracked: the form is open when there is nothing to pick from, or when
-  // the owner asked for it. Expressing the rule once here keeps it from being re-stated
-  // at each transition — the version that tracked it had to re-assert "stay open if the
-  // result was empty" inside the success handler, which is where a bug would hide.
   const [opened, setOpened] = useState(false)
   const searchOpen = shown.length === 0 || opened
+
+  // ADR-020 exit 2: the keep-untagged form replaces the candidate view.
+  const [keepMode, setKeepMode] = useState(false)
 
   function accept(e: React.FormEvent) {
     e.preventDefault()
@@ -180,13 +170,24 @@ function WeakMatchPanel({
     onSubmit({ choice })
   }
 
-  /** Adopt a search's results and preselect its best row, so Accept is one click. */
   function adopt(result: Searched) {
     setSearched(result)
     setChoice(result.rows.find((c) => c.candidate_id)?.candidate_id ?? null)
-    // Collapse the form on success; `searchOpen` keeps it open by itself when the
-    // result was empty, because then there is still nothing to pick from.
     setOpened(false)
+  }
+
+  if (keepMode) {
+    return (
+      <KeepUntaggedForm
+        artist={artist}
+        title={title}
+        onArtist={setArtist}
+        onTitle={setTitle}
+        submitting={submitting}
+        onSubmit={onSubmit}
+        onBack={() => setKeepMode(false)}
+      />
+    )
   }
 
   return (
@@ -213,12 +214,8 @@ function WeakMatchPanel({
       {shown.length === 0 ? (
         <p className="review__empty">
           {searched
-            ? // The honest reading, and the reason it is not an error: the owner just
-              // asked MusicBrainz directly, in their own words. A miss means the
-              // recording genuinely isn't in the database — normal for bootlegs,
-              // mixtape rips and YouTube-only mixes.
-              'MusicBrainz has no record of that. Try different terms, or reject the download.'
-            : 'No candidates were found for this song. Correct the search, or reject it to discard the download.'}
+            ? 'MusicBrainz has no record of that. Try different terms, keep it with your own tags, or reject.'
+            : 'No candidates were found for this song. Correct the search, keep it with your own tags, or reject.'}
         </p>
       ) : (
         <ul
@@ -230,8 +227,6 @@ function WeakMatchPanel({
             <CandidateRow
               key={c.candidate_id ?? `id-only-${i}`}
               candidate={c}
-              // Guard the null match: a candidate with no id must never read as
-              // selected just because `choice` is also null (nothing usable to pick).
               checked={c.candidate_id !== null && c.candidate_id === choice}
               disabled={submitting}
               onSelect={() => c.candidate_id && setChoice(c.candidate_id)}
@@ -276,6 +271,127 @@ function WeakMatchPanel({
           onClick={() => onSubmit({ choice: 'reject' })}
         >
           Reject
+        </button>
+        <button
+          type="button"
+          className="review__btn review__btn--manual"
+          disabled={submitting}
+          onClick={() => setKeepMode(true)}
+        >
+          Keep with my tags
+        </button>
+      </div>
+    </form>
+  )
+}
+
+// --- keep-untagged (ADR-020 exit 2) ------------------------------------------
+
+interface KeepUntaggedProps {
+  artist: string
+  title: string
+  onArtist: (v: string) => void
+  onTitle: (v: string) => void
+  submitting: boolean
+  onSubmit: (body: ResolveBody) => void
+  onBack: () => void
+}
+
+function KeepUntaggedForm({
+  artist,
+  title,
+  onArtist,
+  onTitle,
+  submitting,
+  onSubmit,
+  onBack,
+}: KeepUntaggedProps) {
+  const [album, setAlbum] = useState('')
+  const [year, setYear] = useState('')
+
+  const valid = artist.trim().length > 0 && title.trim().length > 0
+
+  function submit(e: React.FormEvent) {
+    e.preventDefault()
+    if (submitting || !valid) return
+    const body: Record<string, unknown> = {
+      choice: 'keep_untagged',
+      artist: artist.trim(),
+      title: title.trim(),
+    }
+    if (album.trim()) body.album = album.trim()
+    const y = parseInt(year, 10)
+    if (y >= 1900 && y <= 2100) body.year = y
+    onSubmit(body as ResolveBody)
+  }
+
+  return (
+    <form className="review__keep" onSubmit={submit}>
+      <div className="review__keep-head">Your tags</div>
+      <div className="review__keep-fields">
+        <label className="review__field">
+          Artist
+          <input
+            type="text"
+            className="review__input review__input--required"
+            value={artist}
+            disabled={submitting}
+            onChange={(e) => onArtist(e.target.value)}
+          />
+        </label>
+        <label className="review__field">
+          Title
+          <input
+            type="text"
+            className="review__input review__input--required"
+            value={title}
+            disabled={submitting}
+            onChange={(e) => onTitle(e.target.value)}
+          />
+        </label>
+        <label className="review__field">
+          Album <span className="review__optional">optional</span>
+          <input
+            type="text"
+            className="review__input"
+            value={album}
+            disabled={submitting}
+            onChange={(e) => setAlbum(e.target.value)}
+          />
+        </label>
+        <label className="review__field">
+          Year <span className="review__optional">optional</span>
+          <input
+            type="text"
+            inputMode="numeric"
+            pattern="[0-9]*"
+            className="review__input"
+            value={year}
+            disabled={submitting}
+            onChange={(e) => setYear(e.target.value)}
+            placeholder="e.g. 2013"
+          />
+        </label>
+      </div>
+      <p className="review__tradeoff">
+        Lands without cover art or an auto-genre — both need a MusicBrainz match.
+        You can re-tag it any time if it ever turns up in a database.
+      </p>
+      <div className="review__actions">
+        <button
+          type="button"
+          className="review__btn review__btn--ghost"
+          disabled={submitting}
+          onClick={onBack}
+        >
+          Back
+        </button>
+        <button
+          type="submit"
+          className="review__btn review__btn--accept"
+          disabled={submitting || !valid}
+        >
+          {submitting ? 'Landing…' : 'Land with these tags'}
         </button>
       </div>
     </form>

@@ -159,6 +159,86 @@ def test_an_empty_candidate_park_is_no_longer_a_dead_end():
     assert validate_resolve_body(empty, {"choice": found}).recording_id == found
 
 
+# --- 1b. keep-untagged validation (ADR-020 exit 2) -------------------------
+
+
+def test_keep_untagged_accepts_artist_and_title():
+    req = validate_resolve_body(
+        _review("none", ()), {"choice": "keep_untagged", "artist": "Nipsey Hussle", "title": "All Get Right"},
+    )
+    assert req.choice == "keep_untagged"
+    assert req.manual_artist == "Nipsey Hussle"
+    assert req.manual_title == "All Get Right"
+    assert req.recording_id is None
+    assert req.lands
+
+
+def test_keep_untagged_accepts_optional_album_and_year():
+    req = validate_resolve_body(
+        _review("medium", ("rec-A",)),
+        {"choice": "keep_untagged", "artist": "Nines", "title": "Outro", "album": "Crop Circle", "year": 2017},
+    )
+    assert req.manual_album == "Crop Circle"
+    assert req.manual_year == 2017
+
+
+def test_keep_untagged_requires_artist():
+    with pytest.raises(ResolveValidationError, match="artist"):
+        validate_resolve_body(_review("none"), {"choice": "keep_untagged", "title": "Song"})
+
+
+def test_keep_untagged_requires_title():
+    with pytest.raises(ResolveValidationError, match="title"):
+        validate_resolve_body(_review("none"), {"choice": "keep_untagged", "artist": "Band"})
+
+
+def test_keep_untagged_rejects_empty_artist():
+    with pytest.raises(ResolveValidationError, match="artist"):
+        validate_resolve_body(
+            _review("none"), {"choice": "keep_untagged", "artist": "  ", "title": "Song"},
+        )
+
+
+def test_keep_untagged_strips_control_characters():
+    req = validate_resolve_body(
+        _review("none"),
+        {"choice": "keep_untagged", "artist": "Band\x00Name", "title": "So\x01ng"},
+    )
+    assert req.manual_artist == "BandName"
+    assert req.manual_title == "Song"
+
+
+def test_keep_untagged_rejects_path_separators_in_tags():
+    with pytest.raises(ResolveValidationError, match="path separator"):
+        validate_resolve_body(
+            _review("none"), {"choice": "keep_untagged", "artist": "A/B", "title": "Song"},
+        )
+
+
+def test_keep_untagged_rejects_bad_year():
+    with pytest.raises(ResolveValidationError, match="year"):
+        validate_resolve_body(
+            _review("none"),
+            {"choice": "keep_untagged", "artist": "A", "title": "B", "year": 1800},
+        )
+
+
+def test_keep_untagged_ignores_null_album_and_year():
+    req = validate_resolve_body(
+        _review("none"),
+        {"choice": "keep_untagged", "artist": "A", "title": "B", "album": None, "year": None},
+    )
+    assert req.manual_album is None
+    assert req.manual_year is None
+
+
+def test_keep_untagged_is_not_valid_for_a_duplicate_review():
+    with pytest.raises(ResolveValidationError, match="does not answer a duplicate"):
+        validate_resolve_body(
+            _review("duplicate"), {"choice": "keep_untagged", "artist": "A", "title": "B"},
+        )
+
+
 def test_duplicate_rejects_a_candidate_id_choice():
     with pytest.raises(ResolveValidationError, match="does not answer a duplicate"):
         validate_resolve_body(_review("duplicate"), {"choice": "rec-A"})
@@ -433,6 +513,38 @@ def test_accepting_a_candidate_lands_scans_and_cleans_staging(tmp_path):
     assert store.get_review(review.id).status == "resolved"
     assert scans, "a landed resolve must trigger a Jellyfin scan"
     assert not staging_dir.exists(), "an accepted song's staging must be cleaned (spec §5)"
+    assert [n for n, _ in _events(bus, job.id)] == ["track.tagging", "track.done"]
+
+
+def test_keep_untagged_calls_asis_import_and_cleans_staging(tmp_path):
+    store = _store(tmp_path)
+    job, review, staging_dir = _parked(store, tmp_path)
+    seen = {}
+
+    def capture_asis(path, **kwargs):
+        seen.update(kwargs)
+        return [Outcome("landed", 0.0, 0.0, landed_path="/lib/Nines/Outro.mp3",
+                        tags={"title": "Outro", "artist": "Nines"}, chosen={"title": "Outro", "artist": "Nines"})]
+
+    import app.jobs as jmod
+    orig = jmod.resolve_asis_import
+    jmod.resolve_asis_import = capture_asis
+    try:
+        req = ResolveRequest(
+            "keep_untagged", manual_title="Outro", manual_artist="Nines",
+            manual_album="Crop Circle", manual_year=2017,
+        )
+        state, bus = _run_resolve(store, review, req, scan_fn=lambda **k: True)
+    finally:
+        jmod.resolve_asis_import = orig
+
+    assert state.status == "done"
+    assert store.get_review(review.id).status == "resolved"
+    assert not staging_dir.exists()
+    assert seen["manual_title"] == "Outro"
+    assert seen["manual_artist"] == "Nines"
+    assert seen["manual_album"] == "Crop Circle"
+    assert seen["manual_year"] == 2017
     assert [n for n, _ in _events(bus, job.id)] == ["track.tagging", "track.done"]
 
 

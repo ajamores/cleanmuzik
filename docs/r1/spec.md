@@ -187,18 +187,28 @@ some of it is tempting to fold in now.
 | `POST` | `/api/reviews/{review_id}/resolve` | see the two body shapes below | `{ "ok": true }`; resumes the import. |
 | `GET` | `/api/health` | — | `{ "status": "ok" }`. |
 
-#### `resolve` body — two shapes, keyed by the review's `rec`
+#### `resolve` body — three shapes, keyed by the review's `rec`
 
-The review queue holds two different questions, so resolve takes two different answers. A client
-reads `rec` (returned by `GET /api/reviews`) to know which it's answering; the route validates the
-body against the row's `rec` and 400s a mismatch rather than guessing.
+The review queue holds two different questions, so resolve takes two (or three) different answers.
+A client reads `rec` (returned by `GET /api/reviews`) to know which it's answering; the route
+validates the body against the row's `rec` and 400s a mismatch rather than guessing.
 
 **Weak/ambiguous match** (`rec` = a beets recommendation name — `none`, `low`, `medium`, …):
 
 ```jsonc
 { "choice": "<candidate_id>" }   // apply that MusicBrainz candidate and land it
 { "choice": "reject" }           // discard the song; staging is removed
+{ "choice": "keep_untagged", "artist": "Nipsey Hussle", "title": "All Get Right" }
+    // land with owner-supplied tags; no MB match (ADR-020 exit 2)
+    // optional: "album": "Crenshaw", "year": 2013
 ```
+
+- **`keep_untagged`** lands the file with only the owner's tags, no MusicBrainz match. Per
+  ADR-020 consequence 3: no fabricated MBID, no cover art, no auto-genre — the honest trade-off
+  for bootlegs, mixtape rips, and tracks that genuinely aren't in the database. `artist` and
+  `title` are required (beets needs them for the `$artist/$title` path template); `album` and
+  `year` are optional. Same sanitization as `keep_both`'s suffix: strip control characters,
+  reject path separators, cap length.
 
 **Duplicate** (`rec: "duplicate"` — "you already have this; the download is higher bitrate"). Per
 ADR-009's addendum, the destructive branch is reachable only by an explicit owner click:

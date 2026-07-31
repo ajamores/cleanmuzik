@@ -598,3 +598,193 @@ describe('re-search — correcting the question', () => {
     expect(screen.getByRole('button', { name: /re-search/i })).toBeDisabled()
   })
 })
+
+/**
+ * Keep-untagged — "land it with my own tags" (T-103B, ADR-020 exit 2).
+ *
+ * The escape hatch for songs MusicBrainz doesn't know: the owner provides artist
+ * and title, and the track lands without a MusicBrainz match — no cover art, no
+ * auto-genre. Always reachable from the weak-match panel, regardless of whether
+ * candidates exist.
+ */
+describe('keep-untagged — landing with manual tags', () => {
+  it('"Keep with my tags" is always visible in the action bar', () => {
+    mockBackend({})
+    render(
+      <ReviewPanel
+        reviewId="rev-1"
+        rec="low"
+        query="q"
+        candidates={CANDIDATES}
+        onResolved={() => {}}
+      />,
+    )
+    expect(screen.getByRole('button', { name: /keep with my tags/i })).toBeEnabled()
+  })
+
+  it('opens the form and hides the candidate list', () => {
+    mockBackend({})
+    render(
+      <ReviewPanel
+        reviewId="rev-1"
+        rec="low"
+        query="q"
+        candidates={CANDIDATES}
+        onResolved={() => {}}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: /keep with my tags/i }))
+    // The candidate list is gone; the form is up.
+    expect(screen.queryByRole('radiogroup')).not.toBeInTheDocument()
+    expect(screen.getByText(/your tags/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /land with these tags/i })).toBeInTheDocument()
+  })
+
+  it('"Back" returns to the candidate view', () => {
+    mockBackend({})
+    render(
+      <ReviewPanel
+        reviewId="rev-1"
+        rec="low"
+        query="q"
+        candidates={CANDIDATES}
+        onResolved={() => {}}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: /keep with my tags/i }))
+    fireEvent.click(screen.getByRole('button', { name: /back/i }))
+    expect(screen.getByRole('radiogroup')).toBeInTheDocument()
+  })
+
+  it('sends the correct body with artist and title', async () => {
+    const onResolved = vi.fn()
+    const fetchMock = mockBackend({})
+    render(
+      <ReviewPanel
+        reviewId="rev-1"
+        rec="low"
+        query="q"
+        candidates={CANDIDATES}
+        onResolved={onResolved}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: /keep with my tags/i }))
+    fireEvent.change(screen.getByLabelText(/artist/i), { target: { value: 'Nines' } })
+    fireEvent.change(screen.getByLabelText(/title/i), { target: { value: 'Outro' } })
+    fireEvent.click(screen.getByRole('button', { name: /land with these tags/i }))
+    await waitFor(() => expect(onResolved).toHaveBeenCalledOnce())
+    expect(resolveBody(fetchMock)).toEqual({
+      choice: 'keep_untagged',
+      artist: 'Nines',
+      title: 'Outro',
+    })
+  })
+
+  it('includes album and year when provided', async () => {
+    const onResolved = vi.fn()
+    const fetchMock = mockBackend({})
+    render(
+      <ReviewPanel
+        reviewId="rev-1"
+        rec="none"
+        query="q"
+        candidates={[]}
+        onResolved={onResolved}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: /keep with my tags/i }))
+    fireEvent.change(screen.getByLabelText(/artist/i), { target: { value: 'Nipsey Hussle' } })
+    fireEvent.change(screen.getByLabelText(/title/i), { target: { value: 'Grinding All My Life' } })
+    fireEvent.change(screen.getByLabelText(/album/i), { target: { value: 'Victory Lap' } })
+    fireEvent.change(screen.getByLabelText(/year/i), { target: { value: '2018' } })
+    fireEvent.click(screen.getByRole('button', { name: /land with these tags/i }))
+    await waitFor(() => expect(onResolved).toHaveBeenCalledOnce())
+    expect(resolveBody(fetchMock)).toEqual({
+      choice: 'keep_untagged',
+      artist: 'Nipsey Hussle',
+      title: 'Grinding All My Life',
+      album: 'Victory Lap',
+      year: 2018,
+    })
+  })
+
+  it('refuses to submit when artist is empty', () => {
+    mockBackend({})
+    render(
+      <ReviewPanel
+        reviewId="rev-1"
+        rec="none"
+        query="q"
+        candidates={[]}
+        onResolved={() => {}}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: /keep with my tags/i }))
+    fireEvent.change(screen.getByLabelText(/artist/i), { target: { value: '' } })
+    fireEvent.change(screen.getByLabelText(/title/i), { target: { value: 'Outro' } })
+    expect(screen.getByRole('button', { name: /land with these tags/i })).toBeDisabled()
+  })
+
+  it('refuses to submit when title is empty', () => {
+    mockBackend({})
+    render(
+      <ReviewPanel
+        reviewId="rev-1"
+        rec="none"
+        query="q"
+        candidates={[]}
+        onResolved={() => {}}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: /keep with my tags/i }))
+    fireEvent.change(screen.getByLabelText(/artist/i), { target: { value: 'Nines' } })
+    fireEvent.change(screen.getByLabelText(/title/i), { target: { value: '' } })
+    expect(screen.getByRole('button', { name: /land with these tags/i })).toBeDisabled()
+  })
+
+  it('pre-fills from the re-search state, not from guess', () => {
+    mockBackend({})
+    render(
+      <ReviewPanel
+        reviewId="rev-1"
+        rec="low"
+        query="nines outro"
+        candidates={CANDIDATES}
+        guess={{ artist: 'Jon Hunt Playlists', title: 'Nines - Outro' }}
+        onResolved={() => {}}
+      />,
+    )
+    // The keep-untagged form shares the corrected-term state with the re-search form.
+    // If the owner corrected the artist first, that correction carries over.
+    fireEvent.click(screen.getByRole('button', { name: /none of these/i }))
+    fireEvent.change(screen.getByLabelText(/artist/i), { target: { value: 'Nines' } })
+    fireEvent.change(screen.getByLabelText(/title/i), { target: { value: 'Outro' } })
+    // Now switch to keep-untagged — the corrected values should carry.
+    // First go back to candidate view to access the keep button.
+    fireEvent.click(screen.getByRole('button', { name: /keep with my tags/i }))
+    expect(screen.getByLabelText(/artist/i)).toHaveValue('Nines')
+    expect(screen.getByLabelText(/title/i)).toHaveValue('Outro')
+  })
+
+  it('omits year when it is out of range', async () => {
+    const onResolved = vi.fn()
+    const fetchMock = mockBackend({})
+    render(
+      <ReviewPanel
+        reviewId="rev-1"
+        rec="none"
+        query="q"
+        candidates={[]}
+        onResolved={onResolved}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: /keep with my tags/i }))
+    fireEvent.change(screen.getByLabelText(/artist/i), { target: { value: 'Test' } })
+    fireEvent.change(screen.getByLabelText(/title/i), { target: { value: 'Song' } })
+    fireEvent.change(screen.getByLabelText(/year/i), { target: { value: '1800' } })
+    fireEvent.click(screen.getByRole('button', { name: /land with these tags/i }))
+    await waitFor(() => expect(onResolved).toHaveBeenCalledOnce())
+    const body = resolveBody(fetchMock) as Record<string, unknown>
+    expect(body.year).toBeUndefined()
+  })
+})

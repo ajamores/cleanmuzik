@@ -63,11 +63,18 @@ from app.import_seam import (
     get_library,
     import_song,
     items_for_recording,
+    resolve_asis_import,
     resolve_import,
 )
 from app.jellyfin import JellyfinScanError, trigger_scan
 from app.normalize import normalize_title
-from app.reviews import CHOICE_REJECT, CHOICE_REPLACE, ResolveRequest, guess_terms
+from app.reviews import (
+    CHOICE_KEEP_UNTAGGED,
+    CHOICE_REJECT,
+    CHOICE_REPLACE,
+    ResolveRequest,
+    guess_terms,
+)
 from app.transcode import transcode_to_mp3_320
 
 logger = logging.getLogger("cleanmuzik")
@@ -585,16 +592,30 @@ def run_resolve(
                 )
 
         try:
-            outcomes = resolve_fn(
-                staging_path,
-                store=store,
-                job_id=job_id,
-                recording_id=request.recording_id,
-                query=review.query,
-                suffix=request.suffix,
-                lib=lib,
-                settings=s,
-            )
+            if request.choice == CHOICE_KEEP_UNTAGGED:
+                outcomes = resolve_asis_import(
+                    staging_path,
+                    store=store,
+                    job_id=job_id,
+                    query=review.query,
+                    manual_title=request.manual_title,
+                    manual_artist=request.manual_artist,
+                    manual_album=request.manual_album,
+                    manual_year=request.manual_year,
+                    lib=lib,
+                    settings=s,
+                )
+            else:
+                outcomes = resolve_fn(
+                    staging_path,
+                    store=store,
+                    job_id=job_id,
+                    recording_id=request.recording_id,
+                    query=review.query,
+                    suffix=request.suffix,
+                    lib=lib,
+                    settings=s,
+                )
         except ResolveError as exc:
             raise _StageFailure(STAGE_LAND, str(exc)) from exc
         except Exception as exc:  # noqa: BLE001 — a beets apply/organize failure
