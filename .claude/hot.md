@@ -1,7 +1,7 @@
 ---
 type: meta
 title: "Hot — cleanmuzik"
-updated: 2026-07-30
+updated: 2026-08-02
 tags:
   - meta
   - hot-cache
@@ -19,26 +19,30 @@ status: evergreen
 CleanMuzik — personal YouTube → Jellyfin music tool. Purpose, stack, constraints and read-order are in
 `CLAUDE.md`; scope in `cleanmuzik-prd.md`. Not restated here.
 
-## Current State (2026-07-30)
+## Current State (2026-08-02)
 
-- **On branch `main`, working tree clean, pushed to origin.** All branches integrated.
-- **T-103 slice A is DONE** — re-search exit built, browser-verified (2026-07-30 via Playwright),
-  and merged to `main`. Suites: 421 server, 53 client.
-- **T-038 is closed** — engine notes consolidated into `learnings.md` (`65a8ea9`).
-- **T-106 is DONE** — the browser pass for T-103 doubles as T-106's last gate (park → re-search →
-  resolve → land was driven live; staging survived across sessions).
-- **Queue holds 2 fixtures**, both `pending` with audio on disk: Frank Ocean *Strawberry Swing* and
-  Nines *Outro*. Library now has **11 tracks, 10 artists** (Nines Outro + Frank Ocean Strawberry
-  Swing auto-tagged during the browser pass — both are now in AcoustID well enough to auto-tag).
+- **📍 Repo relocated to `~/github/cleanmuzik` (ext4) — THIS copy is now canonical.** The old
+  `/mnt/c/…/OneDrive/…/cleanmuzik` copy is a leftover: its WSL `9p` filesystem timed out vitest
+  workers (→ `learnings.md` 2026-08-02). Delete it once confident here. Backend data was already
+  Linux-side (`~/cleanmuzik-data`, per `.env`), so it's shared and unaffected by the move.
+- **On `main`, working tree dirty — T-102 fixes uncommitted** (10 code/doc files + this board).
+- **T-102 is BUILT + verified, not yet committed.** Four `/code-review` (high) findings, all fixed:
+  1. `App.tsx` — **the blocker:** cold-load re-park net was a single 3s timer; now a bounded `getJob`
+     poll (a re-park after 3s was invisible until a manual reload).
+  2. `TrackCard.tsx` — duplicate mislabelled "Weak match" when `review` is null → neutral copy.
+  3. `TrackCard.tsx` — dead `ReviewInfo` capture collapsed to `{ rec }`; `asCandidates`/`asGuess` gone.
+  4. `TrackCard.test.tsx` — false-passing resume test rewritten to `rerender` one instance.
+  **65/65 tests green, build + lint clean** (~9s on ext4).
+- Queue: 1 fixture parked (Nines *Outro*, `bfff84283fb1`). Library: 14 tracks (same `~/cleanmuzik-data` DB).
 
-## ⟹ NEXT: T-103 slice B, then T-102, then T-105
+## ⟹ NEXT
 
-1. **T-103 slice B** (keep-untagged) — land a file with owner-supplied tags, no MB match. Entry
-   point must change per the **ADR-020 amendment**: MusicBrainz text search almost never returns
-   zero, so the gate can't be an empty result list. The real dead-end is "many results, all wrong."
-2. **T-102** — lift the review lifecycle out of TrackCard into the inbox. Enables resolving from
-   cold load (the Review buttons in the inbox are currently disabled).
-3. **T-105** — Signal Path reskin (last). Skins the finished structure.
+1. **Commit the T-102 fixes** from here (reviewed + tests green).
+2. **Browser `/verify` finding 1** — cold-load resolve that re-parks → the row returns to the inbox on
+   its own, no reload (needs owner + running stack; restart Vite / clear `.vite` first).
+3. **Merge to `main`** → T-102 done.
+4. **T-105** — Signal Path reskin (last UI ticket). Then **§8 close-out** vs the R1.1 spec.
+5. Housekeeping: once happy here, delete the `/mnt/c` copy.
 
 ## Also open (not the live thread)
 
@@ -46,21 +50,19 @@ CleanMuzik — personal YouTube → Jellyfin music tool. Purpose, stack, constra
 
 ## Verifying
 
-- Isolate `DB_PATH` **and** patch `LIBRARY_DIRECTORY` in **both** `beets_engine` *and* `import_seam`
-  (imported by name, so patching one is not enough), or a resolve lands in the real library.
-- A yt-dlp `403` at download may be **transient** — retry once before diagnosing.
-- **Restart Vite before browser-verifying** — the `.vite` cache does not always pick up branch
-  changes. Clear `node_modules/.vite` and restart (confirmed 2026-07-30).
+- **Run everything from `~/github/cleanmuzik` (ext4), never `/mnt/c`** — 9p times out test workers.
+- Isolate `DB_PATH` **and** patch `LIBRARY_DIRECTORY` in **both** `beets_engine` *and* `import_seam`,
+  or a resolve lands in the real library.
+- Restart Vite (clear `node_modules/.vite`) before browser-verifying — cache misses branch changes.
+- A yt-dlp `403` at download may be transient — retry once before diagnosing.
 
 ## Recent sessions (rolling — last 2–3)
 
-- **2026-07-30 (this session)** — T-103 slice A browser pass driven via Playwright: re-search form,
-  swap, candidate replacement, empty state, SSE through Vite proxy — all PASS. Vite cache trap hit
-  and resolved (stale bundle served code without the re-search form). Merged to `main`, pushed.
-  Two tracks auto-tagged incidentally (Nines Outro, Frank Ocean Strawberry Swing). T-038 closed
-  earlier same day.
-- **2026-07-30 (earlier)** — T-038 engine notes evaluated and consolidated into `learnings.md`.
-  T-103 slice A committed, branch pushed.
+- **2026-08-02** — T-102 `/code-review` (high) → 4 findings, all fixed. Tests wouldn't run on `/mnt/c`
+  (9p worker timeout); relocated repo to ext4 `~/github/cleanmuzik`, suite 65/65 green. Uncommitted.
+- **2026-07-31 (b)** — T-102 implementation: ReviewInbox became the working review surface, TrackCard
+  reduced to a hand-off note, App wires resolve via `resolveEpoch`. All tests rewritten, 65/65.
+- **2026-07-31 (a)** — T-103B (keep-untagged) built, verified, merged to `main`.
 
 ## Where the rest of the context lives
 

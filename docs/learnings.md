@@ -13,6 +13,17 @@ Format: `- <date> — what went wrong → the correction / rule now in place`
 
 ---
 
+- 2026-08-02 — (T-102 fix verify) **The repo lived on a `/mnt/c/…/OneDrive` path — a WSL `9p`
+  Windows mount — and vitest's worker for the heaviest test file (`TrackCard.test.tsx`) timed out
+  deterministically at 60s ("waiting for worker to respond", 0ms test/setup/import), while the two
+  lighter files passed.** Not flaky and not the test's fault: stashing to the committed baseline
+  reproduced the identical hang, so it's the filesystem, not the code — `9p` is too slow to fork a
+  jsdom worker within the pool's handshake window under any load. Fix → **the repo now lives on the
+  Linux-native ext4 disk at `~/github/cleanmuzik`**, where the full suite runs 65/65 in ~9s (vs a
+  60s timeout on `/mnt/c`). Rule: **do frontend dev/test work from the ext4 copy, never `/mnt/c`.**
+  The `/mnt/c` copy is a leftover to delete once the ext4 one is confirmed canonical. (Same family
+  as the Vite/uvicorn "is the running process serving current code?" hazards below — here it's the
+  *disk* that's the problem, not the process.)
 - 2026-07-24 — (T-101 browser `/verify`, owner at the browser) **A long-running Vite dev server can
   serve a stale transform of a file changed by a `git merge` rather than an editor save — HMR misses
   the filesystem event, so `:5173` renders the *pre-merge* module while the new file sits correct on

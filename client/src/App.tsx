@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { createJob, listReviews, type ReviewRow } from './api'
+import { useCallback, useEffect, useState } from 'react'
+import { createJob, getJob, listReviews, type ReviewRow } from './api'
 import { TrackCard } from './components/TrackCard'
 import { ReviewInbox } from './components/ReviewInbox'
 import './App.css'
@@ -9,54 +9,73 @@ interface Job {
   url: string
 }
 
-/** The DOM id of a job's card wrapper — the scroll target when a Review row jumps to
- *  the card that hosts the panel. */
-const cardDomId = (jobId: string) => `job-card-${jobId}`
-
 function App() {
   const [url, setUrl] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [jobs, setJobs] = useState<Job[]>([])
-  // The parked review queue, rendered by the Needs-review inbox. Its single source of
-  // truth is the server (`GET /api/reviews`): fetched once on mount — which is what makes
-  // a review parked in a PREVIOUS session reachable on a cold load, independent of any
-  // live card — and re-fetched on every park/resolve signal a card sends up.
   const [reviews, setReviews] = useState<ReviewRow[]>([])
+  // T-102: when the inbox resolves a review, the corresponding TrackCard (if present)
+  // must re-subscribe to its SSE stream so it picks up the resume events (track.tagging →
+  // track.done). Each card watches its own epoch; a bump opens a fresh EventSource.
+  const [resolveEpochs, setResolveEpochs] = useState<Record<string, number>>({})
 
-  // Reconcile the whole inbox from the server. Reused for the cold-load fetch AND every
-  // live signal, so the inbox has exactly one way to build its state (no drift): the
-  // card→App seam is a plain "something changed, re-read" nudge, not a per-row patch.
-  // A refetch is cheap and robust here — single user, tiny queue — and it self-heals the
-  // re-park churn (T-029) a hand-maintained array would have to special-case. Failures
-  // are swallowed: a transient blip leaves the last good queue on screen rather than
-  // blanking it, and the next signal (or reload) refreshes it.
   const refreshInbox = useCallback(() => {
     listReviews()
       .then(setReviews)
       .catch(() => {})
   }, [])
 
-  // Cold load: populate the inbox once, before and independent of any job/card.
   useEffect(() => {
     refreshInbox()
   }, [refreshInbox])
 
-  // Which reviews can be jumped to: a review whose job has a live card this session.
-  const liveJobIds = useMemo(
-    () => new Set(jobs.map((job) => job.jobId)),
-    [jobs],
+  // T-102 cold-load re-park watch: with no live card there is no SSE to catch a resume
+  // that fails and re-parks the review, and the re-park lands only AFTER the worker's
+  // async resume (tag/art/transcode/land/scan — routinely >3s, ADR-001). So poll the
+  // job snapshot until it settles rather than guess a single delay. `getJob` is the
+  // documented "the stream can't answer this" fallback (api.ts); this is the one path
+  // with no stream at all. Stops on `review` (re-parked → resurface it) or done/error
+  // (settled, nothing to show); bounded so a stuck job can't poll forever.
+  const watchColdResolve = useCallback(
+    (jobId: string) => {
+      const DELAY_MS = 2500
+      const MAX_ATTEMPTS = 24 // ~60s ceiling
+      let attempts = 0
+      const tick = () => {
+        getJob(jobId)
+          .then((snap) => {
+            if (snap.status === 'review') {
+              refreshInbox() // the resume re-parked — bring the row back
+            } else if (snap.status !== 'done' && snap.status !== 'error') {
+              if (++attempts < MAX_ATTEMPTS) setTimeout(tick, DELAY_MS)
+            }
+          })
+          .catch(() => {
+            // A transient blip costs one attempt, no more — same posture as refreshInbox.
+            if (++attempts < MAX_ATTEMPTS) setTimeout(tick, DELAY_MS)
+          })
+      }
+      setTimeout(tick, DELAY_MS)
+    },
+    [refreshInbox],
   )
 
-  function handleReview(row: ReviewRow) {
-    // Only live rows reach here (the inbox disables the rest). Scroll to the card that
-    // hosts the ReviewPanel; the panel itself still lives in the card in R1.1 (lifting it
-    // out so a cold-loaded review resolves in place is T-102). Optional call: jsdom has no
-    // scrollIntoView, and a real browser may lack smooth behaviour.
-    document
-      .getElementById(cardDomId(row.job_id))
-      ?.scrollIntoView?.({ behavior: 'smooth', block: 'start' })
-  }
+  // T-102: the inbox owns the resolve lifecycle. On resolve, refresh the queue (the row
+  // leaves it at once — `claim_review` flips it to `resolving`, which `GET /api/reviews`
+  // excludes) and signal the card to re-subscribe. With no live card, watch the job for
+  // a later re-park the way the card's SSE stream otherwise would.
+  const handleInboxResolved = useCallback(
+    (jobId: string) => {
+      refreshInbox()
+      setResolveEpochs((prev) => ({ ...prev, [jobId]: (prev[jobId] ?? 0) + 1 }))
+      const hasLiveCard = jobs.some((j) => j.jobId === jobId)
+      if (!hasLiveCard) {
+        watchColdResolve(jobId)
+      }
+    },
+    [refreshInbox, jobs, watchColdResolve],
+  )
 
   const trimmed = url.trim()
   const canSubmit = trimmed.length > 0 && !submitting
@@ -69,12 +88,9 @@ function App() {
     setError(null)
     try {
       const { job_id } = await createJob(trimmed)
-      // Newest card first.
       setJobs((prev) => [{ jobId: job_id, url: trimmed }, ...prev])
       setUrl('')
     } catch (err) {
-      // createJob throws ApiError (a subclass of Error) for every failure path,
-      // so one Error check covers them all; the else is pure defensiveness.
       setError(err instanceof Error ? err.message : 'Something went wrong.')
     } finally {
       setSubmitting(false)
@@ -91,11 +107,6 @@ function App() {
       <form className="url-form" onSubmit={handleSubmit}>
         <input
           className="url-form__input"
-          // Deliberately NOT type="url": native HTML5 URL validation silently
-          // blocks form submission for a schemeless paste ("www.youtube.com/…"),
-          // so Go looks dead. The backend is the real gate (it hands the URL to
-          // yt-dlp and reports a stage error on a bad one). inputMode keeps the
-          // URL keyboard on mobile.
           type="text"
           inputMode="url"
           placeholder="https://www.youtube.com/watch?v=…"
@@ -121,8 +132,7 @@ function App() {
 
       <ReviewInbox
         reviews={reviews}
-        liveJobIds={liveJobIds}
-        onReview={handleReview}
+        onReviewResolved={handleInboxResolved}
       />
 
       <section className="app__jobs" aria-label="Tracks">
@@ -130,23 +140,12 @@ function App() {
           <p className="app__empty">No tracks yet.</p>
         ) : (
           jobs.map((job) => (
-            // key IS load-bearing, not just React hygiene: TrackCard's stream effect
-            // re-subscribes on a jobId change but does NOT reset the card's own state
-            // (stage, landed, error, rail high-water), so a reused instance would show
-            // the previous job's progress under a new id. Keying by jobId guarantees a
-            // fresh mount per job, which is that reset. jobId is immutable per job, so
-            // this never remounts a live card. (T-020, carried from a T-016 review.)
-            // The id is the scroll target for the inbox's Review action.
-            <div key={job.jobId} id={cardDomId(job.jobId)}>
+            <div key={job.jobId}>
               <TrackCard
                 jobId={job.jobId}
                 url={job.url}
-                // The card→App seam: the card owns the SSE stream where
-                // `track.review_required` lives (there is no app-wide EventSource), so it
-                // nudges App to re-read the queue when its stream parks a review and when
-                // one resolves. Both are the same "re-read" signal.
                 onReviewParked={refreshInbox}
-                onReviewResolved={refreshInbox}
+                resolveEpoch={resolveEpochs[job.jobId] ?? 0}
               />
             </div>
           ))

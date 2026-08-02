@@ -28,15 +28,22 @@
 }
 
 .review-inbox__row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
   border: 1px solid var(--border);
   border-radius: 10px;
   background: var(--card-bg);
   padding: 12px 16px;
   box-shadow: var(--shadow);
+}
+
+.review-inbox__row--expanded {
+  border-color: var(--accent);
+}
+
+.review-inbox__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
 }
 
 .review-inbox__body {
@@ -82,7 +89,7 @@
   transition: border-color 0.15s;
 }
 
-.review-inbox__action:hover:not(:disabled) {
+.review-inbox__action:hover {
   border-color: var(--accent);
 }
 
@@ -91,8 +98,14 @@
   outline-offset: 1px;
 }
 
-.review-inbox__action:disabled {
+.review-inbox__action--active {
   color: var(--text);
-  opacity: 0.5;
-  cursor: not-allowed;
+  border-color: var(--border);
+}
+
+/* The ReviewPanel, expanded in place below the row header (T-102). */
+.review-inbox__panel {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
 }

@@ -49,10 +49,12 @@ it **next** (2026-07-25), and T-103's re-search exit is built on top of it, so i
   the card unmounts** (reload mid-review, resolve from the inbox). Ties to §8 item 5.
 
 ### T-103 — No-candidate park exits (fix the 8b dead-end)
-- **Status:** **EXIT 1 (re-search) BUILT — not yet on `main`, and not yet browser-verified. Exit 2
-  (keep-untagged) NOT started.** Owner chose the two-slice order on 2026-07-29: land re-search first
-  (it closes T-106's gate), then build keep-untagged. Branch `t103-research`; 418 server tests + 52
-  client tests green.
+- **Status:** **DONE — both exits on `main`.** Slice A (re-search) merged `ff7338a` 2026-07-30,
+  browser-verified via Playwright. Slice B (keep-untagged) merged `3198cfe` 2026-07-31. Suites:
+  432 server, 55 client. Verified end-to-end over HTTP: Frank Ocean fixture landed via keep-untagged
+  as `Frank Ocean/Strawberry Swing.1.mp3` (artist+title only, no MBID, no art — the honest trade-off).
+  Frank Ocean fixture **consumed** (was deliberately parked since 2026-07-27; now landed twice — once
+  via re-search with full MB tags, once via keep-untagged with owner tags only).
   - **What landed in slice A.** `_validate_weak_match` relaxed per ADR-020 consequence 1 — membership in
     `candidate_ids` is no longer required, replaced by an MBID *shape* check, with listed candidates
     still accepted whatever their shape. New `app/mb_search.py` + `POST /api/reviews/{id}/search`

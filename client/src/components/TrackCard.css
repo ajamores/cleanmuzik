@@ -268,6 +268,28 @@
   padding: 2px 8px;
 }
 
+/* T-102: the card hands off to the inbox instead of hosting ReviewPanel. */
+.track-card__handoff {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+  font-size: 13px;
+  color: var(--warn);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.track-card__handoff-arrow {
+  font-weight: 700;
+}
+
+/* The card fades once the review moves to the inbox — it's theatre, not the
+   working surface. */
+.track-card[data-stage='review_required'] {
+  opacity: 0.62;
+}
+
 .track-card__error {
   margin-top: 12px;
   font-size: 13px;
