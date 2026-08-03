@@ -21,32 +21,25 @@ CleanMuzik — personal YouTube → Jellyfin music tool. Purpose, stack, constra
 
 ## Current State (2026-08-02)
 
-- **📍 Repo relocated to `~/github/cleanmuzik` (ext4) — THIS copy is now canonical.** The old
-  `/mnt/c/…/OneDrive/…/cleanmuzik` copy is a leftover: its WSL `9p` filesystem timed out vitest
-  workers (→ `learnings.md` 2026-08-02). Delete it once confident here. Backend data was already
-  Linux-side (`~/cleanmuzik-data`, per `.env`), so it's shared and unaffected by the move.
-- **On `main`, working tree dirty — T-102 fixes uncommitted** (10 code/doc files + this board).
-- **T-102 is BUILT + verified, not yet committed.** Four `/code-review` (high) findings, all fixed:
-  1. `App.tsx` — **the blocker:** cold-load re-park net was a single 3s timer; now a bounded `getJob`
-     poll (a re-park after 3s was invisible until a manual reload).
-  2. `TrackCard.tsx` — duplicate mislabelled "Weak match" when `review` is null → neutral copy.
-  3. `TrackCard.tsx` — dead `ReviewInfo` capture collapsed to `{ rec }`; `asCandidates`/`asGuess` gone.
-  4. `TrackCard.test.tsx` — false-passing resume test rewritten to `rerender` one instance.
-  **65/65 tests green, build + lint clean** (~9s on ext4).
-- Queue: 1 fixture parked (Nines *Outro*, `bfff84283fb1`). Library: 14 tracks (same `~/cleanmuzik-data` DB).
+- **📍 Repo at `~/github/cleanmuzik` (ext4).** The `/mnt/c` copy is stale — delete when ready.
+- **On `main`, working tree dirty** — two new backlog tickets (T-039, T-040) + verification screenshots uncommitted.
+- **T-102 is DONE** — committed (`58c0fea`), browser-verified by owner. Cold-load resolve, inbox
+  expand/collapse, `watchColdResolve` re-park recovery all confirmed working live.
+- Queue: 1 fixture parked (Dave East mixtape, weak match). Library: 14+ tracks (`~/cleanmuzik-data` DB).
+- **Jellyfin permissions error** surfaced during verify — "error deleting the item from the server."
+  Needs investigation next session (infrastructure, not app code).
 
 ## ⟹ NEXT
 
-1. **Commit the T-102 fixes** from here (reviewed + tests green).
-2. **Browser `/verify` finding 1** — cold-load resolve that re-parks → the row returns to the inbox on
-   its own, no reload (needs owner + running stack; restart Vite / clear `.vite` first).
-3. **Merge to `main`** → T-102 done.
-4. **T-105** — Signal Path reskin (last UI ticket). Then **§8 close-out** vs the R1.1 spec.
-5. Housekeeping: once happy here, delete the `/mnt/c` copy.
+1. **Investigate the Jellyfin permissions error** — owner saw it during T-102 verify.
+2. **Commit the backlog tickets** (T-039, T-040) and clean up verification screenshots.
+3. **T-105** — Signal Path reskin (last UI ticket). Then **§8 close-out** vs the R1.1 spec.
+4. Housekeeping: delete the `/mnt/c` copy.
 
 ## Also open (not the live thread)
 
-- `docs/backlog/` — **T-037** (tag-quality), **T-035** (Shazam tier — build ticket still unwritten).
+- `docs/backlog/` — **T-039** (inbox loading indicator), **T-040** (keep_untagged resolve fails),
+  **T-037** (tag-quality), **T-035** (Shazam tier).
 
 ## Verifying
 
@@ -58,11 +51,13 @@ CleanMuzik — personal YouTube → Jellyfin music tool. Purpose, stack, constra
 
 ## Recent sessions (rolling — last 2–3)
 
-- **2026-08-02** — T-102 `/code-review` (high) → 4 findings, all fixed. Tests wouldn't run on `/mnt/c`
-  (9p worker timeout); relocated repo to ext4 `~/github/cleanmuzik`, suite 65/65 green. Uncommitted.
+- **2026-08-02 (b)** — T-102 committed (`58c0fea`), browser-verified: cold-load inbox, expand/collapse,
+  resolve, and `watchColdResolve` re-park all confirmed by owner. Filed T-039 (loading indicator) and
+  T-040 (keep_untagged failure) to backlog. Jellyfin permissions error noted for next session.
+- **2026-08-02 (a)** — T-102 `/code-review` (high) → 4 findings, all fixed. Repo relocated to ext4
+  `~/github/cleanmuzik` (9p worker timeout). Suite 65/65 green in ~5s.
 - **2026-07-31 (b)** — T-102 implementation: ReviewInbox became the working review surface, TrackCard
   reduced to a hand-off note, App wires resolve via `resolveEpoch`. All tests rewritten, 65/65.
-- **2026-07-31 (a)** — T-103B (keep-untagged) built, verified, merged to `main`.
 
 ## Where the rest of the context lives
 

@@ -19,6 +19,8 @@ Two tiers live here:
   - [`T-035.md`](T-035.md) — Shazam as a backup fingerprint tier when AcoustID misses *(measured 4/5; **GO — ratified as ADR-019**; build ticket still to write)*
   - ~~`T-036.md`~~ — parked audio lives in `/tmp` and gets reaped *(BUG, HIGH — **graduated same day into R1.1 as T-106**; it breaks §8 item 1, which promises a review survives a restart. File removed on filing; the evidence lives in `docs/r1.1/tickets.md`.)*
   - [`T-037.md`](T-037.md) — two tag-quality defects on a real landing: the same artist split across `JAŸ‐Z/` and `Jay-Z/` folders, and no genre tag written *(observed 2026-07-28, **untriaged**; defect 1 needs an ADR since it binds every path the app writes)*
+  - [`T-039.md`](T-039.md) — inbox shows "Nothing waiting" during cold-load hydration instead of a loading state *(UX gap, untriaged)*
+  - [`T-040.md`](T-040.md) — keep_untagged resolve fails and re-parks — pipeline bug, not UI *(untriaged, needs investigation)*
 - **Unscoped ideas** — broader directions not yet worked into tickets:
 
 - Playlist support (batch of tracks from one URL)
