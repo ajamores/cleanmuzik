@@ -1,0 +1,303 @@
+<meta charset="utf-8">
+<title>T-105 — CleanMuzik Crest Logo Options</title>
+<style>
+  :root {
+    --bg: #e9ecee;
+    --surface: #f4f6f7;
+    --ink: #1a2228;
+    --muted: #5a6a74;
+    --line: #c9d2d7;
+    --accent: #0e7d9c;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0e1114;
+      --surface: #151a1e;
+      --ink: #dfe6ea;
+      --muted: #8a99a3;
+      --line: #242c32;
+      --accent: #3fb6d8;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0e1114;
+    --surface: #151a1e;
+    --ink: #dfe6ea;
+    --muted: #8a99a3;
+    --line: #242c32;
+    --accent: #3fb6d8;
+  }
+  :root[data-theme="light"] {
+    --bg: #e9ecee;
+    --surface: #f4f6f7;
+    --ink: #1a2228;
+    --muted: #5a6a74;
+    --line: #c9d2d7;
+    --accent: #0e7d9c;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 16px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  main {
+    max-width: 980px;
+    margin: 0 auto;
+    padding: 48px 24px 96px;
+  }
+  header.page {
+    border-bottom: 1px solid var(--line);
+    padding-bottom: 20px;
+    margin-bottom: 40px;
+  }
+  .eyebrow {
+    font: 600 12px/1 ui-monospace, "Cascadia Mono", Consolas, monospace;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 0 0 10px;
+  }
+  h1 {
+    font-size: 26px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    margin: 0 0 8px;
+    text-wrap: balance;
+  }
+  .lede { color: var(--muted); margin: 0; max-width: 62ch; }
+
+  section.option { margin-bottom: 56px; }
+  .option-head {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    margin-bottom: 6px;
+  }
+  h2 { font-size: 19px; font-weight: 700; margin: 0; }
+  .tag {
+    font: 600 11px/1 ui-monospace, "Cascadia Mono", Consolas, monospace;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    padding: 4px 7px;
+  }
+  .option > p { color: var(--muted); margin: 0 0 18px; max-width: 68ch; }
+
+  .grounds {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+  @media (max-width: 720px) { .grounds { grid-template-columns: 1fr; } }
+
+  .tile {
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  .tile-label {
+    display: flex;
+    justify-content: space-between;
+    font: 500 11px/1 ui-monospace, "Cascadia Mono", Consolas, monospace;
+    letter-spacing: 0.08em;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--line);
+    background: var(--surface);
+    color: var(--muted);
+  }
+  .swatch {
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    gap: 36px;
+    padding: 32px 20px;
+    min-height: 200px;
+  }
+  .swatch.dark { background: #0e1114; color: #3fb6d8; }
+  .swatch.light { background: #e9ecee; color: #0e7d9c; }
+  .spec {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+  }
+  .spec .size {
+    font: 500 10px/1 ui-monospace, "Cascadia Mono", Consolas, monospace;
+    letter-spacing: 0.08em;
+  }
+  .swatch.dark .size { color: #55636d; }
+  .swatch.light .size { color: #8b9aa3; }
+
+  .headerbar {
+    margin-top: 16px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  .bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 16px;
+  }
+  .bar.dark { background: #0e1114; color: #3fb6d8; }
+  .bar.light { background: #e9ecee; color: #0e7d9c; border-top: 1px solid var(--line); }
+  .bar .word {
+    font-weight: 700;
+    font-size: 15px;
+    letter-spacing: 0.02em;
+  }
+  .bar.dark .word { color: #dfe6ea; }
+  .bar.light .word { color: #1a2228; }
+  .bar .hint {
+    margin-left: auto;
+    font: 500 10px/1 ui-monospace, "Cascadia Mono", Consolas, monospace;
+    letter-spacing: 0.08em;
+  }
+  .bar.dark .hint { color: #55636d; }
+  .bar.light .hint { color: #8b9aa3; }
+
+  footer.notes {
+    border-top: 1px solid var(--line);
+    padding-top: 20px;
+    color: var(--muted);
+    font-size: 14px;
+  }
+  footer.notes ul { margin: 8px 0 0; padding-left: 20px; }
+  footer.notes li { margin-bottom: 4px; }
+</style>
+
+<!-- Crest symbol. Everything draws in currentColor; depth comes from
+     translucent currentColor fills (band, orb shading). -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <!-- Block glyphs — fat bars on a 10 x 14 box -->
+    <path id="sC" d="M0,0 H10 V4 H3.8 V10 H10 V14 H0 Z"/>
+    <path id="sL" d="M0,0 H3.8 V10.2 H10 V14 H0 Z"/>
+    <path id="sE" d="M0,0 H10 V3.4 H3.8 V5.7 H9.4 V8.3 H3.8 V10.6 H10 V14 H0 Z"/>
+    <path id="sA" fill-rule="evenodd" d="M0,14 V0 H10 V14 H6.4 V10.8 H3.6 V14 Z M3.6,3.6 H6.4 V7.2 H3.6 Z"/>
+    <path id="sN" d="M0,14 V0 H3.5 L6.5,7.8 V0 H10 V14 H6.5 L3.5,6.2 V14 Z"/>
+    <path id="sM" d="M0,14 V0 H3.4 L5,4.6 L6.6,0 H10 V14 H6.8 V6.8 L5,10.8 L3.2,6.8 V14 Z"/>
+    <path id="sU" d="M0,0 H3.8 V10.2 H6.2 V0 H10 V14 H0 Z"/>
+    <path id="sZ" d="M0,0 H10 V3.8 L5.2,10.2 H10 V14 H0 V10.2 L4.8,3.8 H0 Z"/>
+    <path id="sI" d="M0,0 H10 V3.6 H6.9 V10.4 H10 V14 H0 V10.4 H3.1 V3.6 H0 Z"/>
+    <path id="sK" d="M0,0 H3.6 V4.8 L6.9,0 H10 L5.9,7 L10,14 H6.7 L3.6,8.9 V14 H0 Z"/>
+
+    <!-- Rev C: wide badge, wing-tip corners, curly-brace bottom, 3D crown -->
+    <symbol id="crest-c" viewBox="30 0 200 144">
+
+      <!-- badge outline: outer, split at the top where the crown band overlaps.
+           Walls run near-vertical beside the wordmark; bottom curls are shallow. -->
+      <g fill="none" stroke="currentColor" stroke-width="4"
+         stroke-linejoin="round" stroke-linecap="round">
+        <path d="M84,50 H32 L56,58 L58,98 L66,128 C72,134 82,137 98,136.5 C110,136 118,135 123,134 Q127,137 130,138"/>
+        <path d="M176,50 H228 L204,58 L202,98 L194,128 C188,134 178,137 162,136.5 C150,136 142,135 137,134 Q133,137 130,138"/>
+      </g>
+      <!-- inner echo line: uniform 6-unit offset of the outer, split under the band -->
+      <g fill="none" stroke="currentColor" stroke-width="2.2"
+         stroke-linejoin="round" stroke-linecap="round">
+        <path d="M88,56 H62 L64,97.7 L71.8,126.4 C77,129.5 86,131.3 99,130.6 C109.5,130.1 117,129.1 122,128.1 Q126.6,131.1 130,132.1"/>
+        <path d="M172,56 H198 L196,97.7 L188.2,126.4 C183,129.5 174,131.3 161,130.6 C150.5,130.1 143,129.1 138,128.1 Q133.4,131.1 130,132.1"/>
+      </g>
+
+      <!-- crown band: darker translucent fill = 3D depth, bowed in perspective -->
+      <path d="M86,40 Q130,46 174,40 L174,52 Q130,60 86,52 Z"
+            fill="currentColor" fill-opacity="0.35"
+            stroke="currentColor" stroke-width="3.5" stroke-linejoin="round"/>
+      <!-- five points rising off the bowed band top -->
+      <path d="M86,40 L90,26 L98,41 L110,21 L118,43 L130,18 L142,43 L150,21 L158,41 L170,26 L174,40"
+            fill="none" stroke="currentColor" stroke-width="3.5"
+            stroke-linejoin="round" stroke-linecap="round"/>
+
+      <!-- orbs, with darker lower-half shading for volume -->
+      <g fill="none" stroke="currentColor" stroke-width="3">
+        <circle cx="90" cy="19.5" r="4.2"/>
+        <circle cx="110" cy="14.5" r="4.2"/>
+        <circle cx="130" cy="11" r="4.6"/>
+        <circle cx="150" cy="14.5" r="4.2"/>
+        <circle cx="170" cy="19.5" r="4.2"/>
+      </g>
+      <g fill="currentColor" fill-opacity="0.35" stroke="none">
+        <path d="M86.4,20.5 A3.6,3.6 0 0 0 93.6,20.5 Z"/>
+        <path d="M106.4,15.5 A3.6,3.6 0 0 0 113.6,15.5 Z"/>
+        <path d="M126.1,12 A3.9,3.9 0 0 0 133.9,12 Z"/>
+        <path d="M146.4,15.5 A3.6,3.6 0 0 0 153.6,15.5 Z"/>
+        <path d="M166.4,20.5 A3.6,3.6 0 0 0 173.6,20.5 Z"/>
+      </g>
+
+      <!-- wordmark: CLEAN big, divider, MUZIK — packed against the edges -->
+      <g fill="currentColor" stroke="currentColor" stroke-width="0.8" stroke-linejoin="round">
+        <g transform="translate(66.27,60) scale(2.26)">
+          <use href="#sC"/><use href="#sL" x="11.6"/><use href="#sE" x="23.2"/><use href="#sA" x="34.8"/><use href="#sN" x="46.4"/>
+        </g>
+        <g transform="translate(78.7,99) scale(1.82)">
+          <use href="#sM"/><use href="#sU" x="11.6"/><use href="#sZ" x="23.2"/><use href="#sI" x="34.8"/><use href="#sK" x="46.4"/>
+        </g>
+      </g>
+      <path d="M68,95.4 H192" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
+    </symbol>
+  </defs>
+</svg>
+
+<main>
+  <header class="page">
+    <p class="eyebrow">T-105 · Design gate · Rev C</p>
+    <h1>CleanMuzik crest — Rev C</h1>
+    <p class="lede">Recut to the reference proportions: wide landscape badge with outward
+    wing-tip corners, sides angling in, a curly-brace bottom meeting at a centre nub, and a
+    3D crown seated over the top edge — depth from darker translucent fills, not just strokes.
+    Soundwave dropped; the crest and the words carry it. Drawn paths, no fonts, all
+    <code>currentColor</code>.</p>
+  </header>
+
+  <section class="option">
+    <div class="option-head"><h2>The mark</h2><span class="tag">rev c</span></div>
+    <p>CLEAN sets larger than MUZIK, both packed tight to the inner line with a divider
+    between — the OutKast stacking. The crown band and orb undersides carry a 35%
+    <code>currentColor</code> fill: darker than the strokes on the dark ground, so the band
+    reads as a solid object and the orbs as spheres.</p>
+    <div class="grounds">
+      <div class="tile">
+        <div class="tile-label"><span>dark · #0e1114</span><span>#3fb6d8</span></div>
+        <div class="swatch dark">
+          <div class="spec"><svg width="200" height="144"><use href="#crest-c"/></svg><span class="size">200px</span></div>
+          <div class="spec"><svg width="100" height="72"><use href="#crest-c"/></svg><span class="size">100px</span></div>
+          <div class="spec"><svg width="48" height="35"><use href="#crest-c"/></svg><span class="size">48px</span></div>
+        </div>
+      </div>
+      <div class="tile">
+        <div class="tile-label"><span>light · #e9ecee</span><span>#0e7d9c</span></div>
+        <div class="swatch light">
+          <div class="spec"><svg width="200" height="144"><use href="#crest-c"/></svg><span class="size">200px</span></div>
+          <div class="spec"><svg width="100" height="72"><use href="#crest-c"/></svg><span class="size">100px</span></div>
+          <div class="spec"><svg width="48" height="35"><use href="#crest-c"/></svg><span class="size">48px</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="headerbar">
+      <div class="bar dark">
+        <svg width="44" height="32"><use href="#crest-c"/></svg>
+        <span class="word">CleanMuzik</span>
+        <span class="hint">app header, dark</span>
+      </div>
+      <div class="bar light">
+        <svg width="44" height="32"><use href="#crest-c"/></svg>
+        <span class="word">CleanMuzik</span>
+        <span class="hint">app header, light</span>
+      </div>
+    </div>
+  </section>
+
+  <footer class="notes">
+    <strong>Technical notes</strong>
+    <ul>
+      <li>Pure SVG, landscape viewBox <code>30 0 200 144</code>; letters are drawn paths (10×14 glyph grid, stroked + filled), no <code>&lt;text&gt;</code>, no fonts.</li>
+      <li>All geometry in <code>currentColor</code> — set <code>color: #3fb6d8</code> (dark) or <code>#0e7d9c</code> (light) on the container. Depth fills use <code>fill-opacity="0.35"</code> on <code>currentColor</code> so they track both themes without a second colour token.</li>
+      <li>The outer and inner outlines are split where the crown band overlaps the top edge, so the crown genuinely sits <em>on</em> the badge rather than in front of a line running through it.</li>
+    </ul>
+  </footer>
+</main>

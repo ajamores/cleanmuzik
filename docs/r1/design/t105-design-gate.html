@@ -1,0 +1,551 @@
+<meta charset="utf-8">
+<title>T-105 — Signal Path Reskin: Design Gate Screens</title>
+<style>
+  /* ===== document chrome (matches signal-path-tweaked.html) ===== */
+  :root{ --doc-bg:#0e1114; --doc-panel:#161b20; --doc-ink:#eef2f4; --doc-muted:#8b97a1; --doc-line:#242c33; --doc-accent:#3fb6d8;
+         --sans:system-ui,'Segoe UI',Roboto,sans-serif; --mono:ui-monospace,'Cascadia Mono',Consolas,monospace; }
+  @media (prefers-color-scheme: light){ :root{ --doc-bg:#e9ecee; --doc-panel:#f6f8f9; --doc-ink:#1b2228; --doc-muted:#5b6870; --doc-line:#c9d1d6; --doc-accent:#0e7d9c; } }
+  :root[data-theme='light']{ --doc-bg:#e9ecee; --doc-panel:#f6f8f9; --doc-ink:#1b2228; --doc-muted:#5b6870; --doc-line:#c9d1d6; --doc-accent:#0e7d9c; }
+  :root[data-theme='dark']{ --doc-bg:#0e1114; --doc-panel:#161b20; --doc-ink:#eef2f4; --doc-muted:#8b97a1; --doc-line:#242c33; --doc-accent:#3fb6d8; }
+
+  *{ box-sizing:border-box; }
+  body{ margin:0; background:var(--doc-bg); color:var(--doc-ink); font:16px/1.5 var(--sans); -webkit-font-smoothing:antialiased; }
+  .wrap{ max-width:1080px; margin:0 auto; padding:52px 24px 92px; }
+  .eyebrow{ font:600 12px/1 var(--mono); letter-spacing:.12em; text-transform:uppercase; color:var(--doc-accent); margin:0 0 14px; }
+  h1{ font-size:clamp(28px,5vw,42px); font-weight:700; letter-spacing:-.02em; line-height:1.06; margin:0 0 14px; text-wrap:balance; }
+  .lede{ max-width:64ch; font-size:16px; color:var(--doc-muted); margin:0 0 6px; }
+  .lede b{ color:var(--doc-ink); }
+
+  .caprow{ display:flex; align-items:baseline; gap:12px; margin:48px 0 14px; }
+  .capnum{ font:700 13px/1 var(--mono); color:#0a1418; background:var(--doc-accent); border-radius:6px; padding:6px 8px; }
+  .captxt{ font-size:17px; color:var(--doc-ink); font-weight:650; }
+  .captxt small{ display:block; font-weight:400; font-size:13px; color:var(--doc-muted); margin-top:2px; }
+  .livepill{ font:600 10px/1 var(--mono); letter-spacing:.06em; text-transform:uppercase; color:#0a1418; background:var(--doc-accent); padding:5px 8px; border-radius:999px; align-self:center; white-space:nowrap; }
+
+  .frame{ border:1px solid var(--doc-line); border-radius:14px; overflow:hidden; box-shadow:rgba(0,0,0,.35) 0 14px 40px -16px; }
+  .fbar{ display:flex; align-items:center; gap:7px; padding:11px 14px; background:#11161a; border-bottom:1px solid #242c33; }
+  .fbar i{ width:11px; height:11px; border-radius:50%; background:#242c33; }
+  .fbar .u{ margin-left:10px; font:12px/1 var(--mono); color:#6d7a83; }
+  .frame--light .fbar{ background:#dde2e5; border-bottom-color:#c9d1d6; }
+  .frame--light .fbar i{ background:#c2cace; }
+  .frame--light .fbar .u{ color:#5b6870; }
+
+  .foot{ margin-top:56px; padding:16px 18px; background:var(--doc-panel); border:1px solid var(--doc-line); border-left:3px solid var(--doc-accent); border-radius:10px; font-size:14px; color:var(--doc-muted); max-width:76ch; }
+  .foot b{ color:var(--doc-ink); }
+
+  /* ===== SIGNAL PATH SCREEN WORLD (tokens verbatim from the approved reference) ===== */
+  .scr{
+    --card:#1a2026; --field:#141a1f; --line:#2a323a; --tx:#e6ebee; --tx2:#8b97a1;
+    --ac:#3fb6d8; --ac-fg:#0a1418; --ac-tint:rgba(63,182,216,.14);
+    --warn:#e0a33d; --warn-tint:rgba(224,163,61,.14); --ok:#46b878; --ok-tint:rgba(70,184,120,.14);
+    --err:#e06060; --err-tint:rgba(224,96,96,.14);
+    --glow:63,182,216;
+    --fnt:system-ui,'Segoe UI',Roboto,sans-serif; --mn:ui-monospace,'Cascadia Mono',Consolas,monospace;
+    background:#12161a; color:var(--tx2); font-family:var(--fnt); font-size:16px; line-height:1.5;
+    padding:30px 32px 40px; position:relative; overflow:hidden;
+  }
+  /* light-theme variant of the same world */
+  .scr--light{
+    --card:#f6f8f9; --field:#ffffff; --line:#c9d1d6; --tx:#1b2228; --tx2:#5b6870;
+    --ac:#0e7d9c; --ac-fg:#f4fafc; --ac-tint:rgba(14,125,156,.12);
+    --warn:#a3690a; --warn-tint:rgba(163,105,10,.12); --ok:#1e7d4c; --ok-tint:rgba(30,125,76,.12);
+    --err:#b03434; --err-tint:rgba(176,52,52,.10);
+    --glow:14,125,156;
+    background:#e9ecee;
+  }
+  .scr > *{ position:relative; z-index:1; }
+
+  /* ---- ambient: ONE slow signal line drifting behind everything. No spectrum bars. ---- */
+  .ambient{ position:absolute; inset:0; z-index:0; pointer-events:none; opacity:.5; }
+  .ambient svg{ position:absolute; width:200%; height:100%; left:0; top:0; }
+  .ambient .w1{ animation:drift 26s linear infinite; }
+  .ambient .w2{ animation:drift 38s linear infinite; opacity:.6; }
+  @keyframes drift{ from{ transform:translateX(0);} to{ transform:translateX(-50%);} }
+  .scr--still .w1, .scr--still .w2, .scr--still .seg.now{ animation:none; }
+
+  /* ---- wordmark A: soundwave seal + Clean(600 sans) + Muzik(italic script) ---- */
+  .wm-line{ display:flex; align-items:center; gap:12px; margin:0 0 5px; }
+  .clean{ font:600 27px var(--fnt); color:var(--tx); letter-spacing:-.5px; }
+  .muzik{ font:italic 400 36px 'Snell Roundhand','Apple Chancery','URW Chancery L','Segoe Script',cursive; color:#7fd6ee; }
+  .scr--light .muzik{ color:#0e7d9c; }
+  .sub{ font-size:13.5px; color:var(--tx2); margin:0 0 22px; }
+
+  /* ---- paste bar ---- */
+  .paste{ display:flex; gap:10px; margin-bottom:28px; }
+  .paste .in{ flex:1; min-width:0; font:14px var(--fnt); color:var(--tx2); background:var(--field); border:1px solid var(--line); border-radius:4px; padding:12px 14px; opacity:.85; }
+  .paste .in.filled{ color:var(--tx); opacity:1; }
+  .go{ font-weight:700; font-size:14px; color:var(--ac-fg); background:var(--ac); border:0; border-radius:4px; padding:12px 24px; }
+
+  /* ---- section labels ---- */
+  .seclabel{ display:flex; align-items:baseline; gap:10px; margin:26px 0 12px; }
+  .seclabel h3{ font-size:12px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--tx); margin:0; }
+  .count{ font:600 11px var(--mn); color:var(--warn); border:1px solid var(--warn); border-radius:999px; padding:1px 8px; }
+  .quiet{ font-size:13.5px; color:var(--tx2); opacity:.75; margin:0; }
+
+  /* ---- track card + segmented meter rail ---- */
+  .card{ background:var(--card); border:1px solid var(--line); border-radius:4px; padding:16px 18px; box-shadow:inset 0 1px 0 rgba(255,255,255,.05); }
+  .scr--light .card{ box-shadow:inset 0 1px 0 rgba(255,255,255,.6); }
+  .card + .card{ margin-top:10px; }
+  .chead{ display:flex; align-items:center; gap:10px; margin-bottom:9px; }
+  .badge{ font:600 11px var(--mn); letter-spacing:.05em; text-transform:uppercase; padding:3px 8px; border-radius:2px; color:var(--ac); background:var(--ac-tint); white-space:nowrap; }
+  .badge.warn{ color:var(--warn); background:var(--warn-tint); }
+  .badge.ok{ color:var(--ok); background:var(--ok-tint); }
+  .badge.err{ color:var(--err); background:var(--err-tint); }
+  .spacer{ flex:1; }
+  .cid{ font:11px var(--mn); color:var(--tx2); opacity:.8; }
+  .curl{ font-size:13px; color:var(--tx); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+
+  .meter{ display:flex; gap:4px; margin-top:14px; }
+  .meter .seg{ flex:1; height:6px; border-radius:2px; background:var(--line); }
+  .meter .seg.on{ background:var(--ac); }
+  .meter .seg.now{ background:var(--ac); animation:pulse 1.6s ease-in-out infinite; }
+  .meter .seg.hold{ background:var(--warn); }
+  .meter .seg.fail{ background:var(--err); }
+  .mlabels{ display:flex; margin-top:7px; }
+  .mlabels span{ flex:1; font:10px var(--mn); letter-spacing:.04em; text-transform:uppercase; color:var(--tx2); }
+  .mlabels span.dim{ opacity:.4; }
+  .mlabels span.bad{ color:var(--err); opacity:1; }
+  .mlabels span.hold{ color:var(--warn); opacity:1; }
+  @keyframes pulse{ 0%,100%{opacity:1} 50%{opacity:.5} }
+
+  .cnote{ margin-top:12px; padding-top:12px; border-top:1px solid var(--line); font-size:13px; }
+  .cnote.warn{ color:var(--warn); }
+  .cnote.err{ color:var(--err); }
+  .cnote b{ font-weight:700; }
+  .arrow{ font-weight:700; margin-right:6px; }
+
+  /* landed detail on the done card: cover + match + path + chips */
+  .donebody{ display:flex; gap:13px; align-items:center; margin-top:12px; padding-top:12px; border-top:1px solid var(--line); }
+  .cover{ width:46px; height:46px; border-radius:3px; flex:none; box-shadow:0 1px 4px rgba(0,0,0,.4); overflow:hidden; }
+  .cover--lg{ width:52px; height:52px; }
+  .cover svg{ display:block; width:100%; height:100%; }
+  .dtext{ min-width:0; flex:1; }
+  .dtitle{ font-size:15px; font-weight:650; color:var(--tx); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .dmeta{ font-size:13px; color:var(--tx2); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .dpath{ margin-top:8px; font:11px var(--mn); color:var(--tx2); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; direction:rtl; text-align:left; }
+  .chips{ display:flex; flex-wrap:wrap; gap:6px; margin:10px 0 0; padding:0; list-style:none; }
+  .chips li{ font:600 10px var(--mn); letter-spacing:.05em; text-transform:uppercase; color:var(--tx2); border:1px solid var(--line); border-radius:999px; padding:3px 9px; }
+
+  /* ---- review inbox rows ---- */
+  .inbox{ display:flex; flex-direction:column; gap:10px; }
+  .row{ background:var(--card); border:1px solid var(--line); border-left:3px solid var(--line); border-radius:4px; padding:12px 15px; display:flex; align-items:center; gap:13px; }
+  .row.warn{ border-left-color:var(--warn); }
+  .row.acc{ border-left-color:var(--ac); }
+  .disc{ width:38px; height:38px; border-radius:50%; flex:none; background:radial-gradient(circle at 50% 50%, #2a323a 0 22%, var(--line) 23% 34%, #222a30 35%); position:relative; }
+  .scr--light .disc{ background:radial-gradient(circle at 50% 50%, #c9d1d6 0 22%, #b6c0c6 23% 34%, #d4dade 35%); }
+  .disc::after{ content:''; position:absolute; inset:44%; border-radius:50%; background:var(--ac); opacity:.6; }
+  .rtext{ min-width:0; flex:1; }
+  .rtitle{ font-size:15px; font-weight:650; color:var(--tx); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .rmeta{ font:12px var(--mn); color:var(--tx2); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .rbtn{ font-weight:700; font-size:13px; color:var(--ac-fg); background:var(--ac); border:0; border-radius:3px; padding:8px 15px; flex:none; }
+  .rbtn.open{ color:var(--tx2); background:transparent; border:1px solid var(--line); font-weight:600; }
+
+  /* expanded row (panel inside) */
+  .rowx{ background:var(--card); border:1px solid var(--line); border-left:3px solid var(--warn); border-radius:4px; padding:12px 15px; }
+  .rowx.acc{ border-left-color:var(--ac); }
+  .rowx .rhead{ display:flex; align-items:center; gap:13px; }
+
+  /* ---- review panel (Signal Path translation of ReviewPanel) ---- */
+  .pnl{ margin-top:13px; padding-top:13px; border-top:1px solid var(--line); }
+  .q{ font-size:13px; color:var(--tx2); margin:0 0 12px; }
+  .q b{ color:var(--tx); font-weight:650; }
+  .cands{ list-style:none; margin:0 0 13px; padding:0; display:flex; flex-direction:column; gap:8px; }
+  .cand{ border:1px solid var(--line); border-radius:4px; background:var(--field); display:flex; align-items:center; gap:12px; padding:10px 12px; }
+  .cand.sel{ border-color:var(--ac); background:var(--ac-tint); }
+  .radio{ width:14px; height:14px; flex:none; border-radius:50%; border:1.5px solid var(--tx2); }
+  .cand.sel .radio{ border-color:var(--ac); background:var(--ac); box-shadow:inset 0 0 0 3px var(--card); }
+  .ct{ flex:1; min-width:0; display:flex; flex-direction:column; }
+  .ct .t{ font-size:14px; font-weight:650; color:var(--tx); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .ct .a{ font-size:12.5px; color:var(--tx2); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .score{ width:72px; flex:none; }
+  .score i{ display:block; height:6px; border-radius:2px; background:var(--line); overflow:hidden; }
+  .score b{ display:block; height:100%; background:var(--warn); }
+
+  .actions{ display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:2px; }
+  .btn{ font:600 13px var(--fnt); padding:8px 15px; border-radius:3px; border:1px solid var(--line); background:var(--card); color:var(--tx); }
+  .btn.pri{ background:var(--ac); border-color:var(--ac); color:var(--ac-fg); font-weight:700; }
+  .btn.ghost{ background:transparent; color:var(--tx); }
+  .btn.manual{ background:transparent; color:var(--warn); border-color:var(--warn); margin-left:auto; }
+  .none{ margin:0 0 13px; }
+  .none .btn{ font-size:12.5px; color:var(--tx2); }
+
+  /* duplicate compare */
+  .dup{ display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:13px; }
+  @media (max-width:560px){ .dup{ grid-template-columns:1fr; } }
+  .side{ border:1px solid var(--line); border-radius:4px; background:var(--field); padding:11px 13px; }
+  .side h5{ font:600 10px var(--mn); letter-spacing:.06em; text-transform:uppercase; color:var(--tx2); margin:0 0 9px; }
+  .own{ display:flex; gap:11px; align-items:center; }
+  .kbps{ font:11px var(--mn); color:var(--ac); margin-top:2px; }
+  .keepboth{ display:flex; align-items:flex-end; gap:8px; flex-wrap:wrap; margin-top:12px; padding-top:12px; border-top:1px solid var(--line); }
+  .fld{ display:flex; flex-direction:column; gap:4px; font-size:12px; color:var(--tx2); flex:1; min-width:160px; }
+  .fld .in{ font:13px var(--fnt); color:var(--tx); background:var(--card); border:1px solid var(--line); border-radius:3px; padding:7px 10px; }
+
+  /* landed banner */
+  .landed{ display:flex; align-items:center; gap:13px; border:1px solid var(--ok); background:var(--ok-tint); border-radius:4px; padding:12px 15px; }
+  .landed .msg{ font-size:14px; color:var(--tx); }
+  .landed .where{ font:11px var(--mn); color:var(--tx2); }
+
+  /* reduced-motion annotation */
+  .frozen-tag{ display:inline-flex; align-items:center; gap:7px; font:600 10px var(--mn); letter-spacing:.08em; text-transform:uppercase; color:var(--tx2); border:1px dashed var(--line); border-radius:3px; padding:5px 9px; margin-bottom:16px; }
+  .frozen-tag i{ width:8px; height:8px; background:var(--tx2); flex:none; }
+
+  /* ---- hover: the signal follows the pointer ----
+     Cards, rows and the expanded panel carry a cursor-tracked radial cyan glow — the
+     ambient line's light, pooling under the hand. Buttons answer with a soft accent
+     glow. Both die under prefers-reduced-motion. */
+  .card, .row, .rowx{ transition:border-color .18s ease, box-shadow .18s ease; position:relative; }
+  .card::after, .row::after, .rowx::after{
+    content:''; position:absolute; inset:0; border-radius:inherit; pointer-events:none;
+    background:radial-gradient(230px circle at var(--mx,50%) var(--my,40%), rgba(var(--glow),.11), transparent 65%);
+    opacity:0; transition:opacity .3s ease;
+  }
+  .card:hover::after, .row:hover::after, .rowx:hover::after{ opacity:1; }
+  .card:hover, .row:hover, .rowx:hover{
+    border-color:rgba(var(--glow),.5);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.05), 0 0 0 1px rgba(var(--glow),.12), 0 6px 20px -8px rgba(var(--glow),.25);
+  }
+  .row.warn:hover, .rowx:not(.acc):hover{ border-left-color:var(--warn); }
+  .row.acc:hover, .rowx.acc:hover{ border-left-color:var(--ac); }
+  .go, .rbtn, .btn{ transition:box-shadow .18s ease, border-color .18s ease, filter .18s ease; cursor:pointer; }
+  .go:hover, .rbtn:not(.open):hover, .btn.pri:hover{ box-shadow:0 0 14px rgba(var(--glow),.45); filter:brightness(1.07); }
+  .btn:hover, .btn.ghost:hover, .rbtn.open:hover{ border-color:rgba(var(--glow),.6); box-shadow:0 0 10px rgba(var(--glow),.22); }
+  .btn.manual:hover{ border-color:var(--warn); box-shadow:0 0 10px rgba(224,163,61,.3); }
+  .cand{ transition:border-color .18s ease; }
+  .cand:hover{ border-color:rgba(var(--glow),.5); }
+
+  @media (prefers-reduced-motion: reduce){
+    .ambient .w1, .ambient .w2{ animation:none; }
+    .meter .seg.now{ animation:none; }
+    /* Hover motion off: no pooled glow, no transitions. Border-colour changes stay —
+       they're state feedback, not motion. */
+    .card::after, .row::after, .rowx::after{ display:none; }
+    .card, .row, .rowx, .go, .rbtn, .btn, .cand{ transition:none; box-shadow:none; }
+    .go:hover, .rbtn:hover, .btn:hover{ box-shadow:none; filter:none; }
+  }
+</style>
+
+<div class="wrap">
+  <p class="eyebrow">CleanMuzik · T-105 — Signal Path reskin · design gate</p>
+  <h1>The approved skin, applied to every state the app actually has</h1>
+  <p class="lede">The reference showed the skin on one happy screen. These are the <b>nine states the real app renders</b> —
+    empty, working, inbox, landed, both review panels open, failure, light theme, and reduced motion — each restyled in
+    Signal Path. Flat HTML, no live app. The rules held throughout: <b>one ambient line, no spectrum bars</b>; segmented
+    meter rail instead of the dot rail; <b>cover art only on landed tracks and the owned side of a duplicate</b> —
+    review candidates stay text + score (ADR-010). One addition by request: <b>hover any card, row, or button</b> —
+    a cursor-tracked signal glow pools under the pointer, and buttons answer with a soft cyan halo. It's live on
+    these screens, and off under reduced motion.</p>
+
+  <!-- ============ 1 · EMPTY ============ -->
+  <div class="caprow"><span class="capnum">1</span><span class="captxt">Home — empty<small>Wordmark A (seal + script), the paste bar with a URL just pasted, and the ambient line drifting behind. Nothing queued, nothing parked.</small></span><span class="livepill">Live motion</span></div>
+  <div class="frame">
+    <div class="fbar"><i></i><i></i><i></i><span class="u">localhost:5173</span></div>
+    <div class="scr">
+      <div class="ambient" aria-hidden="true">
+        <svg class="w1" viewBox="0 0 2000 200" preserveAspectRatio="none" fill="none" stroke="#3fb6d8" stroke-width="1.4"><path d="M0 100 q50 -34 100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0"/></svg>
+        <svg class="w2" viewBox="0 0 2000 200" preserveAspectRatio="none" fill="none" stroke="#7fd6ee" stroke-width="1"><path d="M0 130 q75 24 150 0 t150 0 t150 0 t150 0 t150 0 t150 0 t150 0 t150 0 t150 0 t150 0 t150 0 t150 0 t150 0"/></svg>
+      </div>
+      <div class="wm-line">
+        <svg width="40" height="40" viewBox="0 0 64 64" fill="none" stroke="#3fb6d8" stroke-width="1.7"><circle cx="32" cy="32" r="29"/><circle cx="32" cy="32" r="23" opacity=".5"/><path d="M12 32 q5 -11 10 0 t10 0 t10 0 t10 0" stroke="#7fd6ee" stroke-width="2.2" stroke-linecap="round"/></svg>
+        <span><span class="clean">Clean</span><span class="muzik">Muzik</span></span>
+      </div>
+      <p class="sub">Paste one YouTube song URL and it lands, tagged, in your library.</p>
+      <div class="paste"><span class="in filled">https://www.youtube.com/watch?v=djV11Xbc914</span><span class="go">Go</span></div>
+      <div class="seclabel"><h3>Needs review</h3></div>
+      <p class="quiet">Nothing waiting for review.</p>
+      <div class="seclabel"><h3>Tracks</h3></div>
+      <p class="quiet">No tracks yet.</p>
+    </div>
+  </div>
+
+  <!-- ============ 2 · ACTIVE JOB ============ -->
+  <div class="caprow"><span class="capnum">2</span><span class="captxt">Home — active job<small>One track at Identify. The dot-and-connector rail is gone; the segmented meter rail carries the stage — done segs solid, the current seg pulsing, the rest unlit.</small></span><span class="livepill">Live motion</span></div>
+  <div class="frame">
+    <div class="fbar"><i></i><i></i><i></i><span class="u">localhost:5173</span></div>
+    <div class="scr">
+      <div class="ambient" aria-hidden="true">
+        <svg class="w1" viewBox="0 0 2000 200" preserveAspectRatio="none" fill="none" stroke="#3fb6d8" stroke-width="1.4"><path d="M0 100 q50 -34 100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0"/></svg>
+        <svg class="w2" viewBox="0 0 2000 200" preserveAspectRatio="none" fill="none" stroke="#7fd6ee" stroke-width="1"><path d="M0 130 q75 24 150 0 t150 0 t150 0 t150 0 t150 0 t150 0 t150 0 t150 0 t150 0 t150 0 t150 0 t150 0 t150 0"/></svg>
+      </div>
+      <div class="wm-line">
+        <svg width="40" height="40" viewBox="0 0 64 64" fill="none" stroke="#3fb6d8" stroke-width="1.7"><circle cx="32" cy="32" r="29"/><circle cx="32" cy="32" r="23" opacity=".5"/><path d="M12 32 q5 -11 10 0 t10 0 t10 0 t10 0" stroke="#7fd6ee" stroke-width="2.2" stroke-linecap="round"/></svg>
+        <span><span class="clean">Clean</span><span class="muzik">Muzik</span></span>
+      </div>
+      <p class="sub">Paste one YouTube song URL and it lands, tagged, in your library.</p>
+      <div class="paste"><span class="in">https://www.youtube.com/watch?v=…</span><span class="go">Go</span></div>
+
+      <div class="seclabel"><h3>Tracks</h3></div>
+      <div class="card">
+        <div class="chead"><span class="badge">Identifying</span><span class="spacer"></span><span class="cid">a13f·9c02</span></div>
+        <div class="curl">https://www.youtube.com/watch?v=djV11Xbc914</div>
+        <div class="meter"><span class="seg on"></span><span class="seg on"></span><span class="seg now"></span><span class="seg"></span><span class="seg"></span></div>
+        <div class="mlabels"><span>Download</span><span>Transcode</span><span>Identify</span><span class="dim">Tag</span><span class="dim">Land</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ 3 · INBOX WITH ITEMS ============ -->
+  <div class="caprow"><span class="capnum">3</span><span class="captxt">Home — review inbox with items<small>A weak match (amber edge) and a duplicate (cyan edge) parked; below, a third track whose review was just resolved, resuming at Tag. The parked card behind a row fades and hands off — the inbox owns the review.</small></span></div>
+  <div class="frame">
+    <div class="fbar"><i></i><i></i><i></i><span class="u">localhost:5173</span></div>
+    <div class="scr scr--still">
+      <div class="ambient" aria-hidden="true">
+        <svg class="w1" viewBox="0 0 2000 200" preserveAspectRatio="none" fill="none" stroke="#3fb6d8" stroke-width="1.4"><path d="M0 100 q50 -34 100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0"/></svg>
+      </div>
+      <div class="seclabel" style="margin-top:0"><h3>Needs review</h3><span class="count">2</span></div>
+      <div class="inbox">
+        <div class="row warn">
+          <span class="disc"></span>
+          <div class="rtext"><div class="rtitle">Take On Me</div><div class="rmeta">a-ha Take On Me official video</div></div>
+          <span class="badge warn">Weak match</span><span class="rbtn">Review</span>
+        </div>
+        <div class="row acc">
+          <span class="disc"></span>
+          <div class="rtext"><div class="rtitle">Blue Monday</div><div class="rmeta">New Order · already in your library</div></div>
+          <span class="badge">Duplicate</span><span class="rbtn">Review</span>
+        </div>
+      </div>
+
+      <div class="seclabel"><h3>Tracks</h3></div>
+      <div class="card">
+        <div class="chead"><span class="badge">Tagging</span><span class="spacer"></span><span class="cid">c8d1·44e7</span></div>
+        <div class="curl">https://www.youtube.com/watch?v=pIgZ7gMze7A</div>
+        <div class="meter"><span class="seg on"></span><span class="seg on"></span><span class="seg on"></span><span class="seg now"></span><span class="seg"></span></div>
+        <div class="mlabels"><span>Download</span><span>Transcode</span><span>Identify</span><span>Tag</span><span class="dim">Land</span></div>
+        <div class="donebody" style="border-top:0; padding-top:0; margin-top:12px">
+          <div class="dtext"><div class="dtitle">Midnight City</div><div class="dmeta">M83 · Hurry Up, We're Dreaming · 2011</div></div>
+        </div>
+      </div>
+      <div class="card" style="opacity:.62">
+        <div class="chead"><span class="badge warn">Needs review</span><span class="spacer"></span><span class="cid">f2a9·1b30</span></div>
+        <div class="curl">https://www.youtube.com/watch?v=IjzbwMdVFNk</div>
+        <div class="meter"><span class="seg on"></span><span class="seg on"></span><span class="seg hold"></span><span class="seg"></span><span class="seg"></span></div>
+        <div class="mlabels"><span>Download</span><span>Transcode</span><span class="hold">Identify</span><span class="dim">Tag</span><span class="dim">Land</span></div>
+        <p class="cnote warn"><span class="arrow">→</span>Weak match — moved to your review inbox.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ 4 · LANDED ============ -->
+  <div class="caprow"><span class="capnum">4</span><span class="captxt">Home — landed track<small>The Done card earns cover art: rail full, art beside the match, library path truncated from the left so the filename survives, tag receipts as mono chips. The green banner confirms the landing.</small></span></div>
+  <div class="frame">
+    <div class="fbar"><i></i><i></i><i></i><span class="u">localhost:5173</span></div>
+    <div class="scr scr--still">
+      <div class="ambient" aria-hidden="true">
+        <svg class="w1" viewBox="0 0 2000 200" preserveAspectRatio="none" fill="none" stroke="#3fb6d8" stroke-width="1.4"><path d="M0 100 q50 -34 100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0"/></svg>
+      </div>
+      <div class="seclabel" style="margin-top:0"><h3>Tracks</h3></div>
+      <div class="card">
+        <div class="chead"><span class="badge ok">Done</span><span class="spacer"></span><span class="cid">a13f·9c02</span></div>
+        <div class="curl">https://www.youtube.com/watch?v=dX3k_QDnzHE</div>
+        <div class="meter"><span class="seg on"></span><span class="seg on"></span><span class="seg on"></span><span class="seg on"></span><span class="seg on"></span></div>
+        <div class="mlabels"><span>Download</span><span>Transcode</span><span>Identify</span><span>Tag</span><span>Land</span></div>
+        <div class="donebody">
+          <span class="cover"><svg viewBox="0 0 46 46"><defs><linearGradient id="g1" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#1b3a5c"/><stop offset="1" stop-color="#3fb6d8"/></linearGradient></defs><rect width="46" height="46" fill="url(#g1)"/><circle cx="23" cy="23" r="9" fill="none" stroke="#eaf6fb" stroke-width="1.4" opacity=".85"/><circle cx="23" cy="23" r="2" fill="#eaf6fb"/></svg></span>
+          <div class="dtext">
+            <div class="dtitle">Midnight City</div>
+            <div class="dmeta">M83 · Hurry Up, We're Dreaming · 2011</div>
+            <div class="dpath">/srv/jellyfin/music/CleanMuzik/M83/Hurry Up, We're Dreaming/Midnight City.mp3</div>
+            <ul class="chips"><li>Electronic</li><li>Art</li><li>Lyrics</li></ul>
+          </div>
+        </div>
+      </div>
+      <div class="seclabel"><h3>Just landed</h3></div>
+      <div class="landed">
+        <span class="cover"><svg viewBox="0 0 46 46"><defs><linearGradient id="g2" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#1b3a5c"/><stop offset="1" stop-color="#3fb6d8"/></linearGradient></defs><rect width="46" height="46" fill="url(#g2)"/><circle cx="23" cy="23" r="9" fill="none" stroke="#eaf6fb" stroke-width="1.4" opacity=".85"/><circle cx="23" cy="23" r="2" fill="#eaf6fb"/></svg></span>
+        <div><div class="msg">Midnight City landed in your library.</div><div class="where">CleanMuzik/M83/Midnight City.mp3</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ 5 · WEAK MATCH EXPANDED ============ -->
+  <div class="caprow"><span class="capnum">5</span><span class="captxt">Review panel — weak match, expanded<small>The row opens in place. Candidates stay text + score bar — no album art on candidates (ADR-010), and no raw floats: similar short bars honestly read "all weak, take your pick". All three exits present.</small></span></div>
+  <div class="frame">
+    <div class="fbar"><i></i><i></i><i></i><span class="u">localhost:5173</span></div>
+    <div class="scr scr--still">
+      <div class="seclabel" style="margin-top:0"><h3>Needs review</h3><span class="count">1</span></div>
+      <div class="rowx">
+        <div class="rhead">
+          <span class="disc"></span>
+          <div class="rtext"><div class="rtitle">Take On Me</div><div class="rmeta">a-ha Take On Me official video</div></div>
+          <span class="badge warn">Weak match</span><span class="rbtn open">Close</span>
+        </div>
+        <div class="pnl">
+          <p class="q">Searched <b>a-ha Take On Me official video</b> — no confident match. Pick the right one, correct the search, or reject.</p>
+          <ul class="cands">
+            <li class="cand sel"><span class="radio"></span><span class="ct"><span class="t">Take On Me</span><span class="a">a-ha · Hunting High and Low · 1985</span></span><span class="score"><i><b style="width:46%"></b></i></span></li>
+            <li class="cand"><span class="radio"></span><span class="ct"><span class="t">Take On Me (2017 acoustic)</span><span class="a">a-ha · MTV Unplugged</span></span><span class="score"><i><b style="width:43%"></b></i></span></li>
+            <li class="cand"><span class="radio"></span><span class="ct"><span class="t">Take On Me</span><span class="a">Weezer · Weezer (Teal Album)</span></span><span class="score"><i><b style="width:38%"></b></i></span></li>
+            <li class="cand"><span class="radio"></span><span class="ct"><span class="t">Take on Me (live)</span><span class="a">a-ha · How Can I Sleep with Your Voice in My Head</span></span><span class="score"><i><b style="width:35%"></b></i></span></li>
+          </ul>
+          <div class="none"><span class="btn ghost">None of these? Search again</span></div>
+          <div class="actions">
+            <span class="btn pri">Accept selected</span>
+            <span class="btn ghost">Reject</span>
+            <span class="btn manual">Keep with my tags</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ 6 · DUPLICATE EXPANDED ============ -->
+  <div class="caprow"><span class="capnum">6</span><span class="captxt">Review panel — duplicate, expanded<small>Added beyond the scenario list to pin the cover-art rule: art appears on the <em>owned</em> side only — it's a landed library track. The incoming download stays text + bitrate. Keep-both keeps its suffix field.</small></span></div>
+  <div class="frame">
+    <div class="fbar"><i></i><i></i><i></i><span class="u">localhost:5173</span></div>
+    <div class="scr scr--still">
+      <div class="seclabel" style="margin-top:0"><h3>Needs review</h3><span class="count">1</span></div>
+      <div class="rowx acc">
+        <div class="rhead">
+          <span class="disc"></span>
+          <div class="rtext"><div class="rtitle">Blue Monday</div><div class="rmeta">New Order · already in your library</div></div>
+          <span class="badge">Duplicate</span><span class="rbtn open">Close</span>
+        </div>
+        <div class="pnl">
+          <p class="q">You already have this song. <b>Keep which copy?</b></p>
+          <div class="dup">
+            <div class="side">
+              <h5>In your library</h5>
+              <div class="own">
+                <span class="cover cover--lg"><svg viewBox="0 0 46 46"><defs><linearGradient id="g3" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#3c2a55"/><stop offset="1" stop-color="#3fb6d8"/></linearGradient></defs><rect width="46" height="46" fill="url(#g3)"/><rect x="12" y="12" width="22" height="22" fill="none" stroke="#eaf6fb" stroke-width="1.4" opacity=".85"/><circle cx="23" cy="23" r="2" fill="#eaf6fb"/></svg></span>
+                <div class="dtext">
+                  <div class="dtitle">Blue Monday</div>
+                  <div class="dmeta">New Order · Power, Corruption &amp; Lies</div>
+                  <div class="kbps">320 kbps</div>
+                </div>
+              </div>
+            </div>
+            <div class="side">
+              <h5>Just downloaded</h5>
+              <div class="dtext">
+                <div class="dtitle">Blue Monday</div>
+                <div class="dmeta">New Order</div>
+                <div class="kbps">256 kbps</div>
+              </div>
+            </div>
+          </div>
+          <div class="actions">
+            <span class="btn pri">Keep existing</span>
+            <span class="btn">Replace with download</span>
+          </div>
+          <div class="keepboth">
+            <label class="fld">Keep both — label the new copy<span class="in">(alternate)</span></label>
+            <span class="btn">Keep both</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ 7 · ERROR ============ -->
+  <div class="caprow"><span class="capnum">7</span><span class="captxt">Error — failed at Download<small>The failure state the reference never showed, so one token is new here: a desaturated red (<code>#e06060</code>) in the palette's register. The failed seg holds it, later stages stay unlit, the message names the stage.</small></span></div>
+  <div class="frame">
+    <div class="fbar"><i></i><i></i><i></i><span class="u">localhost:5173</span></div>
+    <div class="scr scr--still">
+      <div class="ambient" aria-hidden="true">
+        <svg class="w1" viewBox="0 0 2000 200" preserveAspectRatio="none" fill="none" stroke="#3fb6d8" stroke-width="1.4"><path d="M0 100 q50 -34 100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0"/></svg>
+      </div>
+      <div class="seclabel" style="margin-top:0"><h3>Tracks</h3></div>
+      <div class="card">
+        <div class="chead"><span class="badge err">Error</span><span class="spacer"></span><span class="cid">e771·0d4c</span></div>
+        <div class="curl">https://www.youtube.com/watch?v=zz9dO5oaShM</div>
+        <div class="meter"><span class="seg fail"></span><span class="seg"></span><span class="seg"></span><span class="seg"></span><span class="seg"></span></div>
+        <div class="mlabels"><span class="bad">Download</span><span class="dim">Transcode</span><span class="dim">Identify</span><span class="dim">Tag</span><span class="dim">Land</span></div>
+        <p class="cnote err"><b>Download failed</b> — yt-dlp could not fetch this video (HTTP 403). The batch continued with the next track.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ 8 · LIGHT MODE ============ -->
+  <div class="caprow"><span class="capnum">8</span><span class="captxt">Light mode<small>The same tokens re-based on the light palette — <code>#e9ecee</code> ground, <code>#0e7d9c</code> accent. The wordmark script and ambient line drop to the deep accent so they hold contrast; state colours darken to stay legible on paper-light panels.</small></span><span class="livepill">Live motion</span></div>
+  <div class="frame frame--light">
+    <div class="fbar"><i></i><i></i><i></i><span class="u">localhost:5173</span></div>
+    <div class="scr scr--light">
+      <div class="ambient" aria-hidden="true">
+        <svg class="w1" viewBox="0 0 2000 200" preserveAspectRatio="none" fill="none" stroke="#0e7d9c" stroke-width="1.4"><path d="M0 100 q50 -34 100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0"/></svg>
+        <svg class="w2" viewBox="0 0 2000 200" preserveAspectRatio="none" fill="none" stroke="#1490b3" stroke-width="1"><path d="M0 130 q75 24 150 0 t150 0 t150 0 t150 0 t150 0 t150 0 t150 0 t150 0 t150 0 t150 0 t150 0 t150 0 t150 0"/></svg>
+      </div>
+      <div class="wm-line">
+        <svg width="40" height="40" viewBox="0 0 64 64" fill="none" stroke="#0e7d9c" stroke-width="1.7"><circle cx="32" cy="32" r="29"/><circle cx="32" cy="32" r="23" opacity=".5"/><path d="M12 32 q5 -11 10 0 t10 0 t10 0 t10 0" stroke="#1490b3" stroke-width="2.2" stroke-linecap="round"/></svg>
+        <span><span class="clean">Clean</span><span class="muzik">Muzik</span></span>
+      </div>
+      <p class="sub">Paste one YouTube song URL and it lands, tagged, in your library.</p>
+      <div class="paste"><span class="in">https://www.youtube.com/watch?v=…</span><span class="go">Go</span></div>
+
+      <div class="seclabel"><h3>Needs review</h3><span class="count">1</span></div>
+      <div class="inbox">
+        <div class="row warn">
+          <span class="disc"></span>
+          <div class="rtext"><div class="rtitle">Take On Me</div><div class="rmeta">a-ha Take On Me official video</div></div>
+          <span class="badge warn">Weak match</span><span class="rbtn">Review</span>
+        </div>
+      </div>
+
+      <div class="seclabel"><h3>Tracks</h3></div>
+      <div class="card">
+        <div class="chead"><span class="badge">Identifying</span><span class="spacer"></span><span class="cid">a13f·9c02</span></div>
+        <div class="curl">https://www.youtube.com/watch?v=djV11Xbc914</div>
+        <div class="meter"><span class="seg on"></span><span class="seg on"></span><span class="seg now"></span><span class="seg"></span><span class="seg"></span></div>
+        <div class="mlabels"><span>Download</span><span>Transcode</span><span>Identify</span><span class="dim">Tag</span><span class="dim">Land</span></div>
+      </div>
+      <div class="card">
+        <div class="chead"><span class="badge ok">Done</span><span class="spacer"></span><span class="cid">b2c4·77aa</span></div>
+        <div class="curl">https://www.youtube.com/watch?v=dX3k_QDnzHE</div>
+        <div class="meter"><span class="seg on"></span><span class="seg on"></span><span class="seg on"></span><span class="seg on"></span><span class="seg on"></span></div>
+        <div class="mlabels"><span>Download</span><span>Transcode</span><span>Identify</span><span>Tag</span><span>Land</span></div>
+        <div class="donebody">
+          <span class="cover"><svg viewBox="0 0 46 46"><defs><linearGradient id="g4" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0b3d52"/><stop offset="1" stop-color="#0e7d9c"/></linearGradient></defs><rect width="46" height="46" fill="url(#g4)"/><circle cx="23" cy="23" r="9" fill="none" stroke="#eaf6fb" stroke-width="1.4" opacity=".85"/><circle cx="23" cy="23" r="2" fill="#eaf6fb"/></svg></span>
+          <div class="dtext">
+            <div class="dtitle">Midnight City</div>
+            <div class="dmeta">M83 · Hurry Up, We're Dreaming · 2011</div>
+            <ul class="chips"><li>Electronic</li><li>Art</li><li>Lyrics</li></ul>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ 9 · REDUCED MOTION ============ -->
+  <div class="caprow"><span class="capnum">9</span><span class="captxt">Reduced motion<small>Under <code>prefers-reduced-motion: reduce</code> everything freezes: the ambient line stops drifting (it stays, as a still texture) and the active seg holds solid instead of pulsing. Colour alone carries every state.</small></span></div>
+  <div class="frame">
+    <div class="fbar"><i></i><i></i><i></i><span class="u">localhost:5173</span></div>
+    <div class="scr scr--still">
+      <div class="ambient" aria-hidden="true">
+        <svg viewBox="0 0 2000 200" preserveAspectRatio="none" fill="none" stroke="#3fb6d8" stroke-width="1.4"><path d="M0 100 q50 -34 100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0 t100 0"/></svg>
+      </div>
+      <span class="frozen-tag"><i></i>prefers-reduced-motion: reduce — all animation off</span>
+      <div class="card">
+        <div class="chead"><span class="badge">Identifying</span><span class="spacer"></span><span class="cid">a13f·9c02</span></div>
+        <div class="curl">https://www.youtube.com/watch?v=djV11Xbc914</div>
+        <div class="meter"><span class="seg on"></span><span class="seg on"></span><span class="seg on" style="opacity:.85"></span><span class="seg"></span><span class="seg"></span></div>
+        <div class="mlabels"><span>Download</span><span>Transcode</span><span>Identify</span><span class="dim">Tag</span><span class="dim">Land</span></div>
+      </div>
+    </div>
+  </div>
+
+  <p class="foot">
+    <b>Sign-off wanted on four calls:</b> ① the error red (<b>#e06060</b> dark / <b>#b03434</b> light) — the one token the
+    reference didn't define; ② the parked card treatment in screen 3 (faded, amber hold seg, hand-off note) — the old UI's
+    behaviour restated in the new rail; ③ cover art on the <b>owned</b> side of the duplicate panel (screen 6) while
+    candidates stay text + score; ④ the light-mode derivations in screen 8; ⑤ the hover treatment — the pointer-tracked
+    signal glow on cards and rows, and the button halo (live on every screen above, off under reduced motion). Screens
+    use the system-ui fallbacks; IBM Plex
+    Sans/Mono get inlined as data URIs at build. Approve these and T-105 moves to component code.
+  </p>
+</div>
+
+<script>
+  // Hover: the signal follows the pointer. Feeds --mx/--my to the hovered card/row so
+  // its radial glow pools under the cursor. Inert under prefers-reduced-motion — the
+  // CSS hides the glow layer there, and we skip the work entirely.
+  (function(){
+    var mq = matchMedia('(prefers-reduced-motion: reduce)');
+    document.addEventListener('pointermove', function(e){
+      if (mq.matches) return;
+      var t = e.target.closest && e.target.closest('.card,.row,.rowx');
+      if (!t) return;
+      var r = t.getBoundingClientRect();
+      t.style.setProperty('--mx', (e.clientX - r.left) + 'px');
+      t.style.setProperty('--my', (e.clientY - r.top) + 'px');
+    }, { passive: true });
+  })();
+</script>

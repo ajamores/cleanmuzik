@@ -1,7 +1,7 @@
 ---
 type: meta
 title: "Hot — cleanmuzik"
-updated: 2026-08-02
+updated: 2026-08-03
 tags:
   - meta
   - hot-cache
@@ -19,22 +19,23 @@ status: evergreen
 CleanMuzik — personal YouTube → Jellyfin music tool. Purpose, stack, constraints and read-order are in
 `CLAUDE.md`; scope in `cleanmuzik-prd.md`. Not restated here.
 
-## Current State (2026-08-02)
+## Current State (2026-08-03)
 
-- **📍 Repo at `~/github/cleanmuzik` (ext4).** The `/mnt/c` copy is stale — delete when ready.
-- **On `main`, working tree dirty** — two new backlog tickets (T-039, T-040) + verification screenshots uncommitted.
-- **T-102 is DONE** — committed (`58c0fea`), browser-verified by owner. Cold-load resolve, inbox
-  expand/collapse, `watchColdResolve` re-park recovery all confirmed working live.
+- **On `main`, working tree clean.**
+- **T-105 design gate PASSED** — owner approved the OutKast-style crest logo (Rev C) and Signal Path
+  palette with ambient signal line, hover glow, segmented meter rail. Design references committed to
+  `docs/r1/design/` (`crest-logo.html`, `t105-design-gate.html`). Ready for implementation.
 - Queue: 1 fixture parked (Dave East mixtape, weak match). Library: 14+ tracks (`~/cleanmuzik-data` DB).
-- **Jellyfin permissions error** surfaced during verify — "error deleting the item from the server."
-  Needs investigation next session (infrastructure, not app code).
+- Jellyfin permissions error (T-102 verify) — not app code; owner resolved by deleting tracks via
+  file explorer. No action needed.
 
 ## ⟹ NEXT
 
-1. **Investigate the Jellyfin permissions error** — owner saw it during T-102 verify.
-2. **Commit the backlog tickets** (T-039, T-040) and clean up verification screenshots.
-3. **T-105** — Signal Path reskin (last UI ticket). Then **§8 close-out** vs the R1.1 spec.
-4. Housekeeping: delete the `/mnt/c` copy.
+1. **T-105 implementation** — go straight into building. Apply Signal Path reskin to components:
+   crest logo SVG, CSS token swap, ambient line, segmented meter rail, hover glow, cover art on
+   landed tracks. All design references in `docs/r1/design/`.
+2. After T-105: **§8 close-out** vs the R1.1 spec.
+3. Housekeeping: delete the `/mnt/c` copy.
 
 ## Also open (not the live thread)
 
@@ -51,13 +52,12 @@ CleanMuzik — personal YouTube → Jellyfin music tool. Purpose, stack, constra
 
 ## Recent sessions (rolling — last 2–3)
 
-- **2026-08-02 (b)** — T-102 committed (`58c0fea`), browser-verified: cold-load inbox, expand/collapse,
-  resolve, and `watchColdResolve` re-park all confirmed by owner. Filed T-039 (loading indicator) and
-  T-040 (keep_untagged failure) to backlog. Jellyfin permissions error noted for next session.
-- **2026-08-02 (a)** — T-102 `/code-review` (high) → 4 findings, all fixed. Repo relocated to ext4
-  `~/github/cleanmuzik` (9p worker timeout). Suite 65/65 green in ~5s.
-- **2026-07-31 (b)** — T-102 implementation: ReviewInbox became the working review surface, TrackCard
-  reduced to a hand-off note, App wires resolve via `resolveEpoch`. All tests rewritten, 65/65.
+- **2026-08-03** — T-105 design gate: iterated on OutKast-style crest logo (5 revisions via Fable
+  agent — medieval→street→tighter text→shorter wings→softer bottom→parallel outlines). Owner approved
+  Rev C. Explored equalizer bars background, reverted to ambient signal line. Cleaned up T-102
+  verification screenshots, gitignored `.playwright-mcp/`. Jellyfin permissions error closed (infra).
+- **2026-08-02 (b)** — T-102 committed (`58c0fea`), browser-verified. Filed T-039, T-040 to backlog.
+- **2026-08-02 (a)** — T-102 `/code-review` (high) → 4 findings fixed. Repo relocated to ext4. 65/65.
 
 ## Where the rest of the context lives
 

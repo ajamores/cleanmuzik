@@ -157,18 +157,23 @@ it **next** (2026-07-25), and T-103's re-search exit is built on top of it, so i
   to `review`, the card recovers the panel), covered by the two-sweep test. Ties to §8 item 6.
   *(Full finding + evidence: this ticket supersedes `docs/backlog/T-033.md`, git-removed on filing.)*
 
-### T-105 — Signal Path reskin (wordmark A, ambient line, art where real)
-- **Status:** todo
+### T-105 — Signal Path reskin (crest logo, ambient line, art where real)
+- **Status:** design gate passed (2026-08-03). Owner approved the OutKast-style crest logo (Rev C:
+  wide badge, 3D crown, CLEAN/MUZIK stacked block letters) and the Signal Path palette with ambient
+  signal line. Ready for implementation.
 - **Depends on:** T-101, T-102 (skin the finished structure, not a moving target)
 - **Agent:** front-end
 - **What:** Replace the current tokens with the **Signal Path** palette (dark-native, cyan `#3fb6d8`
-  accent, Plex Sans + Plex Mono — inline the faces as data URIs, no CDN). Wordmark **A** (soundwave seal
-  + script "Muzik", the seal hand-drawn SVG). The segmented-meter rail. **One** ambient signal line in
-  the background at ~7% opacity, frozen under `prefers-reduced-motion` — **no spectrum bars**. Cover art
-  on landed tracks + the owned side of a duplicate; the picker stays text+score (ADR-010). Design tokens
-  + markup are in `docs/r1/design/signal-path-tweaked.html`. This is **ADR-018**.
-- **Done when:** the app renders in Signal Path per the artifact — wordmark A, the single ambient line,
-  art where it exists, no spectrum — light/dark both legible, reduced-motion honoured. Ties to §8 item 7.
+  accent, Plex Sans + Plex Mono — inline the faces as data URIs, no CDN). **OutKast-style crest logo**
+  (wide badge with 3D crown, CLEAN/MUZIK in block letter paths — `docs/r1/design/crest-logo.html`).
+  The segmented-meter rail. **One** ambient signal line in the background at ~7% opacity, frozen under
+  `prefers-reduced-motion` — **no spectrum bars**. Cover art on landed tracks + the owned side of a
+  duplicate; the picker stays text+score (ADR-010). Cursor-tracked hover glow on cards/buttons
+  (disabled under reduced-motion). Design gate screens in `docs/r1/design/t105-design-gate.html`.
+  This is **ADR-018**.
+- **Done when:** the app renders in Signal Path per the design gate artifact — crest logo, the single
+  ambient line, art where it exists, hover glow, no spectrum — light/dark both legible, reduced-motion
+  honoured. Ties to §8 item 7.
 
 ### T-106 — Parked audio lives in `/tmp` and gets reaped (from backlog T-036)
 - **Status:** **INTEGRATED on `main` 2026-07-27 (`eb5865e`). BUILT, not done — the last gate is
