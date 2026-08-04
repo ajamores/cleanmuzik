@@ -147,6 +147,28 @@ Format: `ADR-NNN — decision. Rationale. [date]`
   the spec defined `choice` as `candidate_id|reject`, which could not express any of the above.)
   [2026-07-16]
 
+  **Amendment — always park, never silently skip; defuse beets' own duplicate stage (2026-08-04).**
+  Two stacked bugs lost a song (`FwKp-HkKUMA`, 2026-08-03) with no trace.
+
+  *Bug 1 — silent skip on equal bitrate.* The original text distinguished two duplicate outcomes by
+  bitrate: equal-or-lower skipped silently, strictly-higher parked. Since ADR-002 mandates MP3 320
+  for all output, every library copy is already 320 — the park path was structurally unreachable
+  and the skip path fired on *every* duplicate. Fix: `_resolve_duplicate` now **always parks**,
+  regardless of bitrate. The "all-skipped" defensive path in `jobs.py` now reports `STATUS_ERROR`
+  instead of a false `STATUS_DONE`.
+
+  *Bug 2 — beets' duplicate stage was never truly neutralized.* Setting `duplicate_keys.item =
+  mb_trackid` was supposed to make beets' own import duplicate stage a no-op. It wasn't:
+  `TrackInfo.copy()` maps the recording ID to `track_id`, NOT `mb_trackid`, so the temp item beets
+  builds for the dup query has `mb_trackid = ""`. Any library item with an empty `mb_trackid` — i.e.
+  every keep-untagged landing — matches. Beets then sets `task.duplicate_action = SKIP`, which makes
+  `task.skip` return `True`, and `finalize_outcomes` records "skipped" instead of "landed" — even
+  when `choose_item` accepted the match and found no actual duplicate. A single keep-untagged item
+  in the library silently blocked *every* subsequent import. Fix: override `get_duplicate_action` on
+  the session to return `DuplicateAction.KEEP`, fully defusing beets' stage. We detect and resolve
+  duplicates ourselves in `choose_item` by recording ID — beets' stage is redundant and, as shown,
+  actively harmful.
+
   **`replace` refuses when >1 library file shares the recording id — this is the intended R1
   semantics, not a stopgap. Do not "improve" it into an auto-pick.** `keep_both` can leave two
   files of one recording id in the library on purpose (an original + a deliberately-kept alternate).

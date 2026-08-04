@@ -681,11 +681,10 @@ def test_skipped_duplicate_gets_no_year_lookup(store):
 # via a DIRECT query against a real (in-memory) beets library — not beets' import
 # duplicate stage, which can't see our duplicates (its probe carries the recording
 # id under `track_id`, before the mb_trackid mapping). R1 is NON-destructive: it
-# never deletes an existing file. choose_item keeps the existing copy (SKIP) when an
-# existing copy is at >= bitrate, and otherwise parks the strictly-higher-bitrate
-# upgrade for the owner. These drive the WHOLE path (find + decide), against the real
-# temp Store so a parked row is real — closing the earlier "tests bypass detection"
-# gap.
+# never deletes an existing file. ADR-009 amendment (2026-08-04): ALL duplicates
+# park — the owner always sees the match and can catch AcoustID false positives.
+# The prior silent-skip for equal-bitrate duplicates showed a bare "Done" card with
+# no info and lost songs on false positives.
 
 
 def _dup_item(bitrate, *, mb_trackid="rec-A", **tags):
@@ -761,30 +760,36 @@ def test_choose_item_no_library_duplicate_accepts(store):
     assert store.list_reviews() == []
 
 
-def test_choose_item_dedup_keeps_existing_equal_bitrate(store):
+def test_choose_item_dedup_parks_equal_bitrate(store):
     # The everyday re-paste: same recording already in the library at the same 320
-    # bitrate → keep existing, drop the redundant download. No second copy, no nag.
+    # bitrate. Always parks (ADR-009 amendment) so the owner can verify the match
+    # and catch AcoustID false positives — a silent skip showed "Done" with no
+    # feedback, and a wrong match lost the song.
     lib = _lib_with(_lib_item("rec-A", 320000, artist="A", title="T"))
     session = _session_with_lib(store, Dominance(0.96, 0.2, ("rec-A",)), lib)
 
     choice = session.choose_item(_dup_task(320000))
 
     assert choice is Action.SKIP
-    assert session.outcomes[-1].action == "skipped"
-    assert not session._accepted  # never queued to land
-    assert store.list_reviews() == []
+    assert session.outcomes[-1].action == "parked"
+    assert session.outcomes[-1].rec == "duplicate"
+    assert not session._accepted
+    assert len(store.list_reviews()) == 1
+    assert store.list_reviews()[0].rec == "duplicate"
 
 
-def test_choose_item_dedup_keeps_existing_higher_bitrate(store):
-    # Existing is strictly better (320 vs an incoming 128) → keep it, skip the new.
+def test_choose_item_dedup_parks_higher_bitrate_existing(store):
+    # Existing is strictly better (320 vs an incoming 128) → still parks (ADR-009
+    # amendment). The owner sees the comparison and clicks "Keep existing".
     lib = _lib_with(_lib_item("rec-A", 320000))
     session = _session_with_lib(store, Dominance(0.96, 0.2, ("rec-A",)), lib)
 
     choice = session.choose_item(_dup_task(128000))
 
     assert choice is Action.SKIP
-    assert session.outcomes[-1].action == "skipped"
-    assert store.list_reviews() == []
+    assert session.outcomes[-1].action == "parked"
+    assert session.outcomes[-1].rec == "duplicate"
+    assert len(store.list_reviews()) == 1
 
 
 def test_choose_item_dedup_parks_higher_bitrate_upgrade(store):
@@ -805,9 +810,9 @@ def test_choose_item_dedup_parks_higher_bitrate_upgrade(store):
     assert not session._accepted  # dedup returns before the accept
 
 
-def test_choose_item_dedup_skips_if_any_existing_covers(store):
+def test_choose_item_dedup_parks_even_with_multiple_existing(store):
     # Two existing copies of the recording (256 + 320). The incoming 320 is covered by
-    # the 320 → keep existing, no park. (Cleaning up the weaker 256 is R2's job.)
+    # the 320, but we still park (ADR-009 amendment) — the owner verifies.
     lib = _lib_with(
         _lib_item("rec-A", 256000, path=b"/lib/a-256.mp3"),
         _lib_item("rec-A", 320000, path=b"/lib/a-320.mp3"),
@@ -817,8 +822,9 @@ def test_choose_item_dedup_skips_if_any_existing_covers(store):
     choice = session.choose_item(_dup_task(320000))
 
     assert choice is Action.SKIP
-    assert session.outcomes[-1].action == "skipped"
-    assert store.list_reviews() == []
+    assert session.outcomes[-1].action == "parked"
+    assert session.outcomes[-1].rec == "duplicate"
+    assert len(store.list_reviews()) == 1
 
 
 def test_choose_item_dedup_single_outcome_then_finalize(store):

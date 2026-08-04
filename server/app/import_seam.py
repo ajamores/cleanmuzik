@@ -54,7 +54,7 @@ from pathlib import Path
 import acoustid
 from beets import config, dbcore, library, metadata_plugins, plugins, util
 from beets.autotag import Distance, Recommendation, TrackMatch
-from beets.importer import Action, ImportSession
+from beets.importer import Action, DuplicateAction, ImportSession
 from beetsplug.musicbrainz import _get_date
 
 from app.artwork import embed_cover, fetch_cover_art
@@ -693,54 +693,35 @@ class FingerprintTrustSession(ImportSession):
     def _resolve_duplicate(
         self, task, existing: list[library.Item], dominance: Dominance
     ):
-        """The song is already in the library — keep the existing copy, or park. T-009.
+        """The song is already in the library — park for the owner to decide. T-009.
 
         R1 is deliberately **non-destructive**: it NEVER auto-deletes the owner's file
         (spec §5's "drop the other" is superseded by ADR-009). beets' own REMOVE path
         would delete the old copy *before* writing the new one with no rollback — a copy
-        failure loses both. So the only two outcomes here both keep every existing file:
+        failure loses both.
 
-        - **an existing copy is at least as good → SKIP the new one.** The everyday
-          re-paste: the fresh rip is the same recording at the same MP3-320 bitrate, and
-          the library copy is already tagged, so the new copy adds nothing. Dropped, no
-          second copy (spec §7). We compare on **bitrate only** — the one axis that's
-          honest at this point (tags aren't applied yet, and for the same recording both
-          copies get identical tags anyway). Tag-richness / acoustic tie-breaks are R2
-          migrate, where two already-tagged files are genuinely compared.
-        - **the new copy has a strictly higher bitrate than every existing one → park.**
-          A genuine upgrade, but replacing means deleting, so hand the choice to the
-          owner via the review queue ("you already have this — keep which?") rather than
-          delete automatically. Returns Action.SKIP either way, so beets never lands a
-          second file; the parked new file waits in staging for the owner's call.
+        **Always parks, never silently skips** (ADR-009 amendment, 2026-08-04). The
+        prior design silently dropped equal-bitrate duplicates — the card showed "Done"
+        with no explanation, and a false-positive AcoustID match lost the song with no
+        recourse. Since every song this app lands is MP3 320 (ADR-002), the silent-skip
+        path fired on *every* duplicate while the park path was structurally unreachable.
+        Parking always lets the owner verify the match and catch false positives; for a
+        true re-paste, "Keep existing" is one click.
         """
-        new_bitrate = _bitrate(task.item)
-        if any(_bitrate(item) >= new_bitrate for item in existing):
-            # An existing copy is as good or better — keep it, drop the redundant
-            # download. Emit "skipped" directly (this never entered _accepted): the new
-            # copy didn't land, and its staging file is safe for T-012 to clean up.
-            logger.info(
-                "duplicate of %s already in library at >= bitrate (%d) — keeping "
-                "existing, skipping the new copy",
-                self.staging_path,
-                new_bitrate,
-            )
-            self.outcomes.append(
-                Outcome(
-                    "skipped",
-                    top_score=dominance.top_score,
-                    gap=dominance.gap,
-                )
-            )
-            return Action.SKIP
-
-        # New copy out-qualities every existing one (higher bitrate). Never auto-delete
-        # — park for the owner to confirm the replacement.
         self._park_duplicate(existing, dominance)
         return Action.SKIP
 
     def should_resume(self, path) -> bool:
         # Long-lived backend, no interactive prompts: never ask to resume.
         return False
+
+    def get_duplicate_action(self, task, found_duplicates):
+        # Fully defuse beets' import duplicate stage. We detect and resolve
+        # duplicates ourselves in choose_item (_library_duplicates → _resolve_duplicate)
+        # by MusicBrainz recording id. Beets' stage uses a TrackInfo dict whose
+        # track_id never maps to mb_trackid, so the dup query compares empty strings
+        # and false-matches any library item landed via keep-untagged (empty MBID).
+        return DuplicateAction.KEEP
 
     # --- parking ----------------------------------------------------------
 

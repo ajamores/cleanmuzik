@@ -433,11 +433,17 @@ def run_pipeline(
                 error="the song neither landed nor parked — nothing to show",
             )
 
-        # All skipped (duplicate already in the library, or beets skipped it): the
-        # job succeeded — nothing new to land or scan. No §6 event fits a "nothing
-        # landed" success, so the stream closes on the sentinel (bus.close in _finish)
-        # and the client falls back to the GET /api/jobs snapshot (status=done).
-        return _finish(store, registry, job_id, bus=bus, status=STATUS_DONE)
+        # All outcomes are "skipped": beets accepted a match but then refused to
+        # copy the file (its own duplicate stage, despite our neutralization, or an
+        # internal skip). This should not happen after the ADR-009 amendment (all
+        # duplicates park), but if it does, surface it as an error — not a false
+        # "Done" — so the owner sees something went wrong.
+        return _finish(
+            store, registry, job_id, bus=bus, status=STATUS_ERROR,
+            stage=STAGE_LAND,
+            error="the song was identified but not imported — "
+                  "it may already be in your library under a different name",
+        )
 
     except _StageFailure as failure:
         logger.warning(

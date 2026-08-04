@@ -13,6 +13,18 @@ Format: `- <date> — what went wrong → the correction / rule now in place`
 
 ---
 
+- 2026-08-04 — **Beets' import duplicate stage was never truly neutralized — a keep-untagged item
+  silently blocked every subsequent import.** `FwKp-HkKUMA` never landed despite showing "Done."
+  Two stacked bugs: (1) `_resolve_duplicate` silently skipped equal-bitrate duplicates instead of
+  parking — structurally unreachable park path since ADR-002 mandates MP3 320. (2) Beets' own dup
+  stage, "neutralized" by setting `duplicate_keys.item = mb_trackid`, wasn't a no-op:
+  `TrackInfo.copy()` maps the recording ID to `track_id` not `mb_trackid`, so the dup query
+  compared empty strings and matched the keep-untagged Frank Ocean track (empty MBID). Beets set
+  `task.duplicate_action = SKIP` → `task.skip = True` → `finalize_outcomes` recorded "skipped"
+  instead of "landed." Rule: **never trust beets config to neutralize a stage — override the
+  session method.** `get_duplicate_action` now returns `DuplicateAction.KEEP`, fully defusing
+  beets' stage. And: **never silently discard a song on the strength of a fingerprint match —
+  always park for owner review.** (→ ADR-009 amendment)
 - 2026-08-02 — (T-102 fix verify) **The repo lived on a `/mnt/c/…/OneDrive` path — a WSL `9p`
   Windows mount — and vitest's worker for the heaviest test file (`TrackCard.test.tsx`) timed out
   deterministically at 60s ("waiting for worker to respond", 0ms test/setup/import), while the two

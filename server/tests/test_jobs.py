@@ -160,15 +160,19 @@ def test_parked_song_records_review_and_retains_staging(tmp_path):
     assert rec["staging_dir"].exists(), "a parked song keeps its staging copy"
 
 
-def test_skipped_duplicate_is_done_without_scan(tmp_path):
+def test_skipped_outcome_is_error_not_false_done(tmp_path):
+    # ADR-009 amendment: all duplicates now park, so the "all skipped" path is
+    # defensive — if beets somehow skips an accepted match, it's an error, not a
+    # silent "done" (which previously showed a bare "Done" card with no info).
     scans = []
     state, rec = _run(
         tmp_path,
         import_fn=lambda *a, **k: [Outcome("skipped", 0.95, 0.5)],
         scan_fn=lambda **k: scans.append(k) or True,
     )
-    assert state.status == "done"
-    assert scans == [], "a duplicate-skip lands nothing new — no scan"
+    assert state.status == "error"
+    assert "identified but not imported" in (state.error or "")
+    assert scans == [], "a skipped song lands nothing new — no scan"
     assert not rec["staging_dir"].exists()
 
 
@@ -408,19 +412,15 @@ def test_sse_download_error_names_download_stage(tmp_path):
     assert dict(events)["track.error"]["stage"] == "download"
 
 
-def test_sse_skipped_duplicate_emits_no_terminal_event_but_closes(tmp_path):
-    # A duplicate skip lands nothing, so no §6 event fits — the stream still closes
-    # (drain returns), and the client falls back to the GET /api/jobs snapshot.
+def test_sse_skipped_outcome_emits_error_event(tmp_path):
+    # ADR-009 amendment: the "all skipped" path is now an error (not a false "done").
+    # The stream emits track.error so the card shows a meaningful failure.
     state, events = _events_after_run(
         tmp_path, import_fn=lambda *a, **k: [Outcome("skipped", 0.95, 0.5)]
     )
-    assert state.status == "done"
-    assert [name for name, _ in events] == [
-        "job.queued",
-        "track.downloading",
-        "track.transcoding",
-        "track.identifying",
-    ]  # no track.done — nothing landed
+    assert state.status == "error"
+    event_names = [name for name, _ in events]
+    assert "track.error" in event_names
 
 
 # --- boot reconciliation: no job is left 'running' after a restart ----------
