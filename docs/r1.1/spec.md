@@ -32,9 +32,9 @@ the signed-off **Signal Path** identity.
   if cheap — design in-ticket).
 - **Boot reconciliation agreement** — job/review state agree after a restart mid-resolve
   (pulls in backlog **T-033**; the inbox makes its orphan *reachable*, this makes the state *correct*).
-- **Signal Path reskin** — token palette, wordmark treatment **A** (broadcast seal + script "Muzik"),
-  the whisper-quiet ambient signal line (replaces the spectrum bars), cover art where it genuinely
-  exists (landed tracks + the owned side of a duplicate).
+- **Console reskin** — token palette, a big centred crest (OutKast-style badge), the 36-bar EQ beat
+  animation, cover art where it genuinely exists (landed tracks only; see the ADR-018 amendment and the
+  2026-08-05 review-tightening that dropped the always-on duplicate swatch).
 
 ## 3. Explicitly out of scope
 
@@ -88,13 +88,15 @@ No new backend routes for the core inbox — it consumes existing ones:
   keep-untagged if pursued) — T-103 decides whether the existing `resolve` shapes cover it or a third
   shape is needed. The boot-reconciliation fix (T-104) is server-internal, no route change.
 
-## 7. Visual identity — Signal Path (signed off)
+## 7. Visual identity — Console (signed off)
 
-Broadcast-engineer's rack: dark-native, IBM Plex Sans + Plex Mono, cyan `#3fb6d8` accent (desaturated
-so the amber/green/red semantics out-shout it), segmented-meter progress rail. Wordmark **A**: a
-soundwave-in-a-ring seal + script "Muzik". One ambient signal line drifting in the background at ~7%
-opacity (frozen under `prefers-reduced-motion`); **no spectrum bars, no ambient motion beyond that one
-line**. Full token values in the design artifact. This is **ADR-018** — do not re-skin without a
+Dark-native broadcast **console**, IBM Plex Sans + Plex Mono, cyan `#3fb6d8` accent (desaturated so the
+amber/green/red semantics out-shout it), segmented-LED progress rail. A **big centred crest** (OutKast-
+style badge, 3D crown, CLEAN/MUZIK block letters) replaces the old soundwave wordmark, and a **36-bar EQ
+beat animation** across the console base replaces the single ambient line (frozen under
+`prefers-reduced-motion`). This is the **ADR-018 amendment (2026-08-04)** — the console direction
+supersedes the earlier "Signal Path" screens and deliberately reverses their "no spectrum bars" clause.
+Canonical form is the shipped code (`11b6302` + `819f22c`), not a flat screen. Do not re-skin without a
 decision.
 
 ## 8. Acceptance checklist (R1.1 is "done" when…)
@@ -109,8 +111,8 @@ decision.
       the review survives the card unmounting.
 - [ ] A restart with an **in-flight resolve** leaves `job` and `review` in **agreement** (T-033),
       covered by a two-sweep test.
-- [ ] The app renders in **Signal Path** (ADR-018): wordmark A, the single ambient line, art where it
-      exists, no spectrum bars.
+- [ ] The app renders in the **Console** skin (ADR-018 as amended): centred crest, EQ beat bars, art
+      where it genuinely exists.
 - [ ] A review parked before a **machine reboot** is still resolvable after it — its staging audio lives
       somewhere durable, not in the system temp, and orphaned staging dirs are swept at boot (T-106).
 - [ ] Green on `main`, both suites, per the DoD.
@@ -119,7 +121,8 @@ decision.
 
 - **Flow gate** (8 scenario screens): `docs/r1/design/review-inbox-flow.html`
 - **Visual directions** (the three-way pitch): `docs/r1/design/visual-directions.html`
-- **Signal Path final** (wordmark A + ambient line + art): `docs/r1/design/signal-path-tweaked.html`
+- **Signal Path** (superseded predecessor — kept for lineage): `docs/r1/design/signal-path-tweaked.html`.
+  The shipped **Console** direction (ADR-018 amendment) lives in code (`11b6302` + `819f22c`), not a screen.
 
 ---
 
