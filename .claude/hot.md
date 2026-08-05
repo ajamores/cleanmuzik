@@ -1,7 +1,7 @@
 ---
 type: meta
 title: "Hot — cleanmuzik"
-updated: 2026-08-04
+updated: 2026-08-05
 tags:
   - meta
   - hot-cache
@@ -19,50 +19,49 @@ status: evergreen
 CleanMuzik — personal YouTube → Jellyfin music tool. Purpose, stack, constraints and read-order are in
 `CLAUDE.md`; scope in `cleanmuzik-prd.md`. Not restated here.
 
-## Current State (2026-08-04)
+## Current State (2026-08-05)
 
-- **On branch `t-105-signal-path`** (pushed to origin). Not merged to `main`.
-- **T-105 console redesign committed** (`11b6302`). Grew past the original reskin: on seeing it live
-  the owner set the approved design gate aside for a bolder **console-rail** direction (taste-skill,
-  two Fable passes on `claude-fable`). Big centered crest, segmented-LED meter rail, and a **36-bar EQ
-  beat animation** replacing the ambient wave. Visual only — no logic/props/SSE/API touched. Build,
-  lint, 65/65 client tests green; verified in-browser dark + light.
-- Queue (real backend `:8137`): 2 parked weak-match reviews (Outro/Nines, Dave East). Library in
-  `~/cleanmuzik-data`.
+- **On `main`, pushed to origin (`cb66c80`).** No branch in flight; tree clean.
+- **T-105 is DONE** — console reskin merged and integrated. Client 65/65, server 432 green on `main`.
+  The reskin's three UI-truth review fixes (`819f22c`) and the **ADR-018 amendment** (`01e1409`, console
+  supersedes Signal Path; EQ bars reverse "no spectrum bars") are all landed. All fixes verified
+  in-browser, including the duplicate panel with no fabricated cover swatch.
+- Queue (real backend `:8137`): **1 parked review** — the `Coming Of Age` duplicate left over from the
+  #1 verification (resolve or leave, owner's call). Library in `~/cleanmuzik-data`.
 
-## ⟹ NEXT (T-105 close-out — DoD not yet complete)
+## ⟹ NEXT — R1.1 close-out
 
-1. **`/code-review`** the accumulated redesign diff (large; two Fable passes).
-2. **Amend ADR-018** — the console direction supersedes the "Signal Path" gate screens, and the EQ
-   bars **reverse its "no spectrum bars" line** (owner's explicit call). Update the T-105 ticket +
-   design-gate references too. (Decision is captured in `11b6302`'s body meanwhile.)
-3. **Merge to `main`** once 1–2 are done (DoD step 5).
-4. Then: **T-106** end-to-end `/verify` (unblocked now T-103 landed) + **§8 close-out** vs R1.1 spec.
+1. **T-106** — end-to-end `/verify` of durable parked-audio staging (was blocked on T-103, now unblocked).
+   Already INTEGRATED on `main` (`eb5865e`); the last gate is the observable `/verify`, not more code.
+2. **§8 acceptance close-out** — walk the R1.1 spec's checklist (`docs/r1.1/spec.md` §8) against the built
+   app; this is what tips **R1.1 itself** toward done.
 
 ## Also open (not the live thread)
 
-- `docs/backlog/` — **T-039** (inbox loading indicator), **T-040** (keep_untagged resolve fails),
-  **T-037** (tag-quality), **T-035** (Shazam tier).
-- Real cover-art endpoint stayed deferred — T-105 shipped the Option-2 gradient swatch.
+- `docs/backlog/` — **T-037** (JAŸ-Z artist-string normalisation — needs an ADR; owner's LLM-sweep idea
+  now recorded as a candidate for the one-time half), **T-039** (inbox loading indicator), **T-040**
+  (keep_untagged resolve fails), **T-041** (signal-glow pointermove reflow — from T-105 review),
+  **T-035** (Shazam tier).
 
 ## Verifying
 
 - **Run everything from `~/github/cleanmuzik` (ext4), never `/mnt/c`** — 9p times out test workers.
-- Dev servers already run: `uvicorn :8137` (--reload) + Vite `:5173` (proxies `/api`). Editing server
-  modules re-runs the lifespan against the **live** DB — client-only edits are safe.
-- Playwright screenshots land in the gitignored `.playwright-mcp/`; toggle theme with
-  `document.documentElement.setAttribute('data-theme','dark'|'light')`.
+- Dev servers already run: `uvicorn :8137` (--reload) + Vite `:5173`. Server-module edits re-run the
+  lifespan against the **live** DB (CLAUDE.md); client-only edits are safe.
+- Playwright is the **MCP** server (persistent browser), not the CLI. Shots → gitignored `.playwright-mcp/`.
 
 ## Recent sessions (rolling — last 2–3)
 
-- **2026-08-04 (pm)** — T-105 → full console redesign. Reskin ported the gate, owner found it
-  templated ("AI slop"), so redesigned with taste-skill/Fable: console rail, big centered crest, EQ
-  beat bars. Fixed a crest clip (nested `<symbol>` viewport → `<g>`). Committed `11b6302`, pushed.
-- **2026-08-04 (am)** — Bug fix `8ba2c2f`: `FwKp-HkKUMA` showed Done but never landed (dup-stage
-  false-match + equal-bitrate skip). → ADR-009 amendment, learnings entry.
-- **2026-08-03** — T-105 design gate passed (crest Rev C + Signal Path), since superseded.
+- **2026-08-05** — T-105 close-out → DONE. High-effort `/code-review` (workflow, 4 findings): fixed the
+  fabricated dup-swatch (ADR-010 trap), the channel-name-as-artist inbox line, and the dropped
+  expanded-row highlight; deferred a pointermove reflow to T-041. Amended ADR-018 + swept spec/tickets/
+  roadmap. Verified all three in-browser (incl. a real JAY-Z duplicate). Merged + pushed.
+- **2026-08-04 (pm)** — T-105 full console redesign (`11b6302`): reskin ported the gate, owner found it
+  templated, redesigned with taste-skill/Fable — console rail, centred crest, EQ beat bars.
+- **2026-08-04 (am)** — Bug fix `8ba2c2f`: `FwKp-HkKUMA` showed Done but never landed. → ADR-009
+  amendment, learnings entry.
 
 ## Where the rest of the context lives
 
-`docs/roadmap.md` · `docs/r1.1/` (active) · `docs/r1/adr.md` (**ADR-018 amendment owed**) ·
-`docs/learnings.md` · `docs/backlog/` · git. Business/vault → `/garden`.
+`docs/roadmap.md` · `docs/r1.1/` (active) · `docs/r1/adr.md` · `docs/learnings.md` · `docs/backlog/` ·
+git. Business/vault → `/garden`.
