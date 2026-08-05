@@ -58,9 +58,7 @@ export function ReviewInbox({ reviews, onReviewResolved }: ReviewInboxProps) {
                       {row.query || 'Untitled download'}
                     </p>
                     <p className="review-inbox__sub">
-                      {duplicate
-                        ? 'Already in your library'
-                        : row.guess?.artist || 'No confident match'}
+                      {duplicate ? 'Already in your library' : 'Needs your review'}
                     </p>
                   </div>
                   <span

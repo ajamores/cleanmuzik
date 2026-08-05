@@ -9,7 +9,6 @@ import {
   type ReviewCandidate,
   type ReviewGuess,
 } from '../api'
-import { CoverSwatch } from './CoverSwatch'
 import './ReviewPanel.css'
 
 interface ReviewPanelProps {
@@ -699,29 +698,16 @@ function DuplicatePanel({ reviewId, submitting, onSubmit }: DuplicateProps) {
           {detail.existing.length === 0 ? (
             <p className="review__dup-meta">No matching library copy found.</p>
           ) : (
-            <div className="review__dup-owned">
-              {/* Art on the owned side only (Option 2, ADR-010): it's a landed library
-                  track, so a cover exists. The incoming download stays text + bitrate. */}
-              <CoverSwatch
-                seed={
-                  [detail.existing[0].artist, detail.existing[0].title]
-                    .filter(Boolean)
-                    .join(' ') || reviewId
-                }
-                size={52}
-                className="review__dup-cover"
-              />
-              <div className="review__dup-copies">
-                {detail.existing.map((e, i) => (
-                  <div key={e.path ?? i} className="review__dup-copy">
-                    <span className="review__dup-title">{e.title || 'Unknown title'}</span>
-                    <span className="review__dup-meta">
-                      {[e.artist, e.album].filter(Boolean).join(' / ') || 'No artist or album'}
-                    </span>
-                    <span className="review__dup-bitrate">{formatBitrate(e.bitrate)}</span>
-                  </div>
-                ))}
-              </div>
+            <div className="review__dup-copies">
+              {detail.existing.map((e, i) => (
+                <div key={e.path ?? i} className="review__dup-copy">
+                  <span className="review__dup-title">{e.title || 'Unknown title'}</span>
+                  <span className="review__dup-meta">
+                    {[e.artist, e.album].filter(Boolean).join(' / ') || 'No artist or album'}
+                  </span>
+                  <span className="review__dup-bitrate">{formatBitrate(e.bitrate)}</span>
+                </div>
+              ))}
             </div>
           )}
         </div>

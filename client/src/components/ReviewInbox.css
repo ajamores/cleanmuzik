@@ -75,6 +75,13 @@
   border-left-color: var(--accent);
 }
 
+/* The open row lifts out of the stack: brighter surround + inner glow. */
+.review-inbox__row[data-expanded='true'] {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--card-bg) 88%, var(--accent) 12%);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
 .review-inbox__head {
   display: flex;
   align-items: center;

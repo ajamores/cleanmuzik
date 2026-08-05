@@ -162,30 +162,6 @@
   margin-bottom: 5px;
 }
 
-/* The owned side carries a cover swatch (Option 2) — it's a landed library track, so
-   art exists; the incoming download stays text + bitrate. Lays cover beside the text. */
-.review__dup-owned {
-  display: flex;
-  gap: 11px;
-  align-items: center;
-}
-
-.review__dup-cover {
-  width: 52px;
-  height: 52px;
-  flex: none;
-  border-radius: 0;
-  overflow: hidden;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
-  line-height: 0;
-}
-
-.review__dup-cover svg {
-  display: block;
-  width: 100%;
-  height: 100%;
-}
-
 .review__dup-copies {
   min-width: 0;
   flex: 1;
