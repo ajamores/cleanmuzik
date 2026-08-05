@@ -1,0 +1,30 @@
+.crest {
+  display: inline-flex;
+  align-items: center;
+}
+
+/* The glyph/symbol defs carry no ink of their own — width/height 0 keeps them out
+   of layout while <use> still resolves the symbol. */
+.crest__defs {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+}
+
+/* currentColor themes the whole mark; --accent is cyan in both themes. The
+   landscape viewBox is ~1.39:1, so height drives the box. The crest leads the
+   console rail now — assertive, not a favicon (owner correction: it was 42px). */
+.crest__mark {
+  height: 128px;
+  width: auto;
+  color: var(--accent);
+  display: block;
+  filter: drop-shadow(0 0 22px rgba(var(--glow), 0.18));
+}
+
+@media (max-width: 920px) {
+  .crest__mark {
+    height: 88px;
+  }
+}

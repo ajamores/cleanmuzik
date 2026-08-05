@@ -1,0 +1,154 @@
+/* The ambient equalizer: fixed to the bottom of the viewport, behind all content.
+   Low opacity + a top fade keep it a texture the cards sit over, not a subject. */
+.ambient {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 30dvh;
+  z-index: 0;
+  pointer-events: none;
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  padding: 0 6px;
+  opacity: var(--ambient-op, 0.3);
+  /* Fade the field out toward its top edge so it settles into the page ground. */
+  mask-image: linear-gradient(to top, black 35%, transparent 100%);
+  -webkit-mask-image: linear-gradient(to top, black 35%, transparent 100%);
+}
+
+.ambient__bar {
+  flex: 1;
+  height: 100%;
+  position: relative;
+  overflow: hidden;
+}
+
+/* The LED column: painted once, full height, bright at the base fading to blue up
+   top, sliced into stacked segments by the mask. It never moves — the cover does —
+   so a given height on screen always carries the same colour, like real hardware. */
+.ambient__leds {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    to top,
+    rgb(var(--glow)) 0%,
+    #3f6bd8 55%,
+    rgba(63, 107, 216, 0.35) 100%
+  );
+  mask-image: repeating-linear-gradient(to top, black 0 7px, transparent 7px 11px);
+  -webkit-mask-image: repeating-linear-gradient(
+    to top,
+    black 0 7px,
+    transparent 7px 11px
+  );
+}
+
+/* Sparse magenta accents (the reference's occasional pink bars) — deterministic,
+   four of the thirty-six. */
+.ambient__bar:nth-child(9n + 4) .ambient__leds {
+  background: linear-gradient(
+    to top,
+    #d84fd0 0%,
+    #8a4bdc 55%,
+    rgba(138, 75, 220, 0.35) 100%
+  );
+}
+
+/* The sliding cover: page-coloured, sitting over the LEDs. translateY(-N%) lifts
+   it, exposing the bottom N% of the column. Transform-only, GPU-composited. */
+.ambient__cover {
+  position: absolute;
+  inset: 0;
+  background: var(--bg);
+  transform: translateY(var(--rest, -50%));
+  animation-name: ambient-eq-a;
+  animation-timing-function: ease-in-out;
+  animation-iteration-count: infinite;
+  will-change: transform;
+}
+
+/* Three bounce patterns cycled across the row; combined with per-bar duration and
+   negative delay (inline), neighbours never move in step — a beat, not a sweep. */
+.ambient__bar:nth-child(3n) .ambient__cover {
+  animation-name: ambient-eq-b;
+}
+
+.ambient__bar:nth-child(4n + 1) .ambient__cover {
+  animation-name: ambient-eq-c;
+}
+
+/* A soft glow pooling at the base of the field, brightest where the bars are. */
+.ambient::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 24%;
+  background: linear-gradient(to top, rgba(var(--glow), 0.3), transparent);
+}
+
+@keyframes ambient-eq-a {
+  0%,
+  100% {
+    transform: translateY(-32%);
+  }
+  22% {
+    transform: translateY(-68%);
+  }
+  48% {
+    transform: translateY(-24%);
+  }
+  76% {
+    transform: translateY(-55%);
+  }
+}
+
+@keyframes ambient-eq-b {
+  0%,
+  100% {
+    transform: translateY(-58%);
+  }
+  30% {
+    transform: translateY(-22%);
+  }
+  58% {
+    transform: translateY(-74%);
+  }
+  82% {
+    transform: translateY(-38%);
+  }
+}
+
+@keyframes ambient-eq-c {
+  0%,
+  100% {
+    transform: translateY(-44%);
+  }
+  18% {
+    transform: translateY(-80%);
+  }
+  46% {
+    transform: translateY(-30%);
+  }
+  72% {
+    transform: translateY(-62%);
+  }
+}
+
+/* Narrow: fewer, chunkier bars — 36 at 420px would be toothpicks. */
+@media (max-width: 700px) {
+  .ambient__bar:nth-child(n + 19) {
+    display: none;
+  }
+}
+
+/* Frozen, not hidden: each cover rests at its own deterministic height, so the
+   field stays as a still skyline; nothing moves. */
+@media (prefers-reduced-motion: reduce) {
+  .ambient__cover {
+    animation: none;
+  }
+}

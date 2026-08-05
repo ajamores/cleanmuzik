@@ -1,7 +1,7 @@
+/* The panel is rendered inside the inbox row's own bordered/padded panel slot, so it
+   adds no separator of its own — that would double the line above it. */
 .review {
-  margin-top: 14px;
-  padding-top: 12px;
-  border-top: 1px solid var(--border);
+  margin: 0;
 }
 
 .review__query {
@@ -26,7 +26,7 @@
 
 .review__candidates {
   list-style: none;
-  margin: 0 0 14px;
+  margin: 0 0 13px;
   padding: 0;
   display: flex;
   flex-direction: column;
@@ -35,7 +35,8 @@
 
 .review__candidate {
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 0;
+  background: var(--field);
   transition: border-color 150ms ease;
 }
 
@@ -60,8 +61,8 @@
 
 .review__radio {
   flex: none;
-  width: 16px;
-  height: 16px;
+  width: 15px;
+  height: 15px;
   accent-color: var(--accent);
 }
 
@@ -82,7 +83,7 @@
 }
 
 .review__candidate-artist {
-  font-size: 13px;
+  font-size: 12.5px;
   color: var(--text);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -91,24 +92,32 @@
 
 /* --- score bar ----------------------------------------------------------- */
 
+/* Match strength in the same LED-tick language as the track cards' stage meter:
+   a faint full track of ticks, the lit portion in the review colour. */
 .review__score {
   flex: none;
-  width: 72px;
+  width: 81px; /* 9 ticks on the shared 9px period */
 }
 
 .review__score-track {
   display: block;
-  height: 6px;
-  border-radius: 999px;
-  background: var(--border);
+  height: 10px;
+  background: repeating-linear-gradient(
+    90deg,
+    var(--border) 0 5px,
+    transparent 5px 9px
+  );
   overflow: hidden;
 }
 
 .review__score-fill {
   display: block;
   height: 100%;
-  border-radius: 999px;
-  background: var(--warn);
+  background: repeating-linear-gradient(
+    90deg,
+    var(--warn) 0 5px,
+    transparent 5px 9px
+  );
 }
 
 .review__score--unknown {
@@ -124,7 +133,7 @@
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 12px;
-  margin-bottom: 12px;
+  margin-bottom: 13px;
 }
 
 @media (max-width: 480px) {
@@ -135,26 +144,58 @@
 
 .review__dup-side {
   border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 10px 12px;
+  border-radius: 0;
+  background: var(--field);
+  padding: 11px 13px;
   display: flex;
   flex-direction: column;
   gap: 4px;
 }
 
 .review__dup-heading {
-  font-size: 11px;
-  letter-spacing: 0.02em;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--text);
-  opacity: 0.7;
-  margin-bottom: 4px;
+  margin-bottom: 5px;
+}
+
+/* The owned side carries a cover swatch (Option 2) — it's a landed library track, so
+   art exists; the incoming download stays text + bitrate. Lays cover beside the text. */
+.review__dup-owned {
+  display: flex;
+  gap: 11px;
+  align-items: center;
+}
+
+.review__dup-cover {
+  width: 52px;
+  height: 52px;
+  flex: none;
+  border-radius: 0;
+  overflow: hidden;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+  line-height: 0;
+}
+
+.review__dup-cover svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.review__dup-copies {
+  min-width: 0;
+  flex: 1;
 }
 
 .review__dup-copy {
   display: flex;
   flex-direction: column;
   gap: 2px;
+  min-width: 0;
 }
 
 .review__dup-copy + .review__dup-copy {
@@ -182,8 +223,8 @@
 }
 
 .review__dup-bitrate {
-  font-size: 12px;
   font-family: var(--mono);
+  font-size: 11px;
   color: var(--accent);
 }
 
@@ -212,26 +253,28 @@
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
+  align-items: center;
 }
 
 .review__btn {
   font-family: var(--sans);
   font-size: 13px;
   font-weight: 600;
-  padding: 8px 16px;
-  border-radius: 8px;
+  padding: 8px 15px;
+  border-radius: 0;
   border: 1px solid var(--border);
   background: var(--card-bg);
   color: var(--text-h);
   cursor: pointer;
   transition:
-    background 150ms ease,
-    border-color 150ms ease,
-    opacity 150ms ease;
+    border-color 0.18s ease,
+    box-shadow 0.18s ease,
+    filter 0.18s ease;
 }
 
 .review__btn:hover:not(:disabled) {
-  border-color: var(--accent);
+  border-color: rgba(var(--glow), 0.6);
+  box-shadow: 0 0 10px rgba(var(--glow), 0.22);
 }
 
 .review__btn:disabled {
@@ -245,11 +288,14 @@
 .review__btn--accept {
   background: var(--accent);
   border-color: var(--accent);
-  color: #fff;
+  color: var(--accent-fg);
+  font-weight: 700;
 }
 
 .review__btn--accept:hover:not(:disabled) {
-  opacity: 0.9;
+  box-shadow: 0 0 14px rgba(var(--glow), 0.45);
+  filter: brightness(1.07);
+  border-color: var(--accent);
 }
 
 .review__keep-both {
@@ -257,14 +303,12 @@
   align-items: flex-end;
   gap: 8px;
   flex-wrap: wrap;
-  margin-top: 10px;
-  padding-top: 10px;
+  margin-top: 12px;
+  padding-top: 12px;
   border-top: 1px solid var(--border);
 }
 
-/* One labelled text input, shared by the keep-both suffix and the re-search form.
-   They were byte-identical apart from the input's background, which is the modifier
-   below — the same shape as .review__btn / --accept / --ghost above. */
+/* One labelled text input, shared by the keep-both suffix and the re-search form. */
 .review__field {
   display: flex;
   flex-direction: column;
@@ -279,9 +323,9 @@
   font-family: var(--sans);
   font-size: 13px;
   padding: 7px 10px;
-  border-radius: 8px;
+  border-radius: 0;
   border: 1px solid var(--border);
-  background: var(--bg);
+  background: var(--field);
   color: var(--text-h);
 }
 
@@ -290,7 +334,7 @@
   border-color: var(--accent);
 }
 
-/* The re-search box sits on --bg, so its fields need to lift off it. */
+/* The re-search box sits on a recessed ground, so its fields lift to the card colour. */
 .review__input--inset {
   background: var(--card-bg);
 }
@@ -301,6 +345,7 @@
    a call to action competing with Accept. Quiet until the list turns out to be wrong. */
 .review__btn--ghost {
   background: transparent;
+  color: var(--text-h);
 }
 
 .review__none-of-these {
@@ -315,8 +360,8 @@
   padding: 12px;
   border: 1px solid var(--border);
   border-left: 3px solid var(--accent);
-  border-radius: 10px;
-  background: var(--bg);
+  border-radius: 0;
+  background: var(--field);
 }
 
 .review__research-head {
@@ -348,13 +393,14 @@
 }
 
 .review__btn--manual:hover:not(:disabled) {
-  background: var(--warn);
-  color: #fff;
   border-color: var(--warn);
+  box-shadow: 0 0 10px rgba(224, 163, 61, 0.3);
+  filter: none;
 }
 
 .review__btn--reject {
   background: transparent;
+  color: var(--text-h);
 }
 
 .review__keep {
@@ -364,9 +410,10 @@
 }
 
 .review__keep-head {
-  font-size: 12px;
+  font-family: var(--mono);
+  font-size: 10px;
   font-weight: 600;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--warn);
 }
@@ -415,4 +462,14 @@
 
 .review__load-error .review__error {
   margin: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .review__btn {
+    transition: none;
+  }
+  .review__btn:hover:not(:disabled) {
+    box-shadow: none;
+    filter: none;
+  }
 }

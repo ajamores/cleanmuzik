@@ -2,6 +2,9 @@ import { useCallback, useEffect, useState } from 'react'
 import { createJob, getJob, listReviews, type ReviewRow } from './api'
 import { TrackCard } from './components/TrackCard'
 import { ReviewInbox } from './components/ReviewInbox'
+import { CrestLogo } from './components/CrestLogo'
+import { AmbientLine } from './components/AmbientLine'
+import { useSignalGlow } from './useSignalGlow'
 import './App.css'
 
 interface Job {
@@ -19,6 +22,8 @@ function App() {
   // must re-subscribe to its SSE stream so it picks up the resume events (track.tagging →
   // track.done). Each card watches its own epoch; a bump opens a fresh EventSource.
   const [resolveEpochs, setResolveEpochs] = useState<Record<string, number>>({})
+
+  useSignalGlow()
 
   const refreshInbox = useCallback(() => {
     listReviews()
@@ -98,60 +103,95 @@ function App() {
   }
 
   return (
-    <main className="app">
-      <header className="app__header">
-        <h1>CleanMuzik</h1>
-        <p>Paste one YouTube song URL and it lands, tagged, in your library.</p>
-      </header>
+    <>
+      <AmbientLine />
+      <div className="shell">
+        {/* The console rail: brand, input strip, and the pipeline legend. Sticky at
+            desktop so the paste bar is always at hand; a plain header block narrow. */}
+        <aside className="console">
+          <header className="console__brand">
+            <CrestLogo />
+            <h1 className="console__wordmark">CleanMuzik</h1>
+            <p className="console__tagline">
+              Paste one YouTube song URL and it lands, tagged, in your library.
+            </p>
+          </header>
 
-      <form className="url-form" onSubmit={handleSubmit}>
-        <input
-          className="url-form__input"
-          type="text"
-          inputMode="url"
-          placeholder="https://www.youtube.com/watch?v=…"
-          value={url}
-          onChange={(e) => {
-            setUrl(e.target.value)
-            if (error) setError(null)
-          }}
-          aria-label="YouTube song URL"
-          aria-invalid={error ? true : undefined}
-          disabled={submitting}
-        />
-        <button className="url-form__go" type="submit" disabled={!canSubmit}>
-          {submitting ? 'Working…' : 'Go'}
-        </button>
-      </form>
+          <form className="url-form" onSubmit={handleSubmit}>
+            <input
+              className="url-form__input"
+              type="text"
+              inputMode="url"
+              placeholder="https://www.youtube.com/watch?v=…"
+              value={url}
+              onChange={(e) => {
+                setUrl(e.target.value)
+                if (error) setError(null)
+              }}
+              aria-label="YouTube song URL"
+              aria-invalid={error ? true : undefined}
+              disabled={submitting}
+            />
+            <button className="url-form__go" type="submit" disabled={!canSubmit}>
+              {submitting ? 'Working…' : 'Go'}
+            </button>
+          </form>
 
-      {error && (
-        <p className="app__error" role="alert">
-          {error}
-        </p>
-      )}
+          {error && (
+            <p className="app__error" role="alert">
+              {error}
+            </p>
+          )}
 
-      <ReviewInbox
-        reviews={reviews}
-        onReviewResolved={handleInboxResolved}
-      />
+          {/* The signal path — the five stages every track passes through. The same
+              rail the cards animate; here it stands still as the console's legend. */}
+          <div className="console__path" aria-hidden="true">
+            {['Download', 'Transcode', 'Identify', 'Tag', 'Land'].map((stage) => (
+              <span className="console__path-stage" key={stage}>
+                {stage}
+              </span>
+            ))}
+          </div>
+        </aside>
 
-      <section className="app__jobs" aria-label="Tracks">
-        {jobs.length === 0 ? (
-          <p className="app__empty">No tracks yet.</p>
-        ) : (
-          jobs.map((job) => (
-            <div key={job.jobId}>
-              <TrackCard
-                jobId={job.jobId}
-                url={job.url}
-                onReviewParked={refreshInbox}
-                resolveEpoch={resolveEpochs[job.jobId] ?? 0}
-              />
+        <main className="deck">
+          <ReviewInbox
+            reviews={reviews}
+            onReviewResolved={handleInboxResolved}
+          />
+
+          <section className="app__jobs" aria-labelledby="app__tracks-label">
+            <div className="deck__head">
+              <h2 className="deck__title" id="app__tracks-label">
+                Tracks
+              </h2>
+              {jobs.length > 0 && (
+                <span className="deck__count">{jobs.length}</span>
+              )}
             </div>
-          ))
-        )}
-      </section>
-    </main>
+            {jobs.length === 0 ? (
+              <div className="app__empty">
+                <p className="app__empty-line">No tracks yet.</p>
+                <p className="app__empty-sub">
+                  Paste a URL and the first one opens here, live.
+                </p>
+              </div>
+            ) : (
+              jobs.map((job) => (
+                <div key={job.jobId}>
+                  <TrackCard
+                    jobId={job.jobId}
+                    url={job.url}
+                    onReviewParked={refreshInbox}
+                    resolveEpoch={resolveEpochs[job.jobId] ?? 0}
+                  />
+                </div>
+              ))
+            )}
+          </section>
+        </main>
+      </div>
+    </>
   )
 }
 

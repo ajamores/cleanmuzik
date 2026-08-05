@@ -1,41 +1,92 @@
-.app {
-  width: 100%;
-  max-width: 720px;
-  margin: 0 auto;
-  padding: 48px 20px 64px;
+/*
+ * The console shell (UI redesign, evolves T-105 "Signal Path").
+ *
+ * Two-panel asymmetric grid: a sticky console rail on the left (brand, paste bar,
+ * pipeline legend) and the working deck on the right (inbox + tracks). The rail is
+ * the instrument's input strip; the deck is its monitors. Below 920px the rail
+ * becomes a plain header block and everything stacks.
+ */
+
+.shell {
+  display: grid;
+  grid-template-columns: minmax(300px, 360px) minmax(0, 1fr);
+  min-height: 100dvh;
+  position: relative;
+  z-index: 1; /* above the fixed ambient trace */
+}
+
+/* --- console rail -------------------------------------------------------- */
+
+.console {
+  position: sticky;
+  top: 0;
+  align-self: start;
+  height: 100dvh;
   box-sizing: border-box;
-  text-align: left;
+  display: flex;
+  flex-direction: column;
+  padding: 44px 34px 36px;
+  border-right: 1px solid var(--border);
+  background:
+    repeating-linear-gradient(
+      0deg,
+      rgba(var(--glow), 0.022) 0 1px,
+      transparent 1px 5px
+    ),
+    var(--panel);
 }
 
-.app__header h1 {
-  margin: 0 0 8px;
+/* Centered within the rail (owner request): the crest leads, the wordmark and
+   tagline hang centered beneath it. */
+.console__brand {
+  margin-bottom: 30px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
 }
 
-.app__header p {
+.console__wordmark {
+  margin: 18px 0 0;
+  font-size: 32px;
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  line-height: 1.05;
+  color: var(--text-h);
+}
+
+.console__tagline {
+  margin: 12px 0 0;
   color: var(--text);
-  margin-bottom: 32px;
+  font-size: 14px;
+  line-height: 1.55;
+  max-width: 34ch;
 }
+
+/* --- paste bar (the input strip) ----------------------------------------- */
 
 .url-form {
   display: flex;
+  flex-direction: column;
   gap: 10px;
 }
 
 .url-form__input {
-  flex: 1 1 auto;
-  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
   font: inherit;
-  font-size: 16px;
+  font-family: var(--mono);
+  font-size: 13px;
   color: var(--text-h);
-  background: var(--card-bg);
+  background: var(--field);
   border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 12px 14px;
+  border-radius: 0;
+  padding: 13px 14px;
 }
 
 .url-form__input::placeholder {
   color: var(--text);
-  opacity: 0.7;
+  opacity: 0.65;
 }
 
 .url-form__input:focus-visible {
@@ -50,22 +101,34 @@
 
 .url-form__go {
   font: inherit;
-  font-weight: 600;
-  color: #fff;
+  font-weight: 700;
+  font-size: 15px;
+  letter-spacing: 0.02em;
+  color: var(--accent-fg);
   background: var(--accent);
   border: 1px solid transparent;
-  border-radius: 8px;
-  padding: 12px 24px;
+  border-radius: 0;
+  padding: 13px 24px;
   cursor: pointer;
-  transition: opacity 0.15s;
+  transition:
+    box-shadow 0.18s ease,
+    filter 0.18s ease,
+    transform 0.12s ease;
 }
 
 .url-form__go:hover:not(:disabled) {
-  opacity: 0.9;
+  box-shadow: 0 0 16px rgba(var(--glow), 0.4);
+  filter: brightness(1.07);
+}
+
+.url-form__go:active:not(:disabled) {
+  transform: translateY(1px);
 }
 
 .url-form__go:disabled {
-  opacity: 0.45;
+  background: var(--field);
+  border-color: var(--border);
+  color: var(--text);
   cursor: not-allowed;
 }
 
@@ -75,20 +138,179 @@
 }
 
 .app__error {
-  margin-top: 14px;
+  margin: 14px 0 0;
   color: var(--danger);
-  font-size: 15px;
+  font-size: 14px;
+}
+
+/* --- pipeline legend ------------------------------------------------------ */
+/* The five stages, standing still at the rail's foot — the same signal path the
+   track cards animate. Nodes on a hairline, mono, quiet. */
+
+.console__path {
+  margin-top: auto;
+  padding-top: 36px;
+  display: flex;
+  flex-direction: column;
+}
+
+.console__path-stage {
+  position: relative;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text);
+  padding: 7px 0 7px 22px;
+}
+
+.console__path-stage::before {
+  content: '';
+  position: absolute;
+  left: 3px;
+  top: 50%;
+  width: 7px;
+  height: 7px;
+  transform: translateY(-50%);
+  background: var(--panel);
+  border: 1px solid var(--text);
+  opacity: 0.75;
+}
+
+/* the connecting line between nodes */
+.console__path-stage:not(:last-child)::after {
+  content: '';
+  position: absolute;
+  left: 7px;
+  top: calc(50% + 6px);
+  bottom: -9px;
+  width: 1px;
+  background: var(--border);
+}
+
+.console__path-stage:last-child::before {
+  background: var(--accent);
+  border-color: var(--accent);
+  opacity: 1;
+}
+
+/* --- working deck --------------------------------------------------------- */
+
+.deck {
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 44px clamp(24px, 4.5vw, 64px) 72px;
+  max-width: 1020px;
+}
+
+/* Section head: real headline + mono count + a rule that carries the eye across. */
+.deck__head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin: 0 0 16px;
+}
+
+.deck__title {
+  font-size: 21px;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  color: var(--text-h);
+  margin: 0;
+  white-space: nowrap;
+}
+
+.deck__count {
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+  border: 1px solid var(--border);
+  padding: 2px 9px;
+}
+
+.deck__head::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
 }
 
 .app__jobs {
-  margin-top: 32px;
   display: flex;
   flex-direction: column;
   gap: 12px;
+  margin-top: 40px;
 }
 
+.app__jobs .deck__head {
+  margin-bottom: 4px;
+}
+
+/* --- empty state ----------------------------------------------------------- */
+
 .app__empty {
-  color: var(--text);
-  opacity: 0.7;
+  border: 1px dashed var(--border);
+  padding: 26px 24px;
+  /* Solid ground: the ambient equalizer must not play through the panel. */
+  background: var(--bg);
+}
+
+.app__empty-line {
+  margin: 0;
   font-size: 15px;
+  font-weight: 600;
+  color: var(--text-h);
+}
+
+.app__empty-sub {
+  margin: 5px 0 0;
+  font-size: 13px;
+  color: var(--text);
+}
+
+/* --- narrow: the rail becomes a header ------------------------------------ */
+
+@media (max-width: 920px) {
+  .shell {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .console {
+    position: static;
+    height: auto;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+    padding: 30px 20px 26px;
+  }
+
+  .console__brand {
+    margin-bottom: 22px;
+  }
+
+  .console__wordmark {
+    font-size: 27px;
+  }
+
+  .console__path {
+    display: none; /* the legend is rail furniture; narrow gets the cards themselves */
+  }
+
+  .deck {
+    padding: 28px 20px 56px;
+    max-width: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .url-form__go {
+    transition: none;
+  }
+  .url-form__go:hover:not(:disabled) {
+    box-shadow: none;
+    filter: none;
+  }
+  .url-form__go:active:not(:disabled) {
+    transform: none;
+  }
 }
