@@ -183,9 +183,9 @@ it **next** (2026-07-25), and T-103's re-search exit is built on top of it, so i
   Ties to §8 item 7.
 
 ### T-106 — Parked audio lives in `/tmp` and gets reaped (from backlog T-036)
-- **Status:** **INTEGRATED on `main` 2026-07-27 (`eb5865e`). BUILT, not done — the last gate is
-  BLOCKED ON T-103, not on the owner.** 394 tests green on `main`. **All four items landed and were
-  observed:**
+- **Status:** **DONE + VERIFIED (2026-08-05).** Integrated on `main` 2026-07-27 (`eb5865e`); the
+  last gate — the end-to-end `/verify` — passed 2026-08-05 once T-103 unblocked route-resolve.
+  394 tests green on `main`. **All four items landed and were observed:**
   - **The reboot half is now PROVEN on the owner's real machine (2026-07-28).** WSL booted 08:52;
     the Frank Ocean staging file (`WgPXj2fEiW8.mp3`, 9.4 MB) was written 2026-07-27 08:56 and was
     still on disk after the boot. A WSL restart is exactly what reaped the original nine `/tmp` dirs,
@@ -223,9 +223,19 @@ it **next** (2026-07-25), and T-103's re-search exit is built on top of it, so i
   transcode now clean up after themselves, the sweep logs its failures and is opt-in to the process
   that owns the data dir, it runs off the event loop, the unreachable stat warning is reachable, and
   two sweep tests that passed under mutation were replaced with mutation-proved ones.
-  **Outstanding — the last gate:** the end-to-end `/verify` in Done-when (park a track, restart,
-  resolve, confirm the tagged MP3 lands in Jellyfin). Owner-triggered, and it needs a real download
-  plus a write to the real library.
+  **The last gate — PASSED (2026-08-05).** The full chain was driven end-to-end through the HTTP
+  routes against **two isolated `uvicorn` processes** (temp `DB_PATH` + `LIBRARY_DIRECTORY` patched
+  in **both** `beets_engine` and `import_seam` — the constant is copied by value, so a single patch
+  would still land in the real library; real library confirmed untouched, `-mmin -15` empty):
+  Nines "Franklin" (`D5QjfJao9FQ`) real download → parked (`rec:none`, 5 wrong candidates, correct
+  `f5d1bcfb…` off-list) → **killed the process and relaunched** → boot logged `swept 1 orphaned
+  staging dir(s) on startup` (a planted decoy reaped; the parked file **and** a foreign non-prefixed
+  dir survived) → `POST /reviews/{id}/search {Nines/Outro}` surfaced `f5d1bcfb…` → `POST
+  /reviews/{id}/resolve` onto it → landed `Nines/Outro.mp3`, **MP3 320 kbps**, `mb_trackid=f5d1bcfb…`,
+  genre Hip Hop, year 2017, **165 KB embedded art**, staging removed on resolve (retention ends,
+  spec §5). A **third** restart confirmed the resolve is durable (queue empty, job still `done`,
+  404/409 on the resolved id). The isolated-verify recipe was persisted to
+  `.claude/skills/verify/SKILL.md`.
   **Two corrections to this ticket, made while building it:**
   - **Item 3 was already done.** The claim "the resolve path has no existence check" was wrong —
     `jobs.py:503` has guarded it with a *terminal* `_StageFailure` naming the missing file since
