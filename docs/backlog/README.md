@@ -21,6 +21,7 @@ Two tiers live here:
   - [`T-037.md`](T-037.md) — two tag-quality defects on a real landing: the same artist split across `JAŸ‐Z/` and `Jay-Z/` folders, and no genre tag written *(observed 2026-07-28, **untriaged**; defect 1 needs an ADR since it binds every path the app writes)*
   - [`T-039.md`](T-039.md) — inbox shows "Nothing waiting" during cold-load hydration instead of a loading state *(UX gap, untriaged)*
   - [`T-040.md`](T-040.md) — keep_untagged resolve fails and re-parks — pipeline bug, not UI *(untriaged, needs investigation)*
+  - [`T-041.md`](T-041.md) — signal-glow `pointermove` calls `getBoundingClientRect()` every move, forcing sync reflow — cursor jank on low-end machines *(micro-perf, untriaged; from T-105 review)*
 - **Unscoped ideas** — broader directions not yet worked into tickets:
 
 - Playlist support (batch of tracks from one URL)

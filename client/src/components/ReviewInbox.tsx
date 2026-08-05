@@ -30,7 +30,12 @@ export function ReviewInbox({ reviews, onReviewResolved }: ReviewInboxProps) {
 
   return (
     <section className="review-inbox" aria-label="Needs review">
-      <h2 className="review-inbox__title">Needs review</h2>
+      <div className="review-inbox__label-row">
+        <h2 className="review-inbox__title">Needs review</h2>
+        {reviews.length > 0 && (
+          <span className="review-inbox__count">{reviews.length}</span>
+        )}
+      </div>
 
       {reviews.length === 0 ? (
         <p className="review-inbox__empty">Nothing waiting for review.</p>
@@ -42,20 +47,26 @@ export function ReviewInbox({ reviews, onReviewResolved }: ReviewInboxProps) {
             return (
               <li
                 key={row.review_id}
-                className={`review-inbox__row${expanded ? ' review-inbox__row--expanded' : ''}`}
+                className="review-inbox__row signal-glow"
+                data-kind={duplicate ? 'duplicate' : 'weak'}
+                data-expanded={expanded}
               >
                 <div className="review-inbox__head">
+                  <span className="review-inbox__disc" aria-hidden="true" />
                   <div className="review-inbox__body">
                     <p className="review-inbox__query" title={row.query}>
                       {row.query || 'Untitled download'}
                     </p>
-                    <span
-                      className="review-inbox__tag"
-                      data-kind={duplicate ? 'duplicate' : 'weak'}
-                    >
-                      {duplicate ? 'Duplicate' : 'Weak match'}
-                    </span>
+                    <p className="review-inbox__sub">
+                      {duplicate ? 'Already in your library' : 'Needs your review'}
+                    </p>
                   </div>
+                  <span
+                    className="review-inbox__tag"
+                    data-kind={duplicate ? 'duplicate' : 'weak'}
+                  >
+                    {duplicate ? 'Duplicate' : 'Weak match'}
+                  </span>
                   <button
                     type="button"
                     className={`review-inbox__action${expanded ? ' review-inbox__action--active' : ''}`}

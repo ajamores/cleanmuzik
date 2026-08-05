@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { ApiError, getJob } from '../api'
+import { CoverSwatch } from './CoverSwatch'
 import './TrackCard.css'
 
 /**
@@ -445,8 +446,55 @@ export function TrackCard({
   // `tags: {}` therefore can't erase a good match.
   const displayMatch = asMatch(tags) ?? tagged
 
+  // The result block (T-105): one place for the match, the landing path, the tag
+  // chips and — where a landed track carries art — the cover swatch. Shown from
+  // `tagging` (match only) through `done` (full) and on a post-landing scan `error`
+  // (path/tags ride the event, ADR-015). Never for `review_required` (the handoff note
+  // owns that), and null when there is nothing to show (a pre-landing error).
+  const landedPath = landed?.path ?? null
+  const showChips = Boolean(tags && (tags.genre || tags.has_art || tags.has_lyrics))
+  const hasResult = Boolean(displayMatch || landedPath || showChips)
+  // Art exists only once a track has landed; the swatch stands in for it (Option 2),
+  // seeded off the track's identity so the same song always draws the same cover.
+  const landedArt = (stage === 'done' || stage === 'error') && tags?.has_art === true
+  const coverSeed =
+    [displayMatch?.artist, displayMatch?.title].filter(Boolean).join(' ') || jobId
+
+  const resultNode =
+    hasResult && stage !== 'review_required' ? (
+      <div className="track-card__result">
+        {landedArt && <CoverSwatch seed={coverSeed} className="track-card__cover" />}
+        <div className="track-card__result-text">
+          {displayMatch && (
+            <>
+              <p className="track-card__match-title">
+                {displayMatch.title || 'Unknown title'}
+              </p>
+              <p className="track-card__match-meta">
+                {[displayMatch.artist, displayMatch.album, displayMatch.year]
+                  .filter(Boolean)
+                  .join(' / ') || 'No artist or album match'}
+              </p>
+            </>
+          )}
+          {landedPath && (
+            <p className="track-card__path" title={landedPath}>
+              {landedPath}
+            </p>
+          )}
+          {showChips && tags && (
+            <ul className="track-card__tags">
+              {tags.genre && <li>{tags.genre}</li>}
+              {tags.has_art && <li>Art</li>}
+              {tags.has_lyrics && <li>Lyrics</li>}
+            </ul>
+          )}
+        </div>
+      </div>
+    ) : null
+
   return (
-    <article className="track-card" data-stage={stage}>
+    <article className="track-card signal-glow" data-stage={stage}>
       <div className="track-card__head">
         <span className="track-card__status" role="status">
           {STAGE_LABEL[stage]}
@@ -462,36 +510,36 @@ export function TrackCard({
       {listKind && (
         <p className="track-card__playlist-note" role="note">
           {listKind === 'album'
-            ? 'This link was part of an album — only the named song was taken. Downloading whole albums is coming later.'
-            : 'This link was part of a playlist — only the named song was taken. Downloading whole playlists is coming later.'}
+            ? 'This link was part of an album; only the named song was taken. Downloading whole albums is coming later.'
+            : 'This link was part of a playlist; only the named song was taken. Downloading whole playlists is coming later.'}
         </p>
       )}
 
-      <ol className="track-card__rail" aria-hidden="true">
+      {/* The segmented meter rail (T-105): done segs solid, the current seg pulses,
+          the rest unlit; a park holds amber, a failure holds red. The labels beneath
+          carry the same state so colour alone reads the stage under reduced motion. */}
+      <div className="track-card__meter" aria-hidden="true">
         {RAIL.map((step, i) => (
-          <li
+          <span
             key={step.key}
-            className="track-card__step"
+            className="track-card__seg"
+            data-state={stepState(i, activeStep, stage)}
+          />
+        ))}
+      </div>
+      <div className="track-card__mlabels" aria-hidden="true">
+        {RAIL.map((step, i) => (
+          <span
+            key={step.key}
+            className="track-card__mlabel"
             data-state={stepState(i, activeStep, stage)}
           >
-            <span className="track-card__dot" />
-            <span className="track-card__step-label">{step.label}</span>
-          </li>
+            {step.label}
+          </span>
         ))}
-      </ol>
+      </div>
 
-      {displayMatch && (
-        <div className="track-card__match">
-          <p className="track-card__match-title">
-            {displayMatch.title || 'Unknown title'}
-          </p>
-          <p className="track-card__match-meta">
-            {[displayMatch.artist, displayMatch.album, displayMatch.year]
-              .filter(Boolean)
-              .join(' · ') || 'No artist or album match'}
-          </p>
-        </div>
-      )}
+      {resultNode}
 
       {stage === 'review_required' && (
         <p className="track-card__handoff">
@@ -500,31 +548,21 @@ export function TrackCard({
               never arrived); the snapshot carries no `rec`, so drop the branch claim
               rather than assert "Weak match" over what may be a duplicate. */}
           {review?.rec === 'duplicate'
-            ? 'Duplicate — moved to your review inbox.'
+            ? 'Duplicate. Moved to your review inbox.'
             : review
-              ? 'Weak match — moved to your review inbox.'
+              ? 'Weak match. Moved to your review inbox.'
               : 'Moved to your review inbox.'}
         </p>
       )}
 
-      {stage === 'done' && <LandingDetail path={landed?.path} tags={tags} />}
-
       {stage === 'error' && error && (
-        <>
-          <p className="track-card__error" role="alert">
-            <strong>
-              {error.stage ? `${ERROR_STAGE_LABEL[error.stage]} failed` : 'Failed'}
-            </strong>{' '}
-            — {error.message}
-          </p>
-          {/* A post-landing scan failure filed the song before it errored: show where it
-              went and its tags so the owner knows it's in the library (just not yet
-              refreshed in Jellyfin), not lost. The path/tags ride the error event
-              (ADR-015). Same `LandingDetail` as the `done` branch — one fragment so the
-              chips can't drift (ADR-010); a pre-landing error has no path and renders
-              nothing. */}
-          <LandingDetail path={landed?.path} tags={tags} />
-        </>
+        <p className="track-card__error" role="alert">
+          <strong>
+            {error.stage ? `${ERROR_STAGE_LABEL[error.stage]} failed` : 'Failed'}
+          </strong>
+          {': '}
+          {error.message}
+        </p>
       )}
 
       {streamLost && stage !== 'error' && (
@@ -533,36 +571,6 @@ export function TrackCard({
         </p>
       )}
     </article>
-  )
-}
-
-/** Where a landed file went + its tag chips. Shown from `track.done` (a clean
- *  landing) and, on a post-landing scan failure, from the path/tags that ride the
- *  `track.error` event (ADR-015). One fragment for both branches so the two can't
- *  drift (ADR-010). Renders nothing when there's no path (a pre-landing error), and
- *  the chip list is omitted entirely when no chip is present — no empty `<ul>`. */
-function LandingDetail({
-  path,
-  tags,
-}: {
-  path: string | null | undefined
-  tags: DoneTags | null | undefined
-}) {
-  return (
-    <>
-      {path && (
-        <p className="track-card__path" title={path}>
-          {path}
-        </p>
-      )}
-      {tags && (tags.genre || tags.has_art || tags.has_lyrics) && (
-        <ul className="track-card__tags">
-          {tags.genre && <li>{tags.genre}</li>}
-          {tags.has_art && <li>Art</li>}
-          {tags.has_lyrics && <li>Lyrics</li>}
-        </ul>
-      )}
-    </>
   )
 }
 

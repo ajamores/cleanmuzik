@@ -1,26 +1,48 @@
+@import './fonts.css';
+
+/*
+ * Signal Path palette (T-105, ADR-018). Dark-native, cyan accent, IBM Plex.
+ *
+ * The tokens carry their legacy names (--text, --card-bg, --border, --accent…) so the
+ * component stylesheets pick up the new colours without renaming every rule, AND the
+ * Signal Path additions the reskin needs: --field (recessed input ground), --ac-fg (ink
+ * that sits ON the accent), the *-tint fills, and --glow (the r,g,b triple the
+ * cursor-tracked hover glow multiplies into rgba()). Values are verbatim from the
+ * approved design gate (docs/r1/design/t105-design-gate.html).
+ */
 :root {
-  --text: #6b6375;
-  --text-h: #08060d;
-  --bg: #fafafa;
-  --card-bg: #fff;
-  --border: #e5e4e7;
-  --accent: #aa3bff;
-  --accent-bg: rgba(170, 59, 255, 0.1);
-  --danger: #c62828;
-  --danger-bg: rgba(198, 40, 40, 0.1);
-  /* A parked song is waiting on the owner, not broken — it needs its own colour,
-     distinct from both "working" (accent) and "failed" (danger). */
-  --warn: #b26a00;
-  --warn-bg: rgba(178, 106, 0, 0.12);
-  --ok: #1b7a43;
-  --ok-bg: rgba(27, 122, 67, 0.12);
-  --shadow: rgba(0, 0, 0, 0.05) 0 1px 2px, rgba(0, 0, 0, 0.04) 0 4px 12px;
+  /* text */
+  --text: #8b97a1; /* muted (--tx2) */
+  --text-h: #e9eef1; /* ink (--tx) */
+  /* surfaces — deepened for the console shell (redesign of the T-105 values) */
+  --bg: #0b0e11;
+  --panel: #0d1114; /* the console rail's ground */
+  --card-bg: #14191e; /* --card */
+  --field: #0e1216; /* recessed input ground */
+  --border: #262e36; /* --line */
+  /* accent */
+  --accent: #3fb6d8; /* --ac */
+  --accent-fg: #0a1418; /* ink on accent */
+  --accent-bg: rgba(63, 182, 216, 0.14); /* --ac-tint */
+  /* states */
+  --warn: #e0a33d;
+  --warn-bg: rgba(224, 163, 61, 0.14);
+  --ok: #46b878;
+  --ok-bg: rgba(70, 184, 120, 0.14);
+  --danger: #e06060; /* --err — the one token the reference didn't define, gated in screen 7 */
+  --danger-bg: rgba(224, 96, 96, 0.14);
+  /* the pointer-tracked hover glow multiplies this triple into rgba() */
+  --glow: 63, 182, 216;
+  /* the ambient equalizer's field strength — quieter on the light ground */
+  --ambient-op: 0.3;
 
-  --sans: system-ui, 'Segoe UI', Roboto, sans-serif;
-  --mono: ui-monospace, Consolas, monospace;
+  --shadow: rgba(0, 0, 0, 0.4) 0 1px 2px, rgba(0, 0, 0, 0.3) 0 4px 12px;
 
-  font: 18px/145% var(--sans);
-  color-scheme: light dark;
+  --sans: 'IBM Plex Sans', system-ui, 'Segoe UI', Roboto, sans-serif;
+  --mono: 'IBM Plex Mono', ui-monospace, 'Cascadia Mono', Consolas, monospace;
+
+  font: 16px/1.5 var(--sans);
+  color-scheme: dark light;
   color: var(--text);
   background: var(--bg);
   font-synthesis: none;
@@ -29,23 +51,54 @@
   -moz-osx-font-smoothing: grayscale;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --text: #9ca3af;
-    --text-h: #f3f4f6;
-    --bg: #101116;
-    --card-bg: #16171d;
-    --border: #2e303a;
-    --accent: #c084fc;
-    --accent-bg: rgba(192, 132, 252, 0.15);
-    --danger: #f28b82;
-    --danger-bg: rgba(242, 139, 130, 0.15);
-    --warn: #f5b544;
-    --warn-bg: rgba(245, 181, 68, 0.15);
-    --ok: #5ac68a;
-    --ok-bg: rgba(90, 198, 138, 0.15);
-    --shadow: rgba(0, 0, 0, 0.4) 0 1px 2px, rgba(0, 0, 0, 0.3) 0 4px 12px;
+/* Light theme: the same world re-based on the light palette. Both the system
+   preference and an explicit data-theme='light' select it; data-theme='dark'
+   forces back to the default above. (The published-artifact theme toggle stamps
+   data-theme; a real browser uses prefers-color-scheme.) */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme='dark']) {
+    --text: #5b6870;
+    --text-h: #161d22;
+    --bg: #e7eaec;
+    --panel: #eef1f2;
+    --card-bg: #f7f9fa;
+    --field: #ffffff;
+    --border: #c5cdd2;
+    --accent: #0e7d9c;
+    --accent-fg: #f4fafc;
+    --accent-bg: rgba(14, 125, 156, 0.12);
+    --warn: #a3690a;
+    --warn-bg: rgba(163, 105, 10, 0.12);
+    --ok: #1e7d4c;
+    --ok-bg: rgba(30, 125, 76, 0.12);
+    --danger: #b03434;
+    --danger-bg: rgba(176, 52, 52, 0.1);
+    --glow: 14, 125, 156;
+    --ambient-op: 0.22;
+    --shadow: rgba(0, 0, 0, 0.08) 0 1px 2px, rgba(0, 0, 0, 0.06) 0 4px 12px;
   }
+}
+
+:root[data-theme='light'] {
+  --text: #5b6870;
+  --text-h: #161d22;
+  --bg: #e7eaec;
+  --panel: #eef1f2;
+  --card-bg: #f7f9fa;
+  --field: #ffffff;
+  --border: #c5cdd2;
+  --accent: #0e7d9c;
+  --accent-fg: #f4fafc;
+  --accent-bg: rgba(14, 125, 156, 0.12);
+  --warn: #a3690a;
+  --warn-bg: rgba(163, 105, 10, 0.12);
+  --ok: #1e7d4c;
+  --ok-bg: rgba(30, 125, 76, 0.12);
+  --danger: #b03434;
+  --danger-bg: rgba(176, 52, 52, 0.1);
+  --glow: 14, 125, 156;
+  --ambient-op: 0.22;
+  --shadow: rgba(0, 0, 0, 0.08) 0 1px 2px, rgba(0, 0, 0, 0.06) 0 4px 12px;
 }
 
 body {
@@ -55,7 +108,56 @@ body {
 
 h1 {
   font-size: 40px;
-  font-weight: 600;
-  letter-spacing: -1px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
   color: var(--text-h);
+}
+
+/* --- the signal follows the pointer (T-105, ADR-018) ---------------------
+   A cursor-tracked radial glow pools under the hand on any `.signal-glow`
+   surface — the ambient line's light, gathered where you point. The JS
+   (useSignalGlow) feeds --mx/--my; this draws it. Border-colour shifts to the
+   accent on hover as state feedback. All of it dies under reduced motion. */
+.signal-glow {
+  position: relative;
+  transition:
+    border-color 0.18s ease,
+    box-shadow 0.18s ease;
+}
+
+.signal-glow::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: radial-gradient(
+    230px circle at var(--mx, 50%) var(--my, 40%),
+    rgba(var(--glow), 0.11),
+    transparent 65%
+  );
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.signal-glow:hover::after {
+  opacity: 1;
+}
+
+.signal-glow:hover {
+  border-color: rgba(var(--glow), 0.5);
+  box-shadow:
+    0 0 0 1px rgba(var(--glow), 0.12),
+    0 6px 20px -8px rgba(var(--glow), 0.25);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .signal-glow,
+  .signal-glow:hover {
+    transition: none;
+    box-shadow: none;
+  }
+  .signal-glow::after {
+    display: none;
+  }
 }

@@ -466,6 +466,30 @@ Format: `ADR-NNN — decision. Rationale. [date]`
   the progress rail — the product's spine — a native language. Full tokens + markup:
   `docs/r1/design/signal-path-tweaked.html`. (Owner decision, 2026-07-23, R1.1 skin sign-off.) [2026-07-23]
 
+  **Amendment — the "console" direction supersedes the Signal Path screens; the EQ beat bars
+  reverse the "no spectrum bars" line (2026-08-04).** T-105 first ported the approved gate faithfully.
+  Seeing it live, the owner judged it templated ("AI slop") and, with taste-skill and two `claude-fable`
+  passes, took it somewhere bolder: a **broadcast-console** skin. What changed, and what held:
+
+  *Reversed.* The single ambient signal line at ~7% is gone; in its place a **36-bar EQ beat
+  animation** across the base of the console. This **overrides** the original clause "**no spectrum
+  bars, no other ambient motion**" — an explicit owner call on seeing both live, not a drift. Reduced-
+  motion still freezes it. The wordmark treatment A (soundwave seal + script "Muzik") is replaced by a
+  **big centred crest** (OutKast-style badge, 3D crown, CLEAN/MUZIK block letters).
+
+  *Held.* The decision's *spine* is intact: dark-native, desaturated cyan `#3fb6d8` accent kept
+  deliberately quiet so the amber/green/red semantic colours out-shout it, the segmented-meter progress
+  rail (now segmented-LED), Plex Sans + Plex Mono inlined. **Cover-art discipline (ADR-010) is intact**
+  — and was *tightened* in the 2026-08-05 review follow-up: the owned-side duplicate swatch, which had
+  rendered unconditionally, was removed because it asserted art where none need exist (commit `819f22c`).
+
+  *Canonical form.* Because the console direction was built live past the gate, its source of truth is
+  the **shipped code** (`11b6302` + `819f22c`), not a flat screen. `signal-path-tweaked.html` and
+  `t105-design-gate.html` are the superseded predecessors, kept for lineage only. The rename in ADR-018's
+  title still holds in spirit — this is a visual identity you do not re-skin without a decision; the
+  identity is now the console, not Signal Path. (Owner decision, 2026-08-04; review tightening 2026-08-05.)
+  [2026-08-04]
+
 - **ADR-019 — Shazam (`shazamio`) returns as a *backup identification tier* when AcoustID misses.
   This deliberately reverses its abandonment; it does NOT reverse ADR-005.** The tier order is
   `AcoustID → Shazam → manual re-search → keep-untagged`. Shazam answers only *"what is this?"*; its

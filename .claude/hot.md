@@ -1,7 +1,7 @@
 ---
 type: meta
 title: "Hot — cleanmuzik"
-updated: 2026-08-03
+updated: 2026-08-04
 tags:
   - meta
   - hot-cache
@@ -19,47 +19,50 @@ status: evergreen
 CleanMuzik — personal YouTube → Jellyfin music tool. Purpose, stack, constraints and read-order are in
 `CLAUDE.md`; scope in `cleanmuzik-prd.md`. Not restated here.
 
-## Current State (2026-08-03)
+## Current State (2026-08-04)
 
-- **On `main`, working tree clean.**
-- **T-105 design gate PASSED** — owner approved the OutKast-style crest logo (Rev C) and Signal Path
-  palette with ambient signal line, hover glow, segmented meter rail. Design references committed to
-  `docs/r1/design/` (`crest-logo.html`, `t105-design-gate.html`). Ready for implementation.
-- Queue: 1 fixture parked (Dave East mixtape, weak match). Library: 14+ tracks (`~/cleanmuzik-data` DB).
-- Jellyfin permissions error (T-102 verify) — not app code; owner resolved by deleting tracks via
-  file explorer. No action needed.
+- **On branch `t-105-signal-path`** (pushed to origin). Not merged to `main`.
+- **T-105 console redesign committed** (`11b6302`). Grew past the original reskin: on seeing it live
+  the owner set the approved design gate aside for a bolder **console-rail** direction (taste-skill,
+  two Fable passes on `claude-fable`). Big centered crest, segmented-LED meter rail, and a **36-bar EQ
+  beat animation** replacing the ambient wave. Visual only — no logic/props/SSE/API touched. Build,
+  lint, 65/65 client tests green; verified in-browser dark + light.
+- Queue (real backend `:8137`): 2 parked weak-match reviews (Outro/Nines, Dave East). Library in
+  `~/cleanmuzik-data`.
 
-## ⟹ NEXT
+## ⟹ NEXT (T-105 close-out — DoD not yet complete)
 
-1. **T-105 implementation** — go straight into building. Apply Signal Path reskin to components:
-   crest logo SVG, CSS token swap, ambient line, segmented meter rail, hover glow, cover art on
-   landed tracks. All design references in `docs/r1/design/`.
-2. After T-105: **§8 close-out** vs the R1.1 spec.
-3. Housekeeping: delete the `/mnt/c` copy.
+1. **`/code-review`** the accumulated redesign diff (large; two Fable passes).
+2. **Amend ADR-018** — the console direction supersedes the "Signal Path" gate screens, and the EQ
+   bars **reverse its "no spectrum bars" line** (owner's explicit call). Update the T-105 ticket +
+   design-gate references too. (Decision is captured in `11b6302`'s body meanwhile.)
+3. **Merge to `main`** once 1–2 are done (DoD step 5).
+4. Then: **T-106** end-to-end `/verify` (unblocked now T-103 landed) + **§8 close-out** vs R1.1 spec.
 
 ## Also open (not the live thread)
 
 - `docs/backlog/` — **T-039** (inbox loading indicator), **T-040** (keep_untagged resolve fails),
   **T-037** (tag-quality), **T-035** (Shazam tier).
+- Real cover-art endpoint stayed deferred — T-105 shipped the Option-2 gradient swatch.
 
 ## Verifying
 
 - **Run everything from `~/github/cleanmuzik` (ext4), never `/mnt/c`** — 9p times out test workers.
-- Isolate `DB_PATH` **and** patch `LIBRARY_DIRECTORY` in **both** `beets_engine` *and* `import_seam`,
-  or a resolve lands in the real library.
-- Restart Vite (clear `node_modules/.vite`) before browser-verifying — cache misses branch changes.
-- A yt-dlp `403` at download may be transient — retry once before diagnosing.
+- Dev servers already run: `uvicorn :8137` (--reload) + Vite `:5173` (proxies `/api`). Editing server
+  modules re-runs the lifespan against the **live** DB — client-only edits are safe.
+- Playwright screenshots land in the gitignored `.playwright-mcp/`; toggle theme with
+  `document.documentElement.setAttribute('data-theme','dark'|'light')`.
 
 ## Recent sessions (rolling — last 2–3)
 
-- **2026-08-03** — T-105 design gate: iterated on OutKast-style crest logo (5 revisions via Fable
-  agent — medieval→street→tighter text→shorter wings→softer bottom→parallel outlines). Owner approved
-  Rev C. Explored equalizer bars background, reverted to ambient signal line. Cleaned up T-102
-  verification screenshots, gitignored `.playwright-mcp/`. Jellyfin permissions error closed (infra).
-- **2026-08-02 (b)** — T-102 committed (`58c0fea`), browser-verified. Filed T-039, T-040 to backlog.
-- **2026-08-02 (a)** — T-102 `/code-review` (high) → 4 findings fixed. Repo relocated to ext4. 65/65.
+- **2026-08-04 (pm)** — T-105 → full console redesign. Reskin ported the gate, owner found it
+  templated ("AI slop"), so redesigned with taste-skill/Fable: console rail, big centered crest, EQ
+  beat bars. Fixed a crest clip (nested `<symbol>` viewport → `<g>`). Committed `11b6302`, pushed.
+- **2026-08-04 (am)** — Bug fix `8ba2c2f`: `FwKp-HkKUMA` showed Done but never landed (dup-stage
+  false-match + equal-bitrate skip). → ADR-009 amendment, learnings entry.
+- **2026-08-03** — T-105 design gate passed (crest Rev C + Signal Path), since superseded.
 
 ## Where the rest of the context lives
 
-`docs/roadmap.md` · `docs/r1.1/` (active) · `docs/r1/adr.md` (**ADR-020 + amendment** newest) ·
+`docs/roadmap.md` · `docs/r1.1/` (active) · `docs/r1/adr.md` (**ADR-018 amendment owed**) ·
 `docs/learnings.md` · `docs/backlog/` · git. Business/vault → `/garden`.

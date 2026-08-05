@@ -157,10 +157,17 @@ it **next** (2026-07-25), and T-103's re-search exit is built on top of it, so i
   to `review`, the card recovers the panel), covered by the two-sweep test. Ties to §8 item 6.
   *(Full finding + evidence: this ticket supersedes `docs/backlog/T-033.md`, git-removed on filing.)*
 
-### T-105 — Signal Path reskin (crest logo, ambient line, art where real)
-- **Status:** design gate passed (2026-08-03). Owner approved the OutKast-style crest logo (Rev C:
-  wide badge, 3D crown, CLEAN/MUZIK stacked block letters) and the Signal Path palette with ambient
-  signal line. Ready for implementation.
+### T-105 — Console reskin (crest logo, EQ beat bars, art where real)
+- **Status:** **BUILT, close-out in progress (2026-08-05).** The reskin grew past the approved gate:
+  on seeing the ported Signal Path live the owner judged it templated and, with taste-skill + two
+  `claude-fable` passes, redesigned it into a **broadcast-console** skin — big centred crest, segmented-
+  LED meter rail, **36-bar EQ beat animation** replacing the ambient line. Committed `11b6302`; the
+  high-effort `/code-review` follow-up (`819f22c`) fixed three UI-truth regressions (fabricated dup
+  swatch, channel-name-as-artist, dropped expanded-row highlight) and deferred a perf nit to `T-041`.
+  The direction supersedes the gate and is ratified in the **ADR-018 amendment (2026-08-04)**; the EQ
+  bars deliberately reverse the old "no spectrum bars" clause. **Remaining:** merge to `main` (§DoD 5);
+  the one un-browser-verified fix (#1, the dup panel) awaits a duplicate paste. Earlier: design gate
+  passed 2026-08-03 (crest Rev C + Signal Path palette), since superseded.
 - **Depends on:** T-101, T-102 (skin the finished structure, not a moving target)
 - **Agent:** front-end
 - **What:** Replace the current tokens with the **Signal Path** palette (dark-native, cyan `#3fb6d8`
@@ -171,9 +178,9 @@ it **next** (2026-07-25), and T-103's re-search exit is built on top of it, so i
   duplicate; the picker stays text+score (ADR-010). Cursor-tracked hover glow on cards/buttons
   (disabled under reduced-motion). Design gate screens in `docs/r1/design/t105-design-gate.html`.
   This is **ADR-018**.
-- **Done when:** the app renders in Signal Path per the design gate artifact — crest logo, the single
-  ambient line, art where it exists, hover glow, no spectrum — light/dark both legible, reduced-motion
-  honoured. Ties to §8 item 7.
+- **Done when:** the app renders in the **Console** skin (ADR-018 as amended) — centred crest, EQ beat
+  bars, art where it genuinely exists, hover glow — light/dark both legible, reduced-motion honoured.
+  Ties to §8 item 7.
 
 ### T-106 — Parked audio lives in `/tmp` and gets reaped (from backlog T-036)
 - **Status:** **INTEGRATED on `main` 2026-07-27 (`eb5865e`). BUILT, not done — the last gate is

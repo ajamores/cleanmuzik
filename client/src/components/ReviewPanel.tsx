@@ -197,17 +197,17 @@ function WeakMatchPanel({
           <>
             Searched again for{' '}
             <span className="review__query-term">
-              {[searched.artist, searched.title].filter(Boolean).join(' — ')}
+              {[searched.artist, searched.title].filter(Boolean).join(' / ')}
             </span>
-            {searched.rows.length === 0 ? ' — no results.' : '.'}
+            {searched.rows.length === 0 ? ': no results.' : '.'}
           </>
         ) : query ? (
           <>
-            Searched <span className="review__query-term">{query}</span> — no
+            Searched <span className="review__query-term">{query}</span> with no
             confident match. Pick the right one, correct the search, or reject.
           </>
         ) : (
-          'No title could be read from the file — correct the search below, or reject.'
+          'No title could be read from the file. Correct the search below, or reject.'
         )}
       </p>
 
@@ -374,7 +374,7 @@ function KeepUntaggedForm({
         </label>
       </div>
       <p className="review__tradeoff">
-        Lands without cover art or an auto-genre — both need a MusicBrainz match.
+        Lands without cover art or an auto-genre; both need a MusicBrainz match.
         You can re-tag it any time if it ever turns up in a database.
       </p>
       <div className="review__actions">
@@ -485,7 +485,7 @@ function ReSearchForm({
   return (
     <div className="review__research">
       <p className="review__research-head">
-        Correct the search — this is what was looked up
+        Correct the search. This is what was looked up.
       </p>
       <div className="review__research-fields">
         <label className="review__field">
@@ -698,15 +698,17 @@ function DuplicatePanel({ reviewId, submitting, onSubmit }: DuplicateProps) {
           {detail.existing.length === 0 ? (
             <p className="review__dup-meta">No matching library copy found.</p>
           ) : (
-            detail.existing.map((e, i) => (
-              <div key={e.path ?? i} className="review__dup-copy">
-                <span className="review__dup-title">{e.title || 'Unknown title'}</span>
-                <span className="review__dup-meta">
-                  {[e.artist, e.album].filter(Boolean).join(' · ') || 'No artist or album'}
-                </span>
-                <span className="review__dup-bitrate">{formatBitrate(e.bitrate)}</span>
-              </div>
-            ))
+            <div className="review__dup-copies">
+              {detail.existing.map((e, i) => (
+                <div key={e.path ?? i} className="review__dup-copy">
+                  <span className="review__dup-title">{e.title || 'Unknown title'}</span>
+                  <span className="review__dup-meta">
+                    {[e.artist, e.album].filter(Boolean).join(' / ') || 'No artist or album'}
+                  </span>
+                  <span className="review__dup-bitrate">{formatBitrate(e.bitrate)}</span>
+                </div>
+              ))}
+            </div>
           )}
         </div>
 
@@ -734,7 +736,7 @@ function DuplicatePanel({ reviewId, submitting, onSubmit }: DuplicateProps) {
 
       {incomingGone && (
         <p className="review__note">
-          Only “keep existing” is available — the download would need to be fetched
+          Only “keep existing” is available: the download would need to be fetched
           again to keep or replace with it.
         </p>
       )}
@@ -760,7 +762,7 @@ function DuplicatePanel({ reviewId, submitting, onSubmit }: DuplicateProps) {
 
       <div className="review__keep-both">
         <label className="review__field">
-          Keep both — label the new copy
+          Keep both: label the new copy
           <input
             type="text"
             className="review__input"
