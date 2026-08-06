@@ -36,7 +36,14 @@ it **next** (2026-07-25), and T-103's re-search exit is built on top of it, so i
   inbox on cold load, with no live card present. Ties to §8 items 1 + the reachability of 2/3/4.
 
 ### T-102 — Lift the review lifecycle out of `TrackCard`; hand off to the inbox
-- **Status:** todo
+- **Status:** **DONE + VERIFIED (2026-08-02).** Code merged `58c0fea` (review lifecycle moved from
+  `TrackCard` into `ReviewInbox`; `ReviewPanel` re-homed into the inbox row — `ReviewInbox.tsx:82`);
+  owner browser-verified in `027a5db` (cold-load inbox, expand/collapse, resolve, and the
+  `watchColdResolve` re-park recovery all confirmed). Two findings filed to backlog that session:
+  **T-039** (inbox loading indicator) and **T-040** (keep_untagged resolve re-parks). Cleanup in
+  `a70b049`. *(This line read `todo` until 2026-08-05 — a filing bug: the closing commit updated the
+  board + backlog but not this status line, and a planning pass nearly rebuilt shipped code.
+  → `docs/learnings.md` 2026-08-05.)*
 - **Depends on:** T-101
 - **Agent:** front-end
 - **What:** A card entering `review_required` stops hosting `ReviewPanel`; it renders the one-line
@@ -158,16 +165,17 @@ it **next** (2026-07-25), and T-103's re-search exit is built on top of it, so i
   *(Full finding + evidence: this ticket supersedes `docs/backlog/T-033.md`, git-removed on filing.)*
 
 ### T-105 — Console reskin (crest logo, EQ beat bars, art where real)
-- **Status:** **BUILT, close-out in progress (2026-08-05).** The reskin grew past the approved gate:
+- **Status:** **DONE (2026-08-05) — merged `cb66c80`, one browser check folded into §8.** The reskin grew past the approved gate:
   on seeing the ported Signal Path live the owner judged it templated and, with taste-skill + two
   `claude-fable` passes, redesigned it into a **broadcast-console** skin — big centred crest, segmented-
   LED meter rail, **36-bar EQ beat animation** replacing the ambient line. Committed `11b6302`; the
   high-effort `/code-review` follow-up (`819f22c`) fixed three UI-truth regressions (fabricated dup
   swatch, channel-name-as-artist, dropped expanded-row highlight) and deferred a perf nit to `T-041`.
   The direction supersedes the gate and is ratified in the **ADR-018 amendment (2026-08-04)**; the EQ
-  bars deliberately reverse the old "no spectrum bars" clause. **Remaining:** merge to `main` (§DoD 5);
-  the one un-browser-verified fix (#1, the dup panel) awaits a duplicate paste. Earlier: design gate
-  passed 2026-08-03 (crest Rev C + Signal Path palette), since superseded.
+  bars deliberately reverse the old "no spectrum bars" clause. Merged to `main` `cb66c80`. **One
+  thread left:** the dup-panel fix (#1) is un-browser-verified — it awaits a duplicate paste, which is
+  folded into the §8 close-out verify (duplicate-from-inbox). Earlier: design gate passed 2026-08-03
+  (crest Rev C + Signal Path palette), since superseded.
 - **Depends on:** T-101, T-102 (skin the finished structure, not a moving target)
 - **Agent:** front-end
 - **What:** Replace the current tokens with the **Signal Path** palette (dark-native, cyan `#3fb6d8`

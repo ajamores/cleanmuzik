@@ -13,6 +13,18 @@ Format: `- <date> — what went wrong → the correction / rule now in place`
 
 ---
 
+- 2026-08-05 — **A ticket's status line lied because the commit that closed it didn't update it —
+  and a later planning pass nearly rebuilt shipped, verified code off that lie.** T-102 (lift the
+  review lifecycle out of `TrackCard`) was built in `58c0fea` and owner-browser-verified in
+  `027a5db` on 2026-08-02, but its own `- **Status:** todo` line in `docs/r1.1/tickets.md` was never
+  flipped — the closing commit updated the board and the backlog README instead. Three days later a
+  §8 close-out plan read that stale line and framed T-102 as unbuilt work to schedule. Caught only
+  because the plan was cross-checked against `git log --grep=T-102` before acting. Rule: **the
+  commit that closes a ticket updates the ticket's own status line in the same diff — the board is a
+  cache and does not count as the ticket's status of record.** And when a status line and the code
+  disagree, **git is the authority** — verify a "todo"/"done" against `git log` + the actual files
+  before planning work around it. (Same family as the DoD step-4 filing rule in `CLAUDE.md`: a
+  status change belongs in the ticket store, not only on the board.)
 - 2026-08-04 — **Beets' import duplicate stage was never truly neutralized — a keep-untagged item
   silently blocked every subsequent import.** `FwKp-HkKUMA` never landed despite showing "Done."
   Two stacked bugs: (1) `_resolve_duplicate` silently skipped equal-bitrate duplicates instead of
