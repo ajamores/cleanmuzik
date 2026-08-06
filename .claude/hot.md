@@ -21,31 +21,28 @@ CleanMuzik — personal YouTube → Jellyfin music tool. Purpose, stack, constra
 
 ## Current State (2026-08-05)
 
-- **On `main`, HEAD `31ab7bf`, pushed.** Tree clean. Suites green here: **server 432, client 65**.
-- **R1.1 has no unbuilt tickets.** T-101/102/103/104/105/106 all done. A Fable planning pass caught
-  that **T-102's `todo` line was stale** (built `58c0fea`, owner-verified `027a5db` on 08-02) — nearly
-  rebuilt shipped code; corrected, learning filed.
-- **T-040 CLOSED** — keep_untagged re-park was already fixed by the 08-03 dup-stage defusal (`8ba2c2f`),
-  never re-tested. Re-verified end-to-end (isolated): two keep-untagged lands in a row now succeed.
-  All three no-candidate exits work → **§8 item 4 fully satisfied**.
-- Real backend `:8137` + real library **untouched** (all verifies isolated to temp). Real queue empty.
+- **On `main`, HEAD `d73d1ba`, pushed.** Tree clean. Suites green: **server 432, client 65**.
+- **R1.1 is SHIPPED (2026-08-05).** All nine §8 acceptance items met with receipts
+  (`docs/r1.1/spec.md` §8); roadmap flipped `in-build` → `shipped`. Closes R1's §7 spec-vs-build gap.
+  T-101/102/103/104/105/106 all done + verified. The last item (duplicate-from-inbox) was
+  owner-verified in-browser today via a real Jay-Z "My 1st Song" Replace.
+- **No release in build.** R2 is next and now **unblocked**.
 
-## ⟹ NEXT — close R1.1 (§8: 8 of 9 items backed by receipts)
+## ⟹ NEXT — R2 (specing), when the owner starts it
 
-1. **The one open verify — duplicate-from-inbox (§8 item 3), in a browser.** Also closes T-105's last
-   thread: the dup-panel art fix (#1, `819f22c`) is un-browser-verified. Plan: run the isolated backend
-   on **`:8137`** (temp DB + library, Jellyfin off) so the untouched Vite proxy hits it → paste a track,
-   land it, paste again → duplicate park → resolve from the inbox; confirm cover art shows **only on the
-   owned side**. Needs a browser (Playwright MCP) + owner eyes. (Commandeers `:8137` briefly — restart
-   the real dev server after.)
-2. **Close-out** — tick all nine §8 boxes in `docs/r1.1/spec.md` with receipt pointers, flip R1.1 →
-   **shipped** in `docs/roadmap.md`, update this board. Items 1/2/4/5/6/7(skin)/8/9 already backed.
+- **R2 = playlists + migrate/clean the existing library.** Migrate is a firehose into the durable
+  review queue R1.1 just made real. First step: write `docs/r2/spec.md`, pulling relevant
+  `docs/backlog/` items in as it specs (`git mv` from `docs/backlog/`). Not started — owner's call.
 
-## Also open (not the live thread)
+## Also open (backlog — triage into R2 as it specs)
 
-- `docs/backlog/` — **T-037** (JAŸ-Z artist-string normalisation — needs an ADR), **T-039** (inbox
-  loading indicator), **T-041** (signal-glow pointermove reflow), **T-042** (loudness normalization via
-  ReplayGain tags — delegated to Jellyfin for now), **T-035** (Shazam tier).
+- **T-037** (artist-string mojibake — `JAY‑Z` → `JAŸ-Z`): **diagnosed today** as a `Y→Ÿ` encoding
+  mangle on the matched-metadata path; recurred on a real Replace (split `Jay-Z/` 3 ways, orphaned a
+  `.lrc`). Library **manually standardized** (tag+file+beets-DB), but the **pipeline fix still needs an
+  ADR** — next affected download re-splits. Higher priority than "cosmetic".
+- **T-035** (Shazam tier — GO, ADR-019, build ticket to write), **T-039** (inbox loading indicator),
+  **T-041** (signal-glow pointermove reflow), **T-042** (loudness normalization via ReplayGain tags —
+  delegated to Jellyfin for now). **T-040 CLOSED** (was already fixed by `8ba2c2f`).
 
 ## Verifying
 
@@ -56,15 +53,16 @@ CleanMuzik — personal YouTube → Jellyfin music tool. Purpose, stack, constra
 
 ## Recent sessions (rolling — last 2–3)
 
-- **2026-08-05 (pm)** — Closed R1.1 loose ends. T-106 verified end-to-end; corrected stale T-102/T-105
-  status lines (Fable plan caught the T-102 near-rebuild); **re-verified T-040 → already fixed, closed**;
-  filed T-042 (loudness). Two stale-record learnings filed. One verify left: duplicate-from-inbox.
-- **2026-08-05 (am)** — T-105 close-out → DONE. High-effort `/code-review` (4 findings), ADR-018 amended,
-  merged + pushed.
-- **2026-08-04 (pm)** — T-105 full console redesign (`11b6302`): reskin found templated, redesigned with
-  taste-skill/Fable — console rail, centred crest, EQ beat bars.
+- **2026-08-05 (pm)** — **Shipped R1.1.** Verified T-106 end-to-end; a Fable plan caught a stale
+  T-102 `todo` (nearly rebuilt shipped code); re-verified & closed T-040; owner browser-verified the
+  duplicate-from-inbox item (real Jay-Z Replace); standardized the Jay-Z library split + diagnosed
+  T-037; ticked §8, flipped roadmap → shipped. Filed T-042 + two stale-record learnings.
+- **2026-08-05 (am)** — T-105 console reskin close-out → DONE (high-effort review, ADR-018 amended,
+  merged `cb66c80`).
+- **2026-08-04 (pm)** — T-105 full console redesign (`11b6302`): reskin found templated, redesigned
+  with taste-skill/Fable.
 
 ## Where the rest of the context lives
 
-`docs/roadmap.md` · `docs/r1.1/` (active) · `docs/r1/adr.md` · `docs/learnings.md` · `docs/backlog/` ·
+`docs/roadmap.md` · `docs/r1.1/` (shipped) · `docs/r1/adr.md` · `docs/learnings.md` · `docs/backlog/` ·
 git. Business/vault → `/garden`.
