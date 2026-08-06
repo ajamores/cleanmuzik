@@ -101,21 +101,31 @@ decision.
 
 ## 8. Acceptance checklist (R1.1 is "done" when…)
 
-- [ ] After a **backend restart** (or just a browser reload), a parked review **appears in the inbox**
+**R1.1 met — closed out 2026-08-05.** Each box carries its receipt.
+
+- [x] After a **backend restart** (or just a browser reload), a parked review **appears in the inbox**
       on cold load and can be **resolved to a landed track** — the R1 §7 item, now true through the UI.
-- [ ] A **weak-match** park is reviewed and landed **from the inbox**, not from a live card.
-- [ ] A **duplicate** park is resolved from the inbox (keep-mine / replace / keep-both).
-- [ ] A **no-candidate** park shows working exits (at least **reject**), never a dead panel — the
-      2026-07-23 bug is gone.
-- [ ] The review lifecycle no longer lives in `TrackCard` (ADR-017): a card that parks hands off and
-      the review survives the card unmounting.
-- [ ] A restart with an **in-flight resolve** leaves `job` and `review` in **agreement** (T-033),
-      covered by a two-sweep test.
-- [ ] The app renders in the **Console** skin (ADR-018 as amended): centred crest, EQ beat bars, art
-      where it genuinely exists.
-- [ ] A review parked before a **machine reboot** is still resolvable after it — its staging audio lives
+      *(T-101 cold-load browser `/verify` 2026-07-24; T-106 end-to-end `/verify` 2026-08-05 — parked →
+      process restart → route-resolve → landed MP3.)*
+- [x] A **weak-match** park is reviewed and landed **from the inbox**, not from a live card.
+      *(T-102 owner browser verify `027a5db`; T-106 verify drove re-search + resolve from the inbox row.)*
+- [x] A **duplicate** park is resolved from the inbox (keep-mine / replace / keep-both).
+      *(Owner browser verify 2026-08-05 — real Jay-Z "My 1st Song" parked as a duplicate, resolved via
+      **Replace** from the inbox; explicit landed, clean removed.)*
+- [x] A **no-candidate** park shows working exits (at least **reject**), never a dead panel — the
+      2026-07-23 bug is gone. *(T-103 both exits `/verify`; T-040 re-test 2026-08-05 confirmed all three —
+      reject / re-search / keep-untagged — land.)*
+- [x] The review lifecycle no longer lives in `TrackCard` (ADR-017): a card that parks hands off and
+      the review survives the card unmounting. *(T-102 `58c0fea`, owner-verified `027a5db`.)*
+- [x] A restart with an **in-flight resolve** leaves `job` and `review` in **agreement** (T-033),
+      covered by a two-sweep test. *(T-104 `/verify` 2026-07-24, two-sweep test in the suite.)*
+- [x] The app renders in the **Console** skin (ADR-018 as amended): centred crest, EQ beat bars, art
+      where it genuinely exists. *(T-105 merged `cb66c80`; dup-panel art fix confirmed in the 2026-08-05
+      duplicate verify above.)*
+- [x] A review parked before a **machine reboot** is still resolvable after it — its staging audio lives
       somewhere durable, not in the system temp, and orphaned staging dirs are swept at boot (T-106).
-- [ ] Green on `main`, both suites, per the DoD.
+      *(T-106 `/verify` 2026-08-05 — kill+relaunch, orphan swept, parked file survived, resolved.)*
+- [x] Green on `main`, both suites, per the DoD. *(2026-08-05: server 432, client 65.)*
 
 ## Design artifacts (the signed-off gates)
 
