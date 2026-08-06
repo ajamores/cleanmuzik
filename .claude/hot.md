@@ -41,6 +41,7 @@ CleanMuzik — personal YouTube → Jellyfin music tool. Purpose, stack, constra
 - `docs/backlog/` — **T-037** (JAŸ-Z artist-string normalisation — needs an ADR; owner's LLM-sweep idea
   recorded as a candidate for the one-time half), **T-039** (inbox loading indicator), **T-040**
   (keep_untagged resolve fails), **T-041** (signal-glow pointermove reflow — from T-105 review),
+  **T-042** (loudness normalization via ReplayGain tags — delegated to Jellyfin for now),
   **T-035** (Shazam tier).
 
 ## Verifying
