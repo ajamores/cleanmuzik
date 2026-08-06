@@ -25,6 +25,16 @@ Format: `- <date> — what went wrong → the correction / rule now in place`
   disagree, **git is the authority** — verify a "todo"/"done" against `git log` + the actual files
   before planning work around it. (Same family as the DoD step-4 filing rule in `CLAUDE.md`: a
   status change belongs in the ticket store, not only on the board.)
+- 2026-08-05 — **A bug ticket was filed one day before an unrelated-looking fix silently closed it,
+  and it sat "open" for days because nobody re-tested it.** T-040 (keep_untagged resolve re-parks)
+  was filed 2026-08-02; the `8ba2c2f` dup-stage defusal landed 2026-08-03 and fixed the same SKIP
+  signature (a keep-untagged resolve false-matching a prior empty-MBID item). A §8 ship decision
+  nearly treated T-040 as a live blocker. Reproducing its exact precondition (land one keep-untagged
+  item, then keep-untagged-resolve a second) showed it lands clean. Rule: **before triaging or
+  shipping around a stale bug ticket, re-test it against everything that landed after it was filed —
+  a fix aimed at one ticket routinely closes another. `git log <fixdate>..` + a one-shot repro is
+  cheaper than carrying a phantom bug.** (Owner's own memory — "I think I've done this before" —
+  was the tell; the record confirmed it. Same stale-record family as the T-102 line above.)
 - 2026-08-04 — **Beets' import duplicate stage was never truly neutralized — a keep-untagged item
   silently blocked every subsequent import.** `FwKp-HkKUMA` never landed despite showing "Done."
   Two stacked bugs: (1) `_resolve_duplicate` silently skipped equal-bitrate duplicates instead of
