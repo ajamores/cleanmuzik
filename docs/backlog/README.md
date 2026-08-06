@@ -22,6 +22,7 @@ Two tiers live here:
   - [`T-039.md`](T-039.md) — inbox shows "Nothing waiting" during cold-load hydration instead of a loading state *(UX gap, untriaged)*
   - [`T-040.md`](T-040.md) — keep_untagged resolve fails and re-parks — pipeline bug, not UI *(untriaged, needs investigation)*
   - [`T-041.md`](T-041.md) — signal-glow `pointermove` calls `getBoundingClientRect()` every move, forcing sync reflow — cursor jank on low-end machines *(micro-perf, untriaged; from T-105 review)*
+  - [`T-042.md`](T-042.md) — loudness normalization: write portable ReplayGain tags at import *(untriaged; the pipeline does no leveling by design — currently delegated to Jellyfin's LUFS scan; needs an ADR for target level + track/album default)*
 - **Unscoped ideas** — broader directions not yet worked into tickets:
 
 - Playlist support (batch of tracks from one URL)
