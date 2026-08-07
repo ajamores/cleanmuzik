@@ -1,181 +1,118 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Guidance for Claude Code (claude.ai/code) working in this repository.
 
 ## Start here (read in this order)
 
 1. **`CLAUDE.md`** (this file) — how we work
 2. **`cleanmuzik-prd.md`** — product source of truth (scope + design)
 3. **`docs/roadmap.md`** — which release is active
-4. **`docs/r1/spec.md`** — what R1 builds *(written + owner signed off)*
-5. **`docs/r1/architecture.md`** — the stack diagram + open technical seams (single home)
+4. **`docs/r1/spec.md`** — what R1 builds *(signed off)*
+5. **`docs/r1/architecture.md`** — stack diagram + open technical seams (single home)
 6. **`docs/r1/adr.md`** — binding decisions; do not silently reverse one
 7. **`docs/learnings.md`** — mistakes already paid for; don't repeat them
-8. **`.claude/hot.md`** — live session state + what's next
+8. **`docs/workflow.md`** — the build process (DoD rationale, fan-out, verify playbook)
+9. **`.claude/hot.md`** — live session state + what's next
 
-**Current phase: R1 build, ticket by ticket.** The review-queue seam is proven (the beets
-spike → ADR-006/007), the spec is written and signed off, and `docs/r1/tickets.md` holds the
-19 build tickets. Building has begun (T-001: FastAPI backend). Work the tickets in dependency
-order; each is done per the Definition of Done below.
+**Which release is active, and live session state, are not tracked here** — that's `docs/roadmap.md`
+and `.claude/hot.md`. Work tickets in dependency order; each is done per the Definition of Done below.
 
 ## What this is
 
-CleanMuzik is a **single-user personal tool** for building a clean, richly-tagged Jellyfin music
-library. It does two jobs:
+CleanMuzik is a **single-user personal tool** for a clean, richly-tagged Jellyfin music library. Two jobs:
 
-1. **Acquire** — paste a YouTube song or playlist URL → download audio → identify → tag →
-   land it, organized, in the Jellyfin library. The everyday flow.
+1. **Acquire** — paste a YouTube song/playlist URL → download → identify → tag → land it, organized,
+   in the Jellyfin library. The everyday flow.
 2. **Migrate + clean** — re-tag and organize the owner's existing library with the same engine.
 
-Jellyfin is the central hub (library, storage, streaming, playback). The app is the front door
-that gets clean, well-tagged music into it.
+Jellyfin is the hub (library, storage, streaming, playback); the app is the front door into it.
 
-**The source of truth for scope and design is `cleanmuzik-prd.md`.** Read it before building.
-The older `music-cleaner-prd.md` and `cleanmuzik-secret-mode-prd.md` describe an **abandoned**
-design (portfolio showcase, Express-middleman stack, hand-rolled ShazamIO + Mutagen engine,
-hidden "secret mode") — do **not** implement from them.
+**Scope truth is `cleanmuzik-prd.md`** — read it before building. The old
+`archive/music-cleaner-prd.md` and `archive/cleanmuzik-secret-mode-prd.md` describe an **abandoned**
+design (portfolio showcase, Express-middleman stack, hand-rolled ShazamIO + Mutagen, hidden "secret
+mode") — do **not** implement from them.
 
-## Current state vs. plan
+## Current state
 
-Read this before assuming anything exists. The repo predates the current design and is **mostly
-stale scaffold**:
+R1 and R1.1 have **shipped** (see `docs/roadmap.md`); the app is built, not scaffold. Read the real
+implementation:
 
-- `client/` — stock Vite + React 19 template (`App.tsx` is the default landing page). React is
-  **kept** in the new plan; this specific UI is placeholder.
-- `server/` — Express 5 app with one `/health` route. Express is **being dropped** — the new
-  backend is Python/FastAPI. This directory will be replaced, not extended.
-- **Not present yet:** FastAPI, beets, yt-dlp, ffmpeg integration, Jellyfin wiring, SSE, the
-  real UI. All planned per `cleanmuzik-prd.md`.
+- `server/` — the **Python/FastAPI** backend: the download → transcode → identify → tag → land
+  pipeline (`app/`, e.g. `jobs.py`, `beets_engine.py`, `reviews.py`, `events.py`, `jellyfin.py`).
+- `client/` — the real **React 19** UI (job submission, live SSE progress, the review inbox).
 
-Build against the PRD, not the existing `server/` code.
+The PRD is scope truth; `server/` and `client/` are the built implementation — read them, don't
+treat them as stale scaffold to bypass.
 
-## Architecture (target)
+## Architecture
 
-Python engine → Python backend, **no Node/Express bridge**. The full stack diagram and the open
-technical seams live in **`docs/r1/architecture.md`** — its single home; don't restate them here.
-The three things worth carrying in your head:
+Python engine → Python backend, **no Node/Express bridge**. The stack diagram + open seams live in
+**`docs/r1/architecture.md`** (single home). Three things to carry in your head:
 
 - **beets is the tagging engine** — never hand-roll one. Plugins do the work: `chroma` (AcoustID),
   `lastgenre` (Last.fm genres), `fetchart` + `embedart` (cover art).
 - **The review queue is the product's spine.** beets emits a confidence per track; strong matches
-  auto-tag, weak ones (common for YouTube rips) go to a review queue. A UX centrepiece, not an
-  afterthought.
+  auto-tag, weak ones (common for YouTube rips) go to a review queue. A UX centrepiece.
 - **Progress is SSE**, not polling.
 
 ### Hard constraints
 
 The binding constraints — sequential processing (no parallelizing the pipeline), MP3 320 output,
-one-failure-continues-the-batch, single-user/no-auth, beets-not-hand-rolled — are recorded as
-**ADR-001–005 in `docs/r1/adr.md`**, their single home. A review checks new code against them;
-do not silently reverse one.
+one-failure-continues-the-batch, single-user/no-auth, beets-not-hand-rolled — are **ADR-001–005 in
+`docs/r1/adr.md`** (single home). Review checks new code against them; do not silently reverse one.
 
 ## Commands
 
-Client (`cd client`):
-- `npm run dev` — Vite dev server
-- `npm run build` — `tsc -b && vite build`
-- `npm run lint` — ESLint
+Client (`cd client`): `npm run dev` (Vite) · `npm run build` (`tsc -b && vite build`) · `npm run lint`
+· `npm test` (vitest).
 
-Server (`cd server`) — Python/FastAPI (the Express scaffold was dropped in T-001). The canonical
-setup + run commands live in **`server/README.md`** — don't duplicate them here. In short:
-`uvicorn app.main:app --reload` serves `GET /api/health`; secrets load from the git-ignored
-**repo-root** `.env` (spec §6, template in `.env.example`).
+Server (`cd server`) — Python/FastAPI. Canonical setup + run in **`server/README.md`** (don't
+duplicate here). In short: `uvicorn app.main:app --reload` serves `GET /api/health`; secrets load
+from the git-ignored **repo-root** `.env` (spec §6, template `.env.example`). Tests: `pytest` (see
+`server/pytest.ini`, `server/tests/`). Packages are managed independently — no root workspace tooling.
 
-There is no automated test runner wired yet; `requirements-dev.txt` adds the FastAPI `TestClient`,
-which drives the real pipeline (real yt-dlp/ffmpeg/fpcalc/AcoustID) without needing a server up.
-
-**`localhost` HTTP is reachable from here — the earlier claim that "this sandbox blocks live
-sockets" was wrong** (disproved 2026-07-19 by `curl`-ing the owner's running `uvicorn`; see
-`docs/learnings.md`). So `/verify` has two handles, and the second was unavailable only in theory:
-
-- **`TestClient`** — no server needed, best for route/pipeline logic.
-- **The running server over HTTP** — `curl http://localhost:8137/...`, including `POST /api/jobs`,
-  SSE, and the review endpoints. This exercises the real ASGI stack, the real DB, and the real
-  Vite proxy target. Prefer it when the question is "does the deployed thing behave".
-
-What still genuinely needs the owner is a **browser**: DOM rendering, `EventSource` reconnect
-behaviour, DevTools offline toggling, and anything visual in Jellyfin. Scope tickets against *that*
-line, not against a socket wall that doesn't exist.
-
-Two standing hazards when verifying:
-- **Isolate `DB_PATH` + the beets library to a temp dir**, or the run pollutes the real library.
-- **Check for a running dev server first** (`pgrep -af uvicorn`). It runs with `--reload`, so
-  editing a module that mutates state at startup — `db.py` especially — re-runs the lifespan
-  against the **live** database within seconds, unprompted.
-
-There is no root-level workspace tooling — packages are managed independently.
+**Verifying:** `/verify` runs against `TestClient` *or* the running server over HTTP (`localhost` is
+reachable). Two load-bearing hazards — **isolate `DB_PATH` + the beets library to a temp dir** or the
+run pollutes the real library, and **`pgrep -af uvicorn` first** (the `--reload` server re-runs its
+lifespan against the *live* DB the moment you edit a startup module). Full playbook: `docs/workflow.md`
++ the `/verify` skill.
 
 ## Design gate (UI tickets) — before code
 
-A ticket that introduces or changes a user-visible **flow or state** passes a design gate *before*
-component code is written: quick, flat HTML screens — **one per scenario, including the failure and
-edge states** — published as an artifact for the owner to review, and the flow is signed off before
-building. This gate runs *ahead of* the Definition of Done below, not inside it.
-
-Scope: flow/state changes only, **not** CSS/visual-only tweaks. Keep the screens flat HTML with no
-live state — the moment they try to *be* the app, the gate costs more than it saves. It does **not**
-replace `/verify`: platform-behaviour bugs (EventSource through the Vite proxy, native `<input>`
-validation) still need a real browser; the gate narrows what's left for the browser, it doesn't
-remove it. Rationale and the T-020 evidence live in **ADR-016** — its single home; don't restate here.
+A ticket that changes a user-visible **flow or state** passes a design gate *before* component code:
+flat HTML scenario screens — one per scenario, **including failure/edge states** — published for owner
+sign-off. Runs *ahead of* the Definition of Done, not inside it. Scope: flow/state changes only, **not**
+CSS/visual tweaks. Detail + the T-020 evidence: **ADR-016** and `docs/workflow.md`.
 
 ## Definition of Done (per ticket)
 
-A ticket is done when there's a receipt, not a claim:
+A ticket is done when there's a receipt, not a claim. Each step earned its place from a mistake — the
+**rationale + evidence for every step is in `docs/workflow.md`**; the imperatives are:
 
-1. **Review pass** — `/code-review` on the diff (correctness bugs + cleanup).
-2. **Acceptance check** — re-read the ticket's own **"Done when"** and the spec section it cites,
-   and check the diff against them. This is a *different question* from the review pass, with
-   different evidence: `/code-review` asks "is this code correct?", this asks "is this the thing we
-   asked for?" Code can be flawless and still not be the ticket — and a diff review structurally
-   cannot see that, because the ticket and the spec aren't in the diff. **If the ticket asks for
-   something the spec's payload can't deliver, stop and amend, don't build the nearest thing.**
-   (T-016 asked for cover art on `track.tagging` from `4a2f60f` until 2026-07-17; that event has
-   never carried art. Four tickets shipped through high-effort reviews — two of which caught
-   data-loss and hang-forever bugs — and none caught it, because none of them was asking. → ADR-010)
-3. **Observable artifact** — for pipeline tickets, `/verify`: drive the actual flow and confirm
-   the real side effect (e.g. a correctly-tagged MP3 320 with embedded art landed in the Jellyfin
-   folder). "The code looks right" is not done; "I watched it happen" is.
-4. **Transcribe corrections** to `docs/learnings.md` as they come up — **at the moment they come up,
-   not onto the session board.** A lesson written to `.claude/hot.md` instead of its owning store is
-   a filing bug: the board is overwritten, the store is forever. (This lapsed from T-012 to T-015 and
-   cost a whole session to unwind — see the 2026-07-16 board entry in `learnings.md`.) Route by
-   owner: a decision that constrains future code → `docs/r1/adr.md`; a mistake paid for →
-   `docs/learnings.md`; ticket scope/status → `docs/r1/tickets.md`; scope or intent →
-   `cleanmuzik-prd.md`. **Only branch state / work-in-flight / what's next belongs on the board.**
-5. **Integration** — merge onto `main` and confirm the suite is green *there*. A ticket that passes
-   1–4 in a worktree is **built**, not **done**: it isn't in the product until it's on `main`. Steps
-   1–4 answer "is the work good?"; this answers "is it shipped?" — a different question, and the one
-   that was unwritten until a ticket sat verified-but-unlanded and got called "done" (owner
-   correction, 2026-07-17). **"Done" always implies integrated.** Use **built** for the isolated,
-   checks-pass, not-yet-merged state. The merge mechanics are in *Parallel build* below.
+1. **Review pass** — `/code-review` on the diff (correctness + cleanup).
+2. **Acceptance check** — re-read the ticket's own **"Done when"** + the spec section it cites, and
+   check the diff against them. Different question from step 1: "is this the thing we asked for?", which
+   a diff review structurally can't see. **If the spec's payload can't deliver the ask, stop and amend
+   — don't build the nearest thing.**
+3. **Observable artifact** — for pipeline tickets, `/verify`: drive the real flow, confirm the real
+   side effect. "Looks right" is not done; "I watched it happen" is.
+4. **Transcribe corrections to their owning store, as they come up** — not onto the board. Route:
+   future-code decision → `adr.md`; mistake paid for → `learnings.md`; ticket scope/status →
+   `tickets.md`; scope/intent → the PRD. **Only branch state / work-in-flight / next belongs on the board.**
+5. **Integration** — merge onto `main`, suite green *there*. Passing 1–4 in a worktree is **built**,
+   not **done**. **"Done" always implies integrated.**
+6. **Ledger sync** — the closing commit **flips that ticket's own status line in the same commit**. A
+   closed ticket the ledger still calls `todo`/`in-build` invites a rebuild of shipped code.
 
-`/code-review` and `/verify` are built-in Claude Code skills, not project code — `/code-review`
-*reads* the diff, `/verify` *runs* it. They cost tokens per run and `/verify` needs the app
-runnable.
-
-## Parallel build (fan-out) — the mechanics that work
-
-Proven on T-002/03/04 and again on T-013 ∥ T-015. Reuse this shape; don't improvise a new one:
-
-- **Only fan out tickets whose file sets are disjoint** (e.g. `server/` ∥ `client/`) and whose deps
-  are already landed. Overlap means merge pain that costs more than the parallelism saves.
-- **One worktree per agent.** Give each a self-contained brief that names the load-bearing risks up
-  front — the agent can't see the others' work.
-- **Integrate one at a time onto `main`**, in dependency order (the ticket others depend on lands
-  first). Merge `--no-commit`, run the suite, `/code-review` the diff **in the working tree before
-  committing**, reconcile shared files (`requirements.txt`, `README.md`, `main.py`) by hand.
-- **The owner adjudicates every finding** — accept/reject is not the agent's call. Record rejections
-  with the reason; they're evidence, not noise.
+Fan-out mechanics (worktrees, one-at-a-time integration, owner adjudicates findings): `docs/workflow.md`.
 
 ## Hosting
 
-Runs where Jellyfin runs (Jellyfin reads local disk; beets writes there) — **home, not a VPS**.
-Phase 0: the owner's laptop at `localhost`. Phase 1: a dedicated always-on PC reached via
-**Tailscale** (a VPN to reach an owned machine — not a VPS, which would mean hosting the library
-in the cloud). See `cleanmuzik-prd.md` §9 for the phased plan.
+Runs where Jellyfin runs — **home, not a VPS**. Phase 0: the owner's laptop at `localhost`. Phase 1:
+an always-on box reached via **Tailscale**. Phased plan: `cleanmuzik-prd.md` §9; host hardware:
+`docs/roadmap.md` (R3+).
 
 ## Session board
 
-Active workstream state for this repo lives in `.claude/hot.md` (the repo's hot board), per the
-`/hot` and `/maintenance` conventions. Keep tasks and open items there and in the PRD's open-
-questions section — not in this file.
+Working state lives in `.claude/hot.md` (the repo's hot board), per `/hot` and `/maintenance`. Tasks
+and open items go there and in the PRD's open-questions section — not in this file.
