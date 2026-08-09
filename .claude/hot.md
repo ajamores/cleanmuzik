@@ -57,15 +57,11 @@ data-model ADRs can proceed now (engine-agnostic). Detail: council doc §2.
 - `Vanessa Bling…/Frontline.mp3` — really Pa Salieu. Re-tag/re-acquire.
 - `JAŸ-Z/Roc Boys` — T-037 recurrence. Re-consolidate.
 
-## Also open (backlog, parked — NOT R2)
+## Also open / verifying
 
-Per roadmap gate: T-035 (Shazam — now central), T-034, T-042, T-023/030/031/039/041. Only T-037 pulled into R2.
-
-## Verifying
-
-Run from `~/github/cleanmuzik` (ext4), never `/mnt/c`. Isolate `DB_PATH` + patch `LIBRARY_DIRECTORY`
-in **both** modules (shim in scratchpad). Playbook: `docs/workflow.md` + `/verify` skill. Dev servers:
-uvicorn `:8137` + Vite `:5173`.
+Backlog (parked, NOT R2): T-035 (Shazam — now central), T-034, T-042, T-023/030/031/039/041; only
+T-037 pulled into R2. Verify playbook: `/verify` skill + `docs/workflow.md` (isolate `DB_PATH`, never
+`/mnt/c`; dev servers uvicorn `:8137` + Vite `:5173`).
 
 ## Recent sessions (rolling — last 2–3)
 
