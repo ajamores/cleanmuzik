@@ -1,0 +1,1709 @@
+[
+  {
+    "id": 0,
+    "youtube": {
+      "title": "My 1st Song",
+      "channel": "JA\u0178-Z",
+      "is_topic_channel": false,
+      "duration_s": 284,
+      "tags": [
+        "JA\u0178-Z",
+        "\u30b8\u30a7\u30a4\u30b8\u30fc",
+        "\u30b8\u30a7\u30a4\u30fbZ",
+        "The Black Album",
+        "My 1st Song"
+      ]
+    },
+    "acoustid": {
+      "top_score": 0.98,
+      "gap": 0.98,
+      "auto_land_eligible": true
+    },
+    "musicbrainz_candidates": [
+      {
+        "n": 0,
+        "artist": "JA\u0178-Z",
+        "title": "My 1st Song",
+        "album": null,
+        "distance": 0.111
+      },
+      {
+        "n": 1,
+        "artist": "JA\u0178-Z",
+        "title": "My 1st Song",
+        "album": null,
+        "distance": 0.111
+      },
+      {
+        "n": 2,
+        "artist": "JA\u0178-Z",
+        "title": "My 1st Song",
+        "album": null,
+        "distance": 0.171
+      },
+      {
+        "n": 3,
+        "artist": "JA\u0178-Z",
+        "title": "My 1st Song",
+        "album": null,
+        "distance": 0.219
+      },
+      {
+        "n": 4,
+        "artist": "Danger Mouse",
+        "title": "My 1st Song",
+        "album": null,
+        "distance": 0.313
+      },
+      {
+        "n": 5,
+        "artist": "JA\u0178-Z",
+        "title": "My 1st Song",
+        "album": null,
+        "distance": 0.333
+      },
+      {
+        "n": 6,
+        "artist": "JA\u0178-Z",
+        "title": "My 1st Song",
+        "album": null,
+        "distance": 0.333
+      }
+    ]
+  },
+  {
+    "id": 1,
+    "youtube": {
+      "title": "Thee Sacred Souls - Future Lover (Official Audio)",
+      "channel": "Thee Sacred Souls",
+      "is_topic_channel": false,
+      "duration_s": 212,
+      "tags": [
+        "thee sacred souls",
+        "sacred souls",
+        "soul",
+        "sweet soul",
+        "penrose records",
+        "daptone records",
+        "daptone",
+        "penrose"
+      ]
+    },
+    "acoustid": {
+      "top_score": 0.988,
+      "gap": 0.988,
+      "auto_land_eligible": true
+    },
+    "musicbrainz_candidates": [
+      {
+        "n": 0,
+        "artist": "Thee Sacred Souls",
+        "title": "Future Lover",
+        "album": null,
+        "distance": 0.318
+      },
+      {
+        "n": 1,
+        "artist": "Thee Sacred Souls",
+        "title": "Future Lover",
+        "album": null,
+        "distance": 0.318
+      },
+      {
+        "n": 2,
+        "artist": "Thee Sacred Souls",
+        "title": "Future Lover",
+        "album": null,
+        "distance": 0.408
+      },
+      {
+        "n": 3,
+        "artist": "Thee Sacred Souls",
+        "title": "Future Lover",
+        "album": null,
+        "distance": 0.471
+      },
+      {
+        "n": 4,
+        "artist": "Bella Ballon",
+        "title": "Super Bella (official audio)",
+        "album": null,
+        "distance": 0.699
+      }
+    ]
+  },
+  {
+    "id": 2,
+    "youtube": {
+      "title": "Dave East - Spanish Harlem Diary #3",
+      "channel": "Minister / MVHZ",
+      "is_topic_channel": false,
+      "duration_s": 1148,
+      "tags": [
+        "dave",
+        "east",
+        "dave east",
+        "spanish harlem",
+        "diary",
+        "pt3",
+        "mvhz",
+        "new",
+        "york",
+        "new york",
+        "hiphop",
+        "nas"
+      ]
+    },
+    "acoustid": {
+      "top_score": 0.0,
+      "gap": 0.0,
+      "auto_land_eligible": false
+    },
+    "musicbrainz_candidates": [
+      {
+        "n": 0,
+        "artist": "Ben E. King",
+        "title": "Spanish Harlem",
+        "album": null,
+        "distance": 0.691
+      },
+      {
+        "n": 1,
+        "artist": "John Barry",
+        "title": "Spanish Harlem",
+        "album": null,
+        "distance": 0.71
+      },
+      {
+        "n": 2,
+        "artist": "Aretha Franklin",
+        "title": "Spanish Harlem",
+        "album": null,
+        "distance": 0.713
+      },
+      {
+        "n": 3,
+        "artist": "Aretha Franklin",
+        "title": "Spanish Harlem",
+        "album": null,
+        "distance": 0.713
+      },
+      {
+        "n": 4,
+        "artist": "Bob Dylan",
+        "title": "Spanish Harlem Incident",
+        "album": null,
+        "distance": 0.741
+      }
+    ]
+  },
+  {
+    "id": 3,
+    "youtube": {
+      "title": "Nines - Outro \"Franklin\" (Music Video)",
+      "channel": "Reel Go-Getters",
+      "is_topic_channel": false,
+      "duration_s": 201,
+      "tags": [
+        "snowfall",
+        "nines",
+        "outro",
+        "uk rap",
+        "ice city",
+        "fx",
+        "franklin saint",
+        "hip hop",
+        "uk hip hop"
+      ]
+    },
+    "acoustid": {
+      "top_score": 0,
+      "gap": 0,
+      "auto_land_eligible": false
+    },
+    "musicbrainz_candidates": []
+  },
+  {
+    "id": 4,
+    "youtube": {
+      "title": "Odeal -  Children of Yeshua (Official Lyric Video)",
+      "channel": "Odeal",
+      "is_topic_channel": false,
+      "duration_s": 177,
+      "tags": [
+        "Leon Thomas",
+        "Leon Thomas Odeal",
+        "Leon Thomas Odeal Miami",
+        "Odeal - Miami ft. Leon Thomas",
+        "The Summer That Saved Me Odeal",
+        "Odeal Blame U",
+        "Brent Faiyaz Odeal",
+        "Jagged Edge",
+        "UK",
+        "Nigeria",
+        "Soh Soh",
+        "Odeal - Coffee"
+      ]
+    },
+    "acoustid": {
+      "top_score": 0.974,
+      "gap": 0.974,
+      "auto_land_eligible": true
+    },
+    "musicbrainz_candidates": [
+      {
+        "n": 0,
+        "artist": "Odeal",
+        "title": "Children of Yeshua",
+        "album": null,
+        "distance": 0.226
+      },
+      {
+        "n": 1,
+        "artist": "Bella Ballon",
+        "title": "Zo zoet als suikergoed (official lyric video)",
+        "album": null,
+        "distance": 0.457
+      },
+      {
+        "n": 2,
+        "artist": "Bella Ballon",
+        "title": "Ik ben niet bang (Halloween) (official lyric video)",
+        "album": null,
+        "distance": 0.468
+      },
+      {
+        "n": 3,
+        "artist": "The Red Jumpsuit Apparatus",
+        "title": "Reap (lyric video)",
+        "album": null,
+        "distance": 0.701
+      },
+      {
+        "n": 4,
+        "artist": "\u661f\u91ce\u6e90",
+        "title": "\u604b (Official Video)",
+        "album": null,
+        "distance": 0.708
+      }
+    ]
+  },
+  {
+    "id": 5,
+    "youtube": {
+      "title": "Ogi - Envy [Official Audio]",
+      "channel": "Ogi",
+      "is_topic_channel": false,
+      "duration_s": 247,
+      "tags": [
+        "envy ogi",
+        "ogi envy",
+        "ogi",
+        "envy",
+        "ogi i got it",
+        "i got it ogi",
+        "envy me",
+        "arealogi",
+        "ogi ogi",
+        "live performance",
+        "envy live",
+        "ogi i got it lyrics"
+      ]
+    },
+    "acoustid": {
+      "top_score": 0.969,
+      "gap": 0.969,
+      "auto_land_eligible": true
+    },
+    "musicbrainz_candidates": [
+      {
+        "n": 0,
+        "artist": "Ogi",
+        "title": "Envy",
+        "album": null,
+        "distance": 0.291
+      },
+      {
+        "n": 1,
+        "artist": "Breton",
+        "title": "Envy",
+        "album": null,
+        "distance": 0.665
+      },
+      {
+        "n": 2,
+        "artist": "Bella Ballon",
+        "title": "Super Bella (official audio)",
+        "album": null,
+        "distance": 0.686
+      },
+      {
+        "n": 3,
+        "artist": "Bella Ballon",
+        "title": "Feest voor iedereen (official audio)",
+        "album": null,
+        "distance": 0.711
+      },
+      {
+        "n": 4,
+        "artist": "Bella Ballon",
+        "title": "Jij maakt de zomer top (official audio)",
+        "album": null,
+        "distance": 0.738
+      }
+    ]
+  },
+  {
+    "id": 6,
+    "youtube": {
+      "title": "Lute - Ballad of Westside Scoop",
+      "channel": "Lute",
+      "is_topic_channel": false,
+      "duration_s": 161,
+      "tags": [
+        "Lute West",
+        "Lute",
+        "Dreamville",
+        "North Carolina",
+        "Hip Hop",
+        "Rap",
+        "Music",
+        "90s Rap",
+        "lyrical Rap",
+        "J Cole",
+        "Earth Gang",
+        "JID"
+      ]
+    },
+    "acoustid": {
+      "top_score": 0.0,
+      "gap": 0.0,
+      "auto_land_eligible": false
+    },
+    "musicbrainz_candidates": [
+      {
+        "n": 0,
+        "artist": "Lute",
+        "title": "Ballad of Westside Scoop",
+        "album": null,
+        "distance": 0.164
+      },
+      {
+        "n": 1,
+        "artist": "Nasum",
+        "title": "Scoop",
+        "album": null,
+        "distance": 0.669
+      },
+      {
+        "n": 2,
+        "artist": "TQ",
+        "title": "Westside",
+        "album": null,
+        "distance": 0.727
+      },
+      {
+        "n": 3,
+        "artist": "\u5927\u6ca2\u8a89\u5fd7\u5e78",
+        "title": "Scoop",
+        "album": null,
+        "distance": 0.805
+      },
+      {
+        "n": 4,
+        "artist": "SOIL&\u201cPIMP\u201dSESSIONS",
+        "title": "Scoop Out",
+        "album": null,
+        "distance": 0.839
+      }
+    ]
+  },
+  {
+    "id": 7,
+    "youtube": {
+      "title": "Pa Salieu - Frontline (Music Video) | @MixtapeMadness",
+      "channel": "Mixtape Madness",
+      "is_topic_channel": false,
+      "duration_s": 205,
+      "tags": [
+        "mixtape madness",
+        "mad about mixtapes",
+        "drill",
+        "grime",
+        "rap",
+        "london",
+        "uk drill",
+        "uk rap",
+        "Pa Salieu",
+        "Frontline"
+      ]
+    },
+    "acoustid": {
+      "top_score": 0.994,
+      "gap": 0.994,
+      "auto_land_eligible": true
+    },
+    "musicbrainz_candidates": [
+      {
+        "n": 0,
+        "artist": "Vanessa Bling & The Heatwave",
+        "title": "Frontline",
+        "album": null,
+        "distance": 0.543
+      },
+      {
+        "n": 1,
+        "artist": "Apink",
+        "title": "NoNoNo Music Video",
+        "album": null,
+        "distance": 0.584
+      },
+      {
+        "n": 2,
+        "artist": "\u30d2\u30c8\u30ea\u30a8",
+        "title": "\u9752 -Music Video-",
+        "album": null,
+        "distance": 0.744
+      },
+      {
+        "n": 3,
+        "artist": "\u6625\u5948\u308b\u306a",
+        "title": "snowdrop (Music Video)",
+        "album": null,
+        "distance": 0.767
+      },
+      {
+        "n": 4,
+        "artist": "\u6625\u5948\u308b\u306a",
+        "title": "Startear (Music Video)",
+        "album": null,
+        "distance": 0.767
+      },
+      {
+        "n": 5,
+        "artist": "Reza Rozim",
+        "title": "Nightmare | VIDEO Version",
+        "album": null,
+        "distance": 0.784
+      }
+    ]
+  },
+  {
+    "id": 8,
+    "youtube": {
+      "title": "Alicia Keys - You Don't Know My Name (Lyrics)",
+      "channel": "Unique Sound",
+      "is_topic_channel": false,
+      "duration_s": 367,
+      "tags": [
+        "Unique Sound",
+        "Alicia Keys",
+        "You Don't Know My Name",
+        "Alicia Keys You Don't Know My Name",
+        "You Don't Know My Name Alicia Keys",
+        "Lyrics",
+        "Lyrics You Don't Know My Name",
+        "Alicia Keys You Don't Know My Name Lyrics",
+        "You Don't Know My Name Alicia Keys Lyrics",
+        "Alicia Keys Lyrics",
+        "You Don't Know My Name Lyrics Alicia Keys",
+        "Lyrics Alicia Keys You Don't Know My Name"
+      ]
+    },
+    "acoustid": {
+      "top_score": 0.982,
+      "gap": 0.982,
+      "auto_land_eligible": true
+    },
+    "musicbrainz_candidates": [
+      {
+        "n": 0,
+        "artist": "Alicia Keys",
+        "title": "You Don\u2019t Know My Name",
+        "album": null,
+        "distance": 0.448
+      },
+      {
+        "n": 1,
+        "artist": "Alicia Keys",
+        "title": "You Don\u2019t Know My Name",
+        "album": null,
+        "distance": 0.448
+      },
+      {
+        "n": 2,
+        "artist": "Alicia Keys",
+        "title": "U Don't Know MY Name",
+        "album": null,
+        "distance": 0.471
+      },
+      {
+        "n": 3,
+        "artist": "Kidz Bop",
+        "title": "You Don't Know My Name",
+        "album": null,
+        "distance": 0.65
+      },
+      {
+        "n": 4,
+        "artist": "The Kinks",
+        "title": "You Don\u2019t Know My Name",
+        "album": null,
+        "distance": 0.652
+      },
+      {
+        "n": 5,
+        "artist": "Alicia Keys",
+        "title": "You Don't Know My Name",
+        "album": null,
+        "distance": 0.67
+      },
+      {
+        "n": 6,
+        "artist": "Alicia Keys",
+        "title": "You Don\u2019t Know My Name",
+        "album": null,
+        "distance": 0.67
+      }
+    ]
+  },
+  {
+    "id": 9,
+    "youtube": {
+      "title": "Jay Z Feat Gwen Dickey - Wishing On A Star",
+      "channel": "Music World",
+      "is_topic_channel": false,
+      "duration_s": 236,
+      "tags": [
+        "jhene aiko",
+        "soul music",
+        "jay z",
+        "hip hop",
+        "r&b",
+        "pop",
+        "kehlani",
+        "6lack",
+        "bruno mars",
+        "cardi b",
+        "chris brown",
+        "drake"
+      ]
+    },
+    "acoustid": {
+      "top_score": 0.977,
+      "gap": 0.977,
+      "auto_land_eligible": true
+    },
+    "musicbrainz_candidates": [
+      {
+        "n": 0,
+        "artist": "JA\u0178-Z, Gwen Dickey",
+        "title": "Wishing on a Star",
+        "album": null,
+        "distance": 0.505
+      },
+      {
+        "n": 1,
+        "artist": "JA\u0178-Z feat. Gwen Dickey",
+        "title": "Wishing on a Star",
+        "album": null,
+        "distance": 0.508
+      },
+      {
+        "n": 2,
+        "artist": "Beyonc\u00e9",
+        "title": "Wishing on a Star",
+        "album": null,
+        "distance": 0.512
+      },
+      {
+        "n": 3,
+        "artist": "JA\u0178-Z",
+        "title": "Wishing on a Star",
+        "album": null,
+        "distance": 0.521
+      },
+      {
+        "n": 4,
+        "artist": "JA\u0178-Z",
+        "title": "Wishing on a Star",
+        "album": null,
+        "distance": 0.521
+      },
+      {
+        "n": 5,
+        "artist": "Seal",
+        "title": "Wishing on a Star",
+        "album": null,
+        "distance": 0.532
+      },
+      {
+        "n": 6,
+        "artist": "Paul Weller",
+        "title": "Wishing on a Star",
+        "album": null,
+        "distance": 0.621
+      },
+      {
+        "n": 7,
+        "artist": "JA\u0178-Z",
+        "title": "Wishing on a Star (Track Masters remix)",
+        "album": null,
+        "distance": 0.647
+      },
+      {
+        "n": 8,
+        "artist": "Rose Royce",
+        "title": "Wishing on a Star",
+        "album": null,
+        "distance": 0.699
+      },
+      {
+        "n": 9,
+        "artist": "Rose Royce",
+        "title": "Wishing on a Star",
+        "album": null,
+        "distance": 0.699
+      }
+    ]
+  },
+  {
+    "id": 10,
+    "youtube": {
+      "title": "Wanna Be There",
+      "channel": "AZ Quiet Money",
+      "is_topic_channel": false,
+      "duration_s": 236,
+      "tags": [
+        "AZ",
+        "\u30a8\u30fc\u30b8\u30fc",
+        "Aziatic",
+        "Wanna Be There",
+        "\u30a6\u30a9\u30ca\u30fb\u30d3\u30fc\u30fb\u30bb\u30a2",
+        "\u30a6\u30a9\u30ca\u30fb\u30d3\u30fc\u30fb\u30bb\u30a2feat\uff0e\u30b8\u30a7\u30a4\u30fbZ\uff06\u30d3\u30fc\u30cb\u30fc\u30fb\u30b7\u30fc\u30b2\u30eb"
+      ]
+    },
+    "acoustid": {
+      "top_score": 0.99,
+      "gap": 0.99,
+      "auto_land_eligible": true
+    },
+    "musicbrainz_candidates": [
+      {
+        "n": 0,
+        "artist": "AZ",
+        "title": "Wanna Be There",
+        "album": null,
+        "distance": 0.111
+      },
+      {
+        "n": 1,
+        "artist": "The Jacksons",
+        "title": "I\u2019ll Be There",
+        "album": null,
+        "distance": 0.445
+      },
+      {
+        "n": 2,
+        "artist": "Model 500",
+        "title": "Wanna Be There",
+        "album": null,
+        "distance": 0.556
+      },
+      {
+        "n": 3,
+        "artist": "bassvictim",
+        "title": "I\u2019ll be there",
+        "album": null,
+        "distance": 0.672
+      },
+      {
+        "n": 4,
+        "artist": "Jess Glynne",
+        "title": "I\u2019ll Be There",
+        "album": null,
+        "distance": 0.694
+      },
+      {
+        "n": 5,
+        "artist": "HeeJin, \ud604\uc9c4",
+        "title": "I\u2019ll Be There",
+        "album": null,
+        "distance": 0.694
+      }
+    ]
+  },
+  {
+    "id": 11,
+    "youtube": {
+      "title": "Frank Ocean - Strawberry Swing",
+      "channel": "Jon Hunt Playlists",
+      "is_topic_channel": false,
+      "duration_s": 235,
+      "tags": []
+    },
+    "acoustid": {
+      "top_score": 0.98,
+      "gap": 0.98,
+      "auto_land_eligible": true
+    },
+    "musicbrainz_candidates": [
+      {
+        "n": 0,
+        "artist": "Frank Ocean",
+        "title": "Strawberry Swing",
+        "album": null,
+        "distance": 0.453
+      },
+      {
+        "n": 1,
+        "artist": "Coldplay",
+        "title": "Strawberry Swing",
+        "album": null,
+        "distance": 0.476
+      },
+      {
+        "n": 2,
+        "artist": "Yesca",
+        "title": "Strawberry\u2019s",
+        "album": null,
+        "distance": 0.62
+      },
+      {
+        "n": 3,
+        "artist": "Luke Vibert & BJ Cole",
+        "title": "Swing Lite \u2010 Alright",
+        "album": null,
+        "distance": 0.71
+      },
+      {
+        "n": 4,
+        "artist": "YUNGBLUD",
+        "title": "Strawberry Lipstick",
+        "album": null,
+        "distance": 0.727
+      },
+      {
+        "n": 5,
+        "artist": "Can Am des Puig",
+        "title": "The Swing of the Ocean of Joy",
+        "album": null,
+        "distance": 0.81
+      }
+    ]
+  },
+  {
+    "id": 12,
+    "youtube": {
+      "title": "JA\u0178-Z - Wishing On A Star ft. Gwen Dickey",
+      "channel": "JA\u0178-Z",
+      "is_topic_channel": false,
+      "duration_s": 231,
+      "tags": [
+        "JA\u0178-Z",
+        "Gwen Dickey",
+        "ROC NATION",
+        "Hip Hop"
+      ]
+    },
+    "acoustid": {
+      "top_score": 0.915,
+      "gap": 0.915,
+      "auto_land_eligible": true
+    },
+    "musicbrainz_candidates": [
+      {
+        "n": 0,
+        "artist": "JA\u0178-Z",
+        "title": "Wishing on a Star",
+        "album": null,
+        "distance": 0.196
+      },
+      {
+        "n": 1,
+        "artist": "JA\u0178-Z",
+        "title": "Wishing on a Star",
+        "album": null,
+        "distance": 0.209
+      },
+      {
+        "n": 2,
+        "artist": "JA\u0178-Z feat. Gwen Dickey",
+        "title": "Wishing on a Star",
+        "album": null,
+        "distance": 0.213
+      },
+      {
+        "n": 3,
+        "artist": "Beyonc\u00e9",
+        "title": "Wishing on a Star",
+        "album": null,
+        "distance": 0.44
+      },
+      {
+        "n": 4,
+        "artist": "Paul Weller",
+        "title": "Wishing on a Star",
+        "album": null,
+        "distance": 0.478
+      },
+      {
+        "n": 5,
+        "artist": "Seal",
+        "title": "Wishing on a Star",
+        "album": null,
+        "distance": 0.514
+      },
+      {
+        "n": 6,
+        "artist": "JA\u0178-Z featuring: Gwen Dickey",
+        "title": "Wishing on a Star (D Influence remix)",
+        "album": null,
+        "distance": 0.533
+      }
+    ]
+  },
+  {
+    "id": 13,
+    "youtube": {
+      "title": "Moonwalking - Dave East - Throwback Thursday Studio Session",
+      "channel": "Brock Mills Photography",
+      "is_topic_channel": false,
+      "duration_s": 186,
+      "tags": [
+        "dave east",
+        "nyc",
+        "mass appeal",
+        "hip hop",
+        "def jam",
+        "music",
+        "art",
+        "brock mills",
+        "seattle",
+        "crip",
+        "diamonds",
+        "studio"
+      ]
+    },
+    "acoustid": {
+      "top_score": 0.0,
+      "gap": 0.0,
+      "auto_land_eligible": false
+    },
+    "musicbrainz_candidates": [
+      {
+        "n": 0,
+        "artist": "Lewis Capaldi",
+        "title": "Hollywood (studio session)",
+        "album": null,
+        "distance": 0.538
+      },
+      {
+        "n": 1,
+        "artist": "Evanescence",
+        "title": "Sick (live studio session)",
+        "album": null,
+        "distance": 0.648
+      },
+      {
+        "n": 2,
+        "artist": "Lewis Capaldi",
+        "title": "Headspace (studio session)",
+        "album": null,
+        "distance": 0.735
+      },
+      {
+        "n": 3,
+        "artist": "Freaks",
+        "title": "80\u2019s Throwback",
+        "album": null,
+        "distance": 0.789
+      },
+      {
+        "n": 4,
+        "artist": "Suzukiski",
+        "title": "throwback",
+        "album": null,
+        "distance": 0.796
+      }
+    ]
+  },
+  {
+    "id": 14,
+    "youtube": {
+      "title": "Jay-Z - Roc Boys (And The Winner Is)... / lyrics",
+      "channel": "next gen lyrics",
+      "is_topic_channel": false,
+      "duration_s": 252,
+      "tags": [
+        "hip hop lyrics",
+        "hip hop channel",
+        "hip hop 2025",
+        "hip hop unreleased",
+        "best hiphop",
+        "hiphop lyrics",
+        "rap lyrics",
+        "unreleased hiphop",
+        "juice wrld",
+        "kendrick lamar",
+        "sza",
+        "cardi b"
+      ]
+    },
+    "acoustid": {
+      "top_score": 0.968,
+      "gap": 0.968,
+      "auto_land_eligible": true
+    },
+    "musicbrainz_candidates": [
+      {
+        "n": 0,
+        "artist": "JA\u0178-Z",
+        "title": "Roc Boys (And the Winner Is)\u2026",
+        "album": null,
+        "distance": 0.424
+      },
+      {
+        "n": 1,
+        "artist": "\u677e\u539f\u307f\u304d",
+        "title": "THE WINNER",
+        "album": null,
+        "distance": 0.536
+      },
+      {
+        "n": 2,
+        "artist": "Panjabi MC feat. JA\u0178-Z",
+        "title": "Mundian to Bach Ke (Beware of the Boys) (Jay Z remix)",
+        "album": null,
+        "distance": 0.6
+      },
+      {
+        "n": 3,
+        "artist": "South End with Nik Fish",
+        "title": "The Winner Is",
+        "album": null,
+        "distance": 0.712
+      },
+      {
+        "n": 4,
+        "artist": "Bruce Broughton",
+        "title": "Donna & Jay",
+        "album": null,
+        "distance": 0.835
+      },
+      {
+        "n": 5,
+        "artist": "J.U.S feat. Fat Ray",
+        "title": "God Goku Jay\u2010Z",
+        "album": null,
+        "distance": 0.836
+      }
+    ]
+  },
+  {
+    "id": 15,
+    "youtube": {
+      "title": "Envy",
+      "channel": "Ogi",
+      "is_topic_channel": false,
+      "duration_s": 247,
+      "tags": [
+        "Ogi",
+        "Envy"
+      ]
+    },
+    "acoustid": {
+      "top_score": 0.994,
+      "gap": 0.994,
+      "auto_land_eligible": true
+    },
+    "musicbrainz_candidates": [
+      {
+        "n": 0,
+        "artist": "Ogi",
+        "title": "Envy",
+        "album": null,
+        "distance": 0.111
+      },
+      {
+        "n": 1,
+        "artist": "Breton",
+        "title": "Envy",
+        "album": null,
+        "distance": 0.485
+      },
+      {
+        "n": 2,
+        "artist": "\u30d9\u30eb\u30d9\u30c3\u30c8",
+        "title": "Black@envy",
+        "album": null,
+        "distance": 0.597
+      },
+      {
+        "n": 3,
+        "artist": "Tha Playah & Frequencerz",
+        "title": "Envy (edit)",
+        "album": null,
+        "distance": 0.606
+      },
+      {
+        "n": 4,
+        "artist": "Sugar Donut",
+        "title": "DARK ENVY",
+        "album": null,
+        "distance": 0.7
+      }
+    ]
+  },
+  {
+    "id": 16,
+    "youtube": {
+      "title": "My 1st Song",
+      "channel": "JA\u0178-Z",
+      "is_topic_channel": false,
+      "duration_s": 285,
+      "tags": [
+        "JA\u0178-Z",
+        "\u30b8\u30a7\u30a4\u30b8\u30fc",
+        "\u30b8\u30a7\u30a4\u30fbZ",
+        "The Black Album",
+        "My 1st Song",
+        "\u30de\u30a4\u30fb\u30d5\u30a1\u30fc\u30b9\u30c8\u30fb\u30bd\u30f3\u30b0"
+      ]
+    },
+    "acoustid": {
+      "top_score": 0.966,
+      "gap": 0.966,
+      "auto_land_eligible": true
+    },
+    "musicbrainz_candidates": [
+      {
+        "n": 0,
+        "artist": "JA\u0178-Z",
+        "title": "My 1st Song",
+        "album": null,
+        "distance": 0.111
+      },
+      {
+        "n": 1,
+        "artist": "JA\u0178-Z",
+        "title": "My 1st Song",
+        "album": null,
+        "distance": 0.111
+      },
+      {
+        "n": 2,
+        "artist": "JA\u0178-Z",
+        "title": "My 1st Song",
+        "album": null,
+        "distance": 0.111
+      },
+      {
+        "n": 3,
+        "artist": "JA\u0178-Z",
+        "title": "My 1st Song",
+        "album": null,
+        "distance": 0.156
+      },
+      {
+        "n": 4,
+        "artist": "JA\u0178-Z",
+        "title": "My 1st Song",
+        "album": null,
+        "distance": 0.228
+      },
+      {
+        "n": 5,
+        "artist": "Danger Mouse",
+        "title": "My 1st Song",
+        "album": null,
+        "distance": 0.313
+      },
+      {
+        "n": 6,
+        "artist": "JA\u0178-Z",
+        "title": "My 1st Song",
+        "album": null,
+        "distance": 0.333
+      }
+    ]
+  },
+  {
+    "id": 17,
+    "youtube": {
+      "title": "Mos Def - Life Is Good (The New Track/Video)",
+      "channel": "stillthewhizz",
+      "is_topic_channel": false,
+      "duration_s": 254,
+      "tags": [
+        "album",
+        "booty",
+        "def",
+        "ecstatic",
+        "fat",
+        "good",
+        "is",
+        "life",
+        "miss",
+        "mos",
+        "ms",
+        "new"
+      ]
+    },
+    "acoustid": {
+      "top_score": 0.948,
+      "gap": 0.948,
+      "auto_land_eligible": true
+    },
+    "musicbrainz_candidates": [
+      {
+        "n": 0,
+        "artist": "SiR & Scribz Riley",
+        "title": "LIFE IS GOOD",
+        "album": null,
+        "distance": 0.45
+      },
+      {
+        "n": 1,
+        "artist": "DJ Deckstream feat. Yasiin Bey",
+        "title": "Life Is Good",
+        "album": null,
+        "distance": 0.454
+      },
+      {
+        "n": 2,
+        "artist": "BiSH",
+        "title": "Life is beautiful [Music Video]",
+        "album": null,
+        "distance": 0.6
+      },
+      {
+        "n": 3,
+        "artist": "Disiz",
+        "title": "Life Is Good",
+        "album": null,
+        "distance": 0.661
+      },
+      {
+        "n": 4,
+        "artist": "Ghost Mice",
+        "title": "The Good Life",
+        "album": null,
+        "distance": 0.782
+      },
+      {
+        "n": 5,
+        "artist": "The Beach Boys",
+        "title": "Life Is for the Living (backing track)",
+        "album": null,
+        "distance": 0.788
+      }
+    ]
+  },
+  {
+    "id": 18,
+    "youtube": {
+      "title": "There He Go",
+      "channel": "ScHoolboy Q",
+      "is_topic_channel": false,
+      "duration_s": 200,
+      "tags": [
+        "ScHoolboy Q",
+        "Habits & Contradictions",
+        "There He Go"
+      ]
+    },
+    "acoustid": {
+      "top_score": 0.991,
+      "gap": 0.991,
+      "auto_land_eligible": true
+    },
+    "musicbrainz_candidates": [
+      {
+        "n": 0,
+        "artist": "ScHoolboy Q",
+        "title": "There He Go",
+        "album": null,
+        "distance": 0.111
+      },
+      {
+        "n": 1,
+        "artist": "ScHoolboy Q",
+        "title": "There He Go",
+        "album": null,
+        "distance": 0.172
+      },
+      {
+        "n": 2,
+        "artist": "Lily Allen",
+        "title": "He Wasn\u2019t There",
+        "album": null,
+        "distance": 0.696
+      },
+      {
+        "n": 3,
+        "artist": "Mariska Veres & Shocking Jazz Quintet",
+        "title": "He\u2019s Not There",
+        "album": null,
+        "distance": 0.772
+      },
+      {
+        "n": 4,
+        "artist": "The Yardbirds",
+        "title": "He\u2019s Always There",
+        "album": null,
+        "distance": 0.799
+      }
+    ]
+  },
+  {
+    "id": 19,
+    "youtube": {
+      "title": "JA\u0178-Z - Coming Of Age ft. Memphis Bleek (Official Lyric Video)",
+      "channel": "JA\u0178-Z",
+      "is_topic_channel": false,
+      "duration_s": 244,
+      "tags": [
+        "jayz",
+        "jay z channel",
+        "jay z life and times",
+        "life and times",
+        "lifeandtimes",
+        "jay-z",
+        "jay z youtube channel",
+        "jay z's life and times"
+      ]
+    },
+    "acoustid": {
+      "top_score": 0,
+      "gap": 0,
+      "auto_land_eligible": false
+    },
+    "musicbrainz_candidates": []
+  },
+  {
+    "id": 20,
+    "youtube": {
+      "title": "Nines - Outro (Official Audio)",
+      "channel": "Nines",
+      "is_topic_channel": false,
+      "duration_s": 190,
+      "tags": [
+        "Nines",
+        "Trapper of the year",
+        "Crop Circle",
+        "Nines Trapper of the year",
+        "Crop Circle nines",
+        "Nines crop circle",
+        "I see you shining",
+        "Nines I see you shining",
+        "High roller",
+        "J Hus",
+        "Nines J Hus",
+        "Nines High Roller"
+      ]
+    },
+    "acoustid": {
+      "top_score": 0.926,
+      "gap": 0.926,
+      "auto_land_eligible": true
+    },
+    "musicbrainz_candidates": [
+      {
+        "n": 0,
+        "artist": "Nines",
+        "title": "Outro",
+        "album": null,
+        "distance": 0.306
+      },
+      {
+        "n": 1,
+        "artist": "Nines",
+        "title": "Nines SBTV Bars 2015",
+        "album": null,
+        "distance": 0.54
+      },
+      {
+        "n": 2,
+        "artist": "Nines",
+        "title": "Nines Freestyle 2007",
+        "album": null,
+        "distance": 0.558
+      },
+      {
+        "n": 3,
+        "artist": "Bella Ballon",
+        "title": "Super Bella (official audio)",
+        "album": null,
+        "distance": 0.575
+      },
+      {
+        "n": 4,
+        "artist": "Bella Ballon",
+        "title": "Jij maakt de zomer top (official audio)",
+        "album": null,
+        "distance": 0.636
+      },
+      {
+        "n": 5,
+        "artist": "Bella Ballon",
+        "title": "Feest voor iedereen (official audio)",
+        "album": null,
+        "distance": 0.66
+      }
+    ]
+  },
+  {
+    "id": 21,
+    "youtube": {
+      "title": "After The Club",
+      "channel": "Odeal",
+      "is_topic_channel": false,
+      "duration_s": 228,
+      "tags": [
+        "Odeal",
+        "Hillary Dennis Udanoh",
+        "Carlos Daniel Mu\u00f1oz",
+        "Nesbitt Wesonga Jr.",
+        "Ari PenSmith",
+        "Craig Ashley David",
+        "Darren John Hill",
+        "Mark Hill",
+        "For A Good Time...",
+        "After The Club"
+      ]
+    },
+    "acoustid": {
+      "top_score": 0.0,
+      "gap": 0.0,
+      "auto_land_eligible": false
+    },
+    "musicbrainz_candidates": [
+      {
+        "n": 0,
+        "artist": "Mista Madd feat. Dallas & H.A.W.K.",
+        "title": "After the Club",
+        "album": null,
+        "distance": 0.3
+      },
+      {
+        "n": 1,
+        "artist": "Odeal",
+        "title": "After the Club",
+        "album": null,
+        "distance": 0.323
+      },
+      {
+        "n": 2,
+        "artist": "John Coltrane",
+        "title": "After the Rain",
+        "album": null,
+        "distance": 0.51
+      },
+      {
+        "n": 3,
+        "artist": "Jagged Edge",
+        "title": "On My Way (After the Club)",
+        "album": null,
+        "distance": 0.664
+      },
+      {
+        "n": 4,
+        "artist": "Dru Hill",
+        "title": "Tell Me (Club Mix)",
+        "album": null,
+        "distance": 0.746
+      }
+    ]
+  },
+  {
+    "id": 22,
+    "youtube": {
+      "title": "Pa Salieu - Bang Out (Music Video) | @MixtapeMadness",
+      "channel": "Mixtape Madness",
+      "is_topic_channel": false,
+      "duration_s": 173,
+      "tags": [
+        "mixtape madness",
+        "mad about mixtapes",
+        "drill",
+        "grime",
+        "rap",
+        "london",
+        "uk drill",
+        "uk rap",
+        "trap",
+        "mixtape",
+        "uk hip hop",
+        "madness"
+      ]
+    },
+    "acoustid": {
+      "top_score": 0.95,
+      "gap": 0.95,
+      "auto_land_eligible": true
+    },
+    "musicbrainz_candidates": [
+      {
+        "n": 0,
+        "artist": "Pa Salieu",
+        "title": "Bang Out",
+        "album": null,
+        "distance": 0.545
+      },
+      {
+        "n": 1,
+        "artist": "Snow Man",
+        "title": "Big Bang Sweet (Music Video)",
+        "album": null,
+        "distance": 0.692
+      },
+      {
+        "n": 2,
+        "artist": "\u30d2\u30c8\u30ea\u30a8",
+        "title": "\u9752 -Music Video-",
+        "album": null,
+        "distance": 0.73
+      },
+      {
+        "n": 3,
+        "artist": "\u6625\u5948\u308b\u306a",
+        "title": "Startear (Music Video)",
+        "album": null,
+        "distance": 0.762
+      },
+      {
+        "n": 4,
+        "artist": "\u6625\u5948\u308b\u306a",
+        "title": "snowdrop (Music Video)",
+        "album": null,
+        "distance": 0.77
+      },
+      {
+        "n": 5,
+        "artist": "Reza Rozim",
+        "title": "Nightmare | VIDEO Version",
+        "album": null,
+        "distance": 0.772
+      }
+    ]
+  },
+  {
+    "id": 23,
+    "youtube": {
+      "title": "Nines - NIC (feat. Tiggs Da Author) [Official Audio]",
+      "channel": "Nines",
+      "is_topic_channel": false,
+      "duration_s": 221,
+      "tags": [
+        "Nines",
+        "Trapper of the year",
+        "Crop Circle",
+        "Nines Trapper of the year",
+        "Crop Circle nines",
+        "Nines crop circle",
+        "I see you shining",
+        "Nines I see you shining",
+        "High roller",
+        "J Hus",
+        "Nines J Hus",
+        "Nines High Roller"
+      ]
+    },
+    "acoustid": {
+      "top_score": 0.926,
+      "gap": 0.926,
+      "auto_land_eligible": true
+    },
+    "musicbrainz_candidates": [
+      {
+        "n": 0,
+        "artist": "Nines feat. Tiggs da Author",
+        "title": "NIC",
+        "album": null,
+        "distance": 0.346
+      },
+      {
+        "n": 1,
+        "artist": "Nines",
+        "title": "Nines SBTV Bars 2015",
+        "album": null,
+        "distance": 0.571
+      },
+      {
+        "n": 2,
+        "artist": "Nines",
+        "title": "Nines Freestyle 2007",
+        "album": null,
+        "distance": 0.575
+      },
+      {
+        "n": 3,
+        "artist": "Bella Ballon",
+        "title": "Jij maakt de zomer top (official audio)",
+        "album": null,
+        "distance": 0.731
+      },
+      {
+        "n": 4,
+        "artist": "Bella Ballon",
+        "title": "Feest voor iedereen (official audio)",
+        "album": null,
+        "distance": 0.74
+      },
+      {
+        "n": 5,
+        "artist": "Bella Ballon",
+        "title": "Super Bella (official audio)",
+        "album": null,
+        "distance": 0.749
+      }
+    ]
+  },
+  {
+    "id": 24,
+    "youtube": {
+      "title": "All Get Right ft. J Stone - Nipsey Hussle (Crenshaw Mixtape)",
+      "channel": "Nipsey Hussle",
+      "is_topic_channel": false,
+      "duration_s": 268,
+      "tags": [
+        "nipsey hussle",
+        "crenshaw",
+        "crenshaw mixtape",
+        "all money in",
+        "rap",
+        "west coast rappers",
+        "2013 mixtapes",
+        "hip hop",
+        "all get right"
+      ]
+    },
+    "acoustid": {
+      "top_score": 0.978,
+      "gap": 0.978,
+      "auto_land_eligible": true
+    },
+    "musicbrainz_candidates": [
+      {
+        "n": 0,
+        "artist": "Nipsey Hussle feat. J. Stone",
+        "title": "All Get Right",
+        "album": null,
+        "distance": 0.162
+      },
+      {
+        "n": 1,
+        "artist": "Nipsey Hussle & J. Stone",
+        "title": "All Get Right",
+        "album": null,
+        "distance": 0.232
+      },
+      {
+        "n": 2,
+        "artist": "Nipsey Hussle",
+        "title": "Nipsey Hussle (intro)",
+        "album": null,
+        "distance": 0.546
+      },
+      {
+        "n": 3,
+        "artist": "Nipsey Hussle",
+        "title": "Nipsey Hussle Break",
+        "album": null,
+        "distance": 0.558
+      },
+      {
+        "n": 4,
+        "artist": "Nipsey Hussle",
+        "title": "Hussle Hussle",
+        "album": null,
+        "distance": 0.579
+      },
+      {
+        "n": 5,
+        "artist": "Nipsey Hussle",
+        "title": "Crenshaw Blvd",
+        "album": null,
+        "distance": 0.609
+      },
+      {
+        "n": 6,
+        "artist": "Nipsey Hussle",
+        "title": "Crenshaw BLVD",
+        "album": null,
+        "distance": 0.609
+      }
+    ]
+  },
+  {
+    "id": 25,
+    "youtube": {
+      "title": "Nipsey Hussle \"All Get Right\"  ft J. Stone (Official Video)",
+      "channel": "Nipsey Hussle",
+      "is_topic_channel": false,
+      "duration_s": 267,
+      "tags": [
+        "nipseyhussle",
+        "victorylap",
+        "jstone"
+      ]
+    },
+    "acoustid": {
+      "top_score": 0.931,
+      "gap": 0.931,
+      "auto_land_eligible": true
+    },
+    "musicbrainz_candidates": [
+      {
+        "n": 0,
+        "artist": "Nipsey Hussle feat. J. Stone",
+        "title": "All Get Right",
+        "album": null,
+        "distance": 0.314
+      },
+      {
+        "n": 1,
+        "artist": "Nipsey Hussle & J. Stone",
+        "title": "All Get Right",
+        "album": null,
+        "distance": 0.388
+      },
+      {
+        "n": 2,
+        "artist": "Nipsey Hussle",
+        "title": "Nipsey Hussle (intro)",
+        "album": null,
+        "distance": 0.473
+      },
+      {
+        "n": 3,
+        "artist": "Nipsey Hussle",
+        "title": "Nipsey Hussle Break",
+        "album": null,
+        "distance": 0.486
+      },
+      {
+        "n": 4,
+        "artist": "Nipsey Hussle",
+        "title": "Hussle Hussle",
+        "album": null,
+        "distance": 0.568
+      },
+      {
+        "n": 5,
+        "artist": "Nipsey Hussle",
+        "title": "The Hussle Way",
+        "album": null,
+        "distance": 0.569
+      },
+      {
+        "n": 6,
+        "artist": "\u661f\u91ce\u6e90",
+        "title": "\u604b (Official Video)",
+        "album": null,
+        "distance": 0.605
+      }
+    ]
+  }
+]

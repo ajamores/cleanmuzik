@@ -1,0 +1,453 @@
+[
+  {
+    "id": 2,
+    "youtube": {
+      "title": "Dave East - Spanish Harlem Diary #3",
+      "channel": "Minister / MVHZ",
+      "is_topic_channel": false,
+      "duration_s": 1148,
+      "tags": [
+        "dave",
+        "east",
+        "dave east",
+        "spanish harlem",
+        "diary",
+        "pt3",
+        "mvhz",
+        "new",
+        "york",
+        "new york",
+        "hiphop",
+        "nas"
+      ]
+    },
+    "acoustid": {
+      "top_score": 0.0,
+      "gap": 0.0,
+      "auto_land_eligible": false
+    },
+    "musicbrainz_candidates": [
+      {
+        "n": 0,
+        "artist": "Ben E. King",
+        "title": "Spanish Harlem",
+        "album": null,
+        "distance": 0.691
+      },
+      {
+        "n": 1,
+        "artist": "John Barry",
+        "title": "Spanish Harlem",
+        "album": null,
+        "distance": 0.71
+      },
+      {
+        "n": 2,
+        "artist": "Aretha Franklin",
+        "title": "Spanish Harlem",
+        "album": null,
+        "distance": 0.713
+      },
+      {
+        "n": 3,
+        "artist": "Aretha Franklin",
+        "title": "Spanish Harlem",
+        "album": null,
+        "distance": 0.713
+      },
+      {
+        "n": 4,
+        "artist": "Bob Dylan",
+        "title": "Spanish Harlem Incident",
+        "album": null,
+        "distance": 0.741
+      }
+    ]
+  },
+  {
+    "id": 3,
+    "youtube": {
+      "title": "Nines - Outro \"Franklin\" (Music Video)",
+      "channel": "Reel Go-Getters",
+      "is_topic_channel": false,
+      "duration_s": 201,
+      "tags": [
+        "snowfall",
+        "nines",
+        "outro",
+        "uk rap",
+        "ice city",
+        "fx",
+        "franklin saint",
+        "hip hop",
+        "uk hip hop"
+      ]
+    },
+    "acoustid": {
+      "top_score": 0,
+      "gap": 0,
+      "auto_land_eligible": false
+    },
+    "musicbrainz_candidates": []
+  },
+  {
+    "id": 6,
+    "youtube": {
+      "title": "Lute - Ballad of Westside Scoop",
+      "channel": "Lute",
+      "is_topic_channel": false,
+      "duration_s": 161,
+      "tags": [
+        "Lute West",
+        "Lute",
+        "Dreamville",
+        "North Carolina",
+        "Hip Hop",
+        "Rap",
+        "Music",
+        "90s Rap",
+        "lyrical Rap",
+        "J Cole",
+        "Earth Gang",
+        "JID"
+      ]
+    },
+    "acoustid": {
+      "top_score": 0.0,
+      "gap": 0.0,
+      "auto_land_eligible": false
+    },
+    "musicbrainz_candidates": [
+      {
+        "n": 0,
+        "artist": "Lute",
+        "title": "Ballad of Westside Scoop",
+        "album": null,
+        "distance": 0.164
+      },
+      {
+        "n": 1,
+        "artist": "Nasum",
+        "title": "Scoop",
+        "album": null,
+        "distance": 0.669
+      },
+      {
+        "n": 2,
+        "artist": "TQ",
+        "title": "Westside",
+        "album": null,
+        "distance": 0.727
+      },
+      {
+        "n": 3,
+        "artist": "\u5927\u6ca2\u8a89\u5fd7\u5e78",
+        "title": "Scoop",
+        "album": null,
+        "distance": 0.805
+      },
+      {
+        "n": 4,
+        "artist": "SOIL&\u201cPIMP\u201dSESSIONS",
+        "title": "Scoop Out",
+        "album": null,
+        "distance": 0.839
+      }
+    ]
+  },
+  {
+    "id": 13,
+    "youtube": {
+      "title": "Moonwalking - Dave East - Throwback Thursday Studio Session",
+      "channel": "Brock Mills Photography",
+      "is_topic_channel": false,
+      "duration_s": 186,
+      "tags": [
+        "dave east",
+        "nyc",
+        "mass appeal",
+        "hip hop",
+        "def jam",
+        "music",
+        "art",
+        "brock mills",
+        "seattle",
+        "crip",
+        "diamonds",
+        "studio"
+      ]
+    },
+    "acoustid": {
+      "top_score": 0.0,
+      "gap": 0.0,
+      "auto_land_eligible": false
+    },
+    "musicbrainz_candidates": [
+      {
+        "n": 0,
+        "artist": "Lewis Capaldi",
+        "title": "Hollywood (studio session)",
+        "album": null,
+        "distance": 0.538
+      },
+      {
+        "n": 1,
+        "artist": "Evanescence",
+        "title": "Sick (live studio session)",
+        "album": null,
+        "distance": 0.648
+      },
+      {
+        "n": 2,
+        "artist": "Lewis Capaldi",
+        "title": "Headspace (studio session)",
+        "album": null,
+        "distance": 0.735
+      },
+      {
+        "n": 3,
+        "artist": "Freaks",
+        "title": "80\u2019s Throwback",
+        "album": null,
+        "distance": 0.789
+      },
+      {
+        "n": 4,
+        "artist": "Suzukiski",
+        "title": "throwback",
+        "album": null,
+        "distance": 0.796
+      }
+    ]
+  },
+  {
+    "id": 19,
+    "youtube": {
+      "title": "JA\u0178-Z - Coming Of Age ft. Memphis Bleek (Official Lyric Video)",
+      "channel": "JA\u0178-Z",
+      "is_topic_channel": false,
+      "duration_s": 244,
+      "tags": [
+        "jayz",
+        "jay z channel",
+        "jay z life and times",
+        "life and times",
+        "lifeandtimes",
+        "jay-z",
+        "jay z youtube channel",
+        "jay z's life and times"
+      ]
+    },
+    "acoustid": {
+      "top_score": 0,
+      "gap": 0,
+      "auto_land_eligible": false
+    },
+    "musicbrainz_candidates": []
+  },
+  {
+    "id": 21,
+    "youtube": {
+      "title": "After The Club",
+      "channel": "Odeal",
+      "is_topic_channel": false,
+      "duration_s": 228,
+      "tags": [
+        "Odeal",
+        "Hillary Dennis Udanoh",
+        "Carlos Daniel Mu\u00f1oz",
+        "Nesbitt Wesonga Jr.",
+        "Ari PenSmith",
+        "Craig Ashley David",
+        "Darren John Hill",
+        "Mark Hill",
+        "For A Good Time...",
+        "After The Club"
+      ]
+    },
+    "acoustid": {
+      "top_score": 0.0,
+      "gap": 0.0,
+      "auto_land_eligible": false
+    },
+    "musicbrainz_candidates": [
+      {
+        "n": 0,
+        "artist": "Mista Madd feat. Dallas & H.A.W.K.",
+        "title": "After the Club",
+        "album": null,
+        "distance": 0.3
+      },
+      {
+        "n": 1,
+        "artist": "Odeal",
+        "title": "After the Club",
+        "album": null,
+        "distance": 0.323
+      },
+      {
+        "n": 2,
+        "artist": "John Coltrane",
+        "title": "After the Rain",
+        "album": null,
+        "distance": 0.51
+      },
+      {
+        "n": 3,
+        "artist": "Jagged Edge",
+        "title": "On My Way (After the Club)",
+        "album": null,
+        "distance": 0.664
+      },
+      {
+        "n": 4,
+        "artist": "Dru Hill",
+        "title": "Tell Me (Club Mix)",
+        "album": null,
+        "distance": 0.746
+      }
+    ]
+  },
+  {
+    "id": 7,
+    "youtube": {
+      "title": "Pa Salieu - Frontline (Music Video) | @MixtapeMadness",
+      "channel": "Mixtape Madness",
+      "is_topic_channel": false,
+      "duration_s": 205,
+      "tags": [
+        "mixtape madness",
+        "mad about mixtapes",
+        "drill",
+        "grime",
+        "rap",
+        "london",
+        "uk drill",
+        "uk rap",
+        "Pa Salieu",
+        "Frontline"
+      ]
+    },
+    "acoustid": {
+      "top_score": 0.994,
+      "gap": 0.994,
+      "auto_land_eligible": true
+    },
+    "musicbrainz_candidates": [
+      {
+        "n": 0,
+        "artist": "Vanessa Bling & The Heatwave",
+        "title": "Frontline",
+        "album": null,
+        "distance": 0.543
+      },
+      {
+        "n": 1,
+        "artist": "Apink",
+        "title": "NoNoNo Music Video",
+        "album": null,
+        "distance": 0.584
+      },
+      {
+        "n": 2,
+        "artist": "\u30d2\u30c8\u30ea\u30a8",
+        "title": "\u9752 -Music Video-",
+        "album": null,
+        "distance": 0.744
+      },
+      {
+        "n": 3,
+        "artist": "\u6625\u5948\u308b\u306a",
+        "title": "snowdrop (Music Video)",
+        "album": null,
+        "distance": 0.767
+      },
+      {
+        "n": 4,
+        "artist": "\u6625\u5948\u308b\u306a",
+        "title": "Startear (Music Video)",
+        "album": null,
+        "distance": 0.767
+      },
+      {
+        "n": 5,
+        "artist": "Reza Rozim",
+        "title": "Nightmare | VIDEO Version",
+        "album": null,
+        "distance": 0.784
+      }
+    ]
+  },
+  {
+    "id": 17,
+    "youtube": {
+      "title": "Mos Def - Life Is Good (The New Track/Video)",
+      "channel": "stillthewhizz",
+      "is_topic_channel": false,
+      "duration_s": 254,
+      "tags": [
+        "album",
+        "booty",
+        "def",
+        "ecstatic",
+        "fat",
+        "good",
+        "is",
+        "life",
+        "miss",
+        "mos",
+        "ms",
+        "new"
+      ]
+    },
+    "acoustid": {
+      "top_score": 0.948,
+      "gap": 0.948,
+      "auto_land_eligible": true
+    },
+    "musicbrainz_candidates": [
+      {
+        "n": 0,
+        "artist": "SiR & Scribz Riley",
+        "title": "LIFE IS GOOD",
+        "album": null,
+        "distance": 0.45
+      },
+      {
+        "n": 1,
+        "artist": "DJ Deckstream feat. Yasiin Bey",
+        "title": "Life Is Good",
+        "album": null,
+        "distance": 0.454
+      },
+      {
+        "n": 2,
+        "artist": "BiSH",
+        "title": "Life is beautiful [Music Video]",
+        "album": null,
+        "distance": 0.6
+      },
+      {
+        "n": 3,
+        "artist": "Disiz",
+        "title": "Life Is Good",
+        "album": null,
+        "distance": 0.661
+      },
+      {
+        "n": 4,
+        "artist": "Ghost Mice",
+        "title": "The Good Life",
+        "album": null,
+        "distance": 0.782
+      },
+      {
+        "n": 5,
+        "artist": "The Beach Boys",
+        "title": "Life Is for the Living (backing track)",
+        "album": null,
+        "distance": 0.788
+      }
+    ]
+  }
+]

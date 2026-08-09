@@ -1,0 +1,38 @@
+[
+  {
+    "id": 2,
+    "ranked_candidate_ns": [0, 1, 2, 3, 4],
+    "top_is_real_match": false,
+    "reason": "YouTube is Dave East (modern rapper); all candidates are 1960s soul covers of 'Spanish Harlem'"
+  },
+  {
+    "id": 6,
+    "ranked_candidate_ns": [0, 1, 2, 3, 4],
+    "top_is_real_match": true,
+    "reason": "Exact artist and title match: Lute — Ballad of Westside Scoop"
+  },
+  {
+    "id": 13,
+    "ranked_candidate_ns": [0, 1, 2, 3, 4],
+    "top_is_real_match": false,
+    "reason": "YouTube is Dave East hip-hop; all candidates are unrelated artists (Lewis Capaldi, Evanescence, etc.)"
+  },
+  {
+    "id": 21,
+    "ranked_candidate_ns": [1, 0, 2, 3, 4],
+    "top_is_real_match": true,
+    "reason": "Odeal's own track; YouTube channel matches artist name"
+  },
+  {
+    "id": 7,
+    "ranked_candidate_ns": [0, 1, 2, 3, 4, 5],
+    "top_is_real_match": false,
+    "reason": "YouTube is UK drill artist Pa Salieu; no Pa Salieu in candidates, likely fingerprint false positive"
+  },
+  {
+    "id": 17,
+    "ranked_candidate_ns": [1, 0, 2, 3, 4, 5],
+    "top_is_real_match": false,
+    "reason": "YouTube is Mos Def; DJ Deckstream feat. Yasiin Bey closest (Yasiin Bey = Mos Def's current name), but artist credit mismatch"
+  }
+]

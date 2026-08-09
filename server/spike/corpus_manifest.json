@@ -1,0 +1,299 @@
+{
+  "note": "Spike corpus \u2014 26 distinct YouTube video IDs re-derived from jobs.url (playlists never expanded under R1). Ground-truth label = best outcome across retries. done=fingerprint accepted; review=genuine park; error=failed.",
+  "counts": {
+    "distinct_video_ids": 26,
+    "by_label": {
+      "done": 23,
+      "review": 2,
+      "error": 1
+    }
+  },
+  "corpus": [
+    {
+      "video_id": "0UaNZhvXU3U",
+      "label": "done",
+      "url": "https://www.youtube.com/watch?v=0UaNZhvXU3U",
+      "title": null,
+      "all_labels": [
+        "done"
+      ]
+    },
+    {
+      "video_id": "1rSjjEe7EE4",
+      "label": "done",
+      "url": "https://www.youtube.com/watch?v=1rSjjEe7EE4",
+      "title": null,
+      "all_labels": [
+        "done"
+      ]
+    },
+    {
+      "video_id": "CkG1GZ-oMTc",
+      "label": "done",
+      "url": "https://www.youtube.com/watch?v=CkG1GZ-oMTc",
+      "title": null,
+      "all_labels": [
+        "done"
+      ]
+    },
+    {
+      "video_id": "D5QjfJao9FQ",
+      "label": "done",
+      "url": "https://www.youtube.com/watch?v=D5QjfJao9FQ",
+      "title": null,
+      "all_labels": [
+        "done"
+      ]
+    },
+    {
+      "video_id": "E3AGQP572z0",
+      "label": "done",
+      "url": "https://www.youtube.com/watch?v=E3AGQP572z0",
+      "title": null,
+      "all_labels": [
+        "done"
+      ]
+    },
+    {
+      "video_id": "FwKp-HkKUMA",
+      "label": "done",
+      "url": "https://www.youtube.com/watch?v=FwKp-HkKUMA",
+      "title": null,
+      "all_labels": [
+        "done",
+        "error"
+      ]
+    },
+    {
+      "video_id": "G86KHTvoJ48",
+      "label": "done",
+      "url": "https://www.youtube.com/watch?v=G86KHTvoJ48",
+      "title": null,
+      "all_labels": [
+        "done"
+      ]
+    },
+    {
+      "video_id": "IaQjlagBnG0",
+      "label": "done",
+      "url": "https://www.youtube.com/watch?v=IaQjlagBnG0",
+      "title": null,
+      "all_labels": [
+        "done"
+      ]
+    },
+    {
+      "video_id": "J1ZtcXeUWFI",
+      "label": "done",
+      "url": "https://www.youtube.com/watch?v=J1ZtcXeUWFI",
+      "title": null,
+      "all_labels": [
+        "done"
+      ]
+    },
+    {
+      "video_id": "PK77NnsahyM",
+      "label": "done",
+      "url": "https://www.youtube.com/watch?v=PK77NnsahyM",
+      "title": null,
+      "all_labels": [
+        "done"
+      ]
+    },
+    {
+      "video_id": "TGTguMrPcKQ",
+      "label": "done",
+      "url": "https://www.youtube.com/watch?v=TGTguMrPcKQ",
+      "title": null,
+      "all_labels": [
+        "done"
+      ]
+    },
+    {
+      "video_id": "WgPXj2fEiW8",
+      "label": "done",
+      "url": "https://www.youtube.com/watch?v=WgPXj2fEiW8",
+      "title": null,
+      "all_labels": [
+        "done"
+      ]
+    },
+    {
+      "video_id": "ZyDslhDin4s",
+      "label": "done",
+      "url": "https://www.youtube.com/watch?v=ZyDslhDin4s",
+      "title": null,
+      "all_labels": [
+        "done"
+      ]
+    },
+    {
+      "video_id": "_hEht9Lau24",
+      "label": "done",
+      "url": "https://www.youtube.com/watch?v=_hEht9Lau24",
+      "title": null,
+      "all_labels": [
+        "done"
+      ]
+    },
+    {
+      "video_id": "_qLL03ZAj8Y",
+      "label": "done",
+      "url": "https://www.youtube.com/watch?v=_qLL03ZAj8Y",
+      "title": null,
+      "all_labels": [
+        "done"
+      ]
+    },
+    {
+      "video_id": "bGz-rvvMzQU",
+      "label": "done",
+      "url": "https://www.youtube.com/watch?v=bGz-rvvMzQU",
+      "title": null,
+      "all_labels": [
+        "done"
+      ]
+    },
+    {
+      "video_id": "colv2Wy2q7E",
+      "label": "done",
+      "url": "https://www.youtube.com/watch?v=colv2Wy2q7E",
+      "title": null,
+      "all_labels": [
+        "done"
+      ]
+    },
+    {
+      "video_id": "fu5UVpLvGck",
+      "label": "done",
+      "url": "https://www.youtube.com/watch?v=fu5UVpLvGck",
+      "title": null,
+      "all_labels": [
+        "done"
+      ]
+    },
+    {
+      "video_id": "ho-sT0Hcc5M",
+      "label": "done",
+      "url": "https://www.youtube.com/watch?v=ho-sT0Hcc5M",
+      "title": null,
+      "all_labels": [
+        "done"
+      ]
+    },
+    {
+      "video_id": "nInBDfbZBbo",
+      "label": "done",
+      "url": "https://www.youtube.com/watch?v=nInBDfbZBbo",
+      "title": null,
+      "all_labels": [
+        "done",
+        "review"
+      ]
+    },
+    {
+      "video_id": "nXHW5UsbOIA",
+      "label": "done",
+      "url": "https://www.youtube.com/watch?v=nXHW5UsbOIA",
+      "title": null,
+      "all_labels": [
+        "done"
+      ]
+    },
+    {
+      "video_id": "tpUWVEuHya0",
+      "label": "done",
+      "url": "https://www.youtube.com/watch?v=tpUWVEuHya0",
+      "title": null,
+      "all_labels": [
+        "done"
+      ]
+    },
+    {
+      "video_id": "w3NPhQjjZB0",
+      "label": "done",
+      "url": "https://www.youtube.com/watch?v=w3NPhQjjZB0",
+      "title": null,
+      "all_labels": [
+        "done"
+      ]
+    },
+    {
+      "video_id": "Gkr8WH5cAtg",
+      "label": "error",
+      "url": "https://www.youtube.com/watch?v=Gkr8WH5cAtg",
+      "title": null,
+      "all_labels": [
+        "error"
+      ]
+    },
+    {
+      "video_id": "G3CwMb1IvDU",
+      "label": "review",
+      "url": "https://www.youtube.com/watch?v=G3CwMb1IvDU",
+      "title": null,
+      "all_labels": [
+        "review"
+      ]
+    },
+    {
+      "video_id": "KanKD1u5iYI",
+      "label": "review",
+      "url": "https://www.youtube.com/watch?v=KanKD1u5iYI",
+      "title": null,
+      "all_labels": [
+        "review"
+      ]
+    }
+  ],
+  "parked_identities": [
+    {
+      "query": "Frank Ocean - Strawberry Swing",
+      "status": "resolved"
+    },
+    {
+      "query": "Jay Z Feat Gwen Dickey - Wishing On A Star",
+      "status": "rejected"
+    },
+    {
+      "query": "Outro",
+      "status": "rejected"
+    },
+    {
+      "query": "Nines - Outro \"Franklin\"",
+      "status": "rejected"
+    },
+    {
+      "query": "Nines - Outro \"Franklin\"",
+      "status": "resolved"
+    },
+    {
+      "query": "Dave East - Spanish Harlem Diary #3",
+      "status": "resolved"
+    },
+    {
+      "query": "Moonwalking - Dave East - Throwback Thursday Studio Session",
+      "status": "resolved"
+    },
+    {
+      "query": "Ballad of Westside Scoop",
+      "status": "resolved"
+    },
+    {
+      "query": "After The Club",
+      "status": "resolved"
+    },
+    {
+      "query": "Coming Of Age ft. Memphis Bleek",
+      "status": "resolved"
+    },
+    {
+      "query": "My 1st Song",
+      "status": "resolved"
+    },
+    {
+      "query": "Moonwalking - Dave East - Throwback Thursday Studio Session",
+      "status": "rejected"
+    }
+  ]
+}

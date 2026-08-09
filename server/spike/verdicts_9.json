@@ -1,0 +1,81 @@
+[
+  {
+    "id": 9,
+    "verdict": "accept",
+    "chosen_candidate": 1,
+    "confidence": 0.977,
+    "reason": "Confident fingerprint (0.977). Candidate n=1 matches YouTube exactly: JAΘ-Z feat. Gwen Dickey + Wishing on a Star.",
+    "contradictions": []
+  },
+  {
+    "id": 10,
+    "verdict": "accept",
+    "chosen_candidate": 0,
+    "confidence": 0.99,
+    "reason": "Extremely confident fingerprint (0.99). Candidate n=0 is a perfect match: AZ + Wanna Be There with minimal distance (0.111).",
+    "contradictions": []
+  },
+  {
+    "id": 11,
+    "verdict": "accept",
+    "chosen_candidate": 0,
+    "confidence": 0.98,
+    "reason": "Confident fingerprint (0.98). Candidate n=0 matches YouTube claim: Frank Ocean + Strawberry Swing.",
+    "contradictions": []
+  },
+  {
+    "id": 12,
+    "verdict": "accept",
+    "chosen_candidate": 2,
+    "confidence": 0.915,
+    "reason": "Confident fingerprint (0.915). Candidate n=2 is the closest exact match: JAΘ-Z feat. Gwen Dickey + Wishing on a Star.",
+    "contradictions": []
+  },
+  {
+    "id": 13,
+    "verdict": "park",
+    "chosen_candidate": null,
+    "confidence": 0.0,
+    "reason": "No fingerprint confidence (0.0). YouTube claims Dave East + Moonwalking but no candidate matches. Closest is Lewis Capaldi (wrong artist).",
+    "contradictions": [
+      "YouTube: Dave East / Moonwalking",
+      "Best candidate: Lewis Capaldi / Hollywood (distance 0.538)"
+    ]
+  },
+  {
+    "id": 14,
+    "verdict": "accept",
+    "chosen_candidate": 0,
+    "confidence": 0.968,
+    "reason": "Confident fingerprint (0.968). Candidate n=0 matches YouTube exactly: JAΘ-Z + Roc Boys (And the Winner Is).",
+    "contradictions": []
+  },
+  {
+    "id": 15,
+    "verdict": "accept",
+    "chosen_candidate": 0,
+    "confidence": 0.994,
+    "reason": "Extremely confident fingerprint (0.994). Candidate n=0 is a perfect match: Ogi + Envy with minimal distance (0.111).",
+    "contradictions": []
+  },
+  {
+    "id": 16,
+    "verdict": "accept",
+    "chosen_candidate": 0,
+    "confidence": 0.966,
+    "reason": "Confident fingerprint (0.966). Candidate n=0 matches YouTube exactly: JAΘ-Z + My 1st Song with minimal distance (0.111).",
+    "contradictions": []
+  },
+  {
+    "id": 17,
+    "verdict": "park",
+    "chosen_candidate": null,
+    "confidence": 0.948,
+    "reason": "Confident fingerprint (0.948) but contradicts YouTube claim. YouTube says Mos Def but fingerprint's top match is SiR & Scribz Riley. No candidate matches Mos Def artist.",
+    "contradictions": [
+      "YouTube claims: Mos Def + Life Is Good",
+      "Fingerprint match: SiR & Scribz Riley / LIFE IS GOOD (distance 0.45)",
+      "Likely misidentified upload or fingerprint matched wrong recording"
+    ]
+  }
+]

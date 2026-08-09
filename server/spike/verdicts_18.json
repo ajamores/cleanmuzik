@@ -1,0 +1,66 @@
+[
+  {
+    "id": 18,
+    "verdict": "accept",
+    "chosen_candidate": 0,
+    "confidence": 0.99,
+    "reason": "Confident fingerprint (0.991); closest candidate matches YouTube artist and title exactly",
+    "contradictions": []
+  },
+  {
+    "id": 19,
+    "verdict": "park",
+    "chosen_candidate": null,
+    "confidence": 0.0,
+    "reason": "No audio fingerprint available; no candidates to suggest",
+    "contradictions": []
+  },
+  {
+    "id": 20,
+    "verdict": "accept",
+    "chosen_candidate": 0,
+    "confidence": 0.93,
+    "reason": "Confident fingerprint (0.926); closest candidate matches YouTube artist and title exactly",
+    "contradictions": []
+  },
+  {
+    "id": 21,
+    "verdict": "park",
+    "chosen_candidate": 1,
+    "confidence": 0.0,
+    "reason": "No audio fingerprint; candidate 1 (Odeal, After the Club) is best match for human review",
+    "contradictions": []
+  },
+  {
+    "id": 22,
+    "verdict": "accept",
+    "chosen_candidate": 0,
+    "confidence": 0.95,
+    "reason": "Confident fingerprint (0.95); closest candidate matches YouTube artist and title exactly",
+    "contradictions": []
+  },
+  {
+    "id": 23,
+    "verdict": "accept",
+    "chosen_candidate": 0,
+    "confidence": 0.93,
+    "reason": "Confident fingerprint (0.926); closest candidate matches YouTube artist, title, and featured artist",
+    "contradictions": []
+  },
+  {
+    "id": 24,
+    "verdict": "accept",
+    "chosen_candidate": 0,
+    "confidence": 0.98,
+    "reason": "Confident fingerprint (0.978); closest candidate matches YouTube artist and title exactly",
+    "contradictions": []
+  },
+  {
+    "id": 25,
+    "verdict": "accept",
+    "chosen_candidate": 0,
+    "confidence": 0.93,
+    "reason": "Confident fingerprint (0.931); closest candidate matches YouTube artist and title exactly",
+    "contradictions": []
+  }
+]

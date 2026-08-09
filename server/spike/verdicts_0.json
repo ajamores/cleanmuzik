@@ -1,0 +1,11 @@
+[
+  {"id":0,"verdict":"accept","chosen_candidate":0,"confidence":0.98,"reason":"Confident fingerprint (0.98) matches closest candidate JA∣Z - My 1st Song perfectly.","contradictions":[]},
+  {"id":1,"verdict":"accept","chosen_candidate":0,"confidence":0.988,"reason":"Confident fingerprint (0.988) matches closest candidate Thee Sacred Souls - Future Lover perfectly.","contradictions":[]},
+  {"id":2,"verdict":"park","chosen_candidate":0,"confidence":0.30,"reason":"No confident fingerprint; best guess is Ben E. King - Spanish Harlem from title match, but likely a Dave East remix or sample.","contradictions":["YouTube claims Dave East artist but all candidates are classic Spanish Harlem covers—likely a sample or interpolation without clear audio match"]},
+  {"id":3,"verdict":"park","chosen_candidate":null,"confidence":0.0,"reason":"No fingerprint match and no MusicBrainz candidates available.","contradictions":[]},
+  {"id":4,"verdict":"accept","chosen_candidate":0,"confidence":0.974,"reason":"Confident fingerprint (0.974) matches closest candidate Odeal - Children of Yeshua perfectly.","contradictions":[]},
+  {"id":5,"verdict":"accept","chosen_candidate":0,"confidence":0.969,"reason":"Confident fingerprint (0.969) matches closest candidate Ogi - Envy perfectly.","contradictions":[]},
+  {"id":6,"verdict":"park","chosen_candidate":0,"confidence":0.164,"reason":"No confident fingerprint; best guess is Lute - Ballad of Westside Scoop with excellent textual match (distance 0.164).","contradictions":[]},
+  {"id":7,"verdict":"park","chosen_candidate":0,"confidence":0.20,"reason":"Confident fingerprint (0.994) contradicts YouTube metadata: audio matches Vanessa Bling version, not Pa Salieu. Possible mislabeling or database collision.","contradictions":["Fingerprint confident but artist mismatch: YouTube claims Pa Salieu but closest match is Vanessa Bling & The Heatwave - Frontline"]},
+  {"id":8,"verdict":"accept","chosen_candidate":0,"confidence":0.982,"reason":"Confident fingerprint (0.982) matches closest candidate Alicia Keys - You Don't Know My Name perfectly.","contradictions":[]}
+]
