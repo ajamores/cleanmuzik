@@ -25,7 +25,8 @@ lookup for the real facts. Measured on the spike corpus: **~4s vs today's 11s/37
 Three properties, all binding:
 
 - **Speed** — the identity stage collapses from a serial 1/sec chain to `Shazam + reconcile + one ISRC
-  lookup`; art/genre/lyrics enrichment is unchanged but fetched **in parallel**, off the critical path.
+  lookup`. Art/genre/lyrics enrichment is unchanged and stays **inline/serial** as in R1 — it was never
+  the bottleneck, and the identity collapse alone is the ~8.6×. No intra-track concurrency is introduced.
 - **Safety by vote (ADR-021 amended)** — auto-land requires **≥2 of the 3 senses to agree**; one dissenter
   parks. The LLM *may* override a wrong fingerprint, but only when two other senses corroborate.
 - **Feature parity (hard)** — B must land **everything R1 lands** (embedded cover art, synced lyrics,
@@ -41,8 +42,8 @@ Three properties, all binding:
   isrc, art_url?, lyrics?, matched, error }`. **Fail-soft with a hard timeout** (§5). Called per-track (not
   only on an AcoustID miss — a widening of ADR-019's "backup tier," safe only under the serial pipeline).
 - **The reconcile call** at `import_seam.py :: choose_item`, injected the way `dominance_fn` is (offline
-  tests inject a stub). Given the 3 senses + MusicBrainz candidates, it returns a `Verdict` (§6): a decision,
-  the chosen identity, which senses agree, a candidate **ranking** for the review card, and genre/mood.
+  tests inject a stub). Given the 3 senses + the augmented candidate list, it returns a `Verdict` (§6): a
+  decision, the **chosen candidate index**, which senses agree, a **ranking** for the review card, and genre/mood.
 - **The 2-of-3 accept rule** (§5) — the safety spine, replacing R1's `_matching_candidate + SCORE_MIN`
   boolean and A's veto-only clause.
 - **Facts from a real lookup only (ADR-021 Rule 2, carried forward, not new)** — the landed recording MBID
@@ -51,8 +52,9 @@ Three properties, all binding:
   covered by the fingerprint MBID (§5).
 - **Landing unchanged and serial (ADR-022, pool = 1)** — an accepted identity is applied through the
   **same** `resolve_import`/`_forced_match` machinery a manual resolve uses (`import_seam.py:1102`).
-- **Enrichment unchanged, parallelized** — cover art, genre (`lastgenre`), and lyrics land exactly as R1
-  does them (parity), but fetched concurrently off the identity critical path.
+- **Enrichment unchanged** — cover art, genre (`lastgenre`), and lyrics land exactly as R1 does them,
+  inline in beets' serial import (parity). R1.5 does **not** parallelize enrichment; the speed win is
+  entirely the identity-stage collapse (below), so no intra-track concurrency is introduced.
 - **Review card gains `reason` + `contradictions` + LLM-ranked candidates, persisted to SQLite** (§6).
 - **Anthropic key** read from repo-root `.env` as **`ANTHROPIC_APIKEY`** (§6 — differs from the SDK default).
 
@@ -77,9 +79,9 @@ The fence — tempting, deliberately not R1.5.
 
 R1's flow (`docs/r1/spec.md §4`) is unchanged except at **identify** (step 3–4) and the **review card**:
 
-3. **Identify (now multi-sense).** In parallel where possible: yt-dlp signals are already in hand; the
-   AcoustID fingerprint runs as today; a Shazam call runs (hard-timeout, fail-soft). The three senses +
-   MusicBrainz candidates go to one reconcile call.
+3. **Identify (now multi-sense).** Sequentially (no intra-track concurrency; exp 9 hit ~4s this way):
+   yt-dlp signals are already in hand → the AcoustID fingerprint runs as today → a Shazam call runs
+   (hard-timeout, fail-soft) → the augmented candidates + three senses go to one reconcile call.
 4. **The gate (2-of-3, ADR-021 amended):**
    - **≥2 senses agree on an identity that resolves to a real MBID** → auto-tag and land, zero clicks. If the
      fingerprint is one of the two, this is the R1 happy path; if the fingerprint *dissents* but yt-dlp +
@@ -95,30 +97,38 @@ are exactly R1 — only faster and reached via the vote.
 
 ## 5. Behaviour details
 
-- **The 2-of-3 accept rule (the safety spine).** Let the three senses be `yt` (yt-dlp title/uploader), `fp`
-  (AcoustID: `dominance.top_recording_ids` + `top_score`), `sz` (Shazam: artist/title/isrc). The reconcile
-  call returns `verdict`, a `chosen` identity, and `agreeing_senses` (which of yt/fp/sz support `chosen`).
-  **Auto-land iff ALL hold:**
+- **The candidate list is AUGMENTED so the override has a channel (closes the v2 blocker).** The reconcile
+  call is handed **one** `candidates[]` list that is the union of every real-MBID-bearing option: beets'
+  MusicBrainz candidates **plus**, when the Shazam ISRC resolves, a synthetic entry for the **ISRC→MB
+  recording**. Every entry carries `{n, artist, title, mbid, source}` where `mbid` came from a real lookup
+  (`source: "musicbrainz"` or `"isrc"`). The LLM selects by **index** into this list; **the landed
+  `recording_id` is `candidates[chosen_candidate].mbid`.** This is how the Pa Salieu correction lands — the
+  right recording is the appended ISRC entry, selectable by index — while Rule 2 holds because *no* entry's
+  MBID was authored by the LLM. If the ISRC does not resolve (the ~54% gap), no synthetic entry exists; the
+  only selectable identities are beets' fingerprint/text candidates, exactly as R1.
+- **The three senses, and when each is PRESENT.** `yt` (yt-dlp title/uploader) — always present. `fp`
+  (AcoustID) — present **only when `dominance.top_recording_ids` is non-empty** (a high `top_score` with an
+  empty recording list is *not* an fp identity). `sz` (Shazam) — present only when `matched` (error / empty /
+  timeout ⇒ absent, not a vote).
+- **The 2-of-3 accept rule (the safety spine).** A sense **supports** `candidates[chosen_candidate]` iff:
+  `fp` → `candidate.mbid ∈ dominance.top_recording_ids`; `sz` → the candidate is the `isrc`-sourced entry
+  **or** the Shazam (artist AND title) normalized-match the candidate; `yt` → the yt (artist AND title)
+  normalized-match the candidate. `agreeing_senses` is proposed by the LLM but **the gate re-derives it in
+  code** — intersecting with *present* senses and re-checking support — and uses the **code-validated**
+  count, never the raw LLM number. **Auto-land iff ALL hold:**
   1. `verdict == "accept"`;
-  2. `len(agreeing_senses) >= 2`;
-  3. `chosen` resolves to a **real recording MBID** — either in `dominance.top_recording_ids` (fp) **or**
-     returned by the ISRC→MB lookup (sz). *The landed match is built from that MBID via `_forced_match`* —
-     the land is **sourced from the real lookup, never from the LLM's free-text identity.**
+  2. code-validated `agreeing_senses`, drawn only from present senses, has **≥ 2** members;
+  3. `candidates[chosen_candidate].mbid` is non-null (always true — every entry carries a real MBID).
 
-  Any failure → **park**, storing `reason` + `contradictions`. **Consequences, spelled out so a builder
-  can't get it wrong:** (a) a lone sense (only fp, or only sz) is `agreeing_senses == 1` → **park**, never
-  auto-land — so Shazam *alone* never lands (ADR-019 preserved); (b) if `chosen` has no real MBID from
-  either source, it **cannot** auto-land regardless of agreement — park or keep-untagged, never an
-  LLM-invented ID; (c) the fingerprint may be *overridden* only when `yt + sz` agree against it (the
-  deliberate ADR-021 reversal). **Eyes-open:** the override case is validated at n=1 (Pa Salieu); this is an
-  accepted, recorded risk, not a proof.
-- **`agreeing_senses` is the LLM's judgment, `chosen`'s MBID is structural.** The count of agreeing senses is
-  a reasoning task (does "Pa Salieu" ≈ the yt title ≈ the Shazam artist?), so it is LLM-produced — that is
-  the probabilistic half. The **facts** half is structural: whatever `chosen` is, the *landed* recording MBID
-  must come from fp or the ISRC lookup, or it parks. Do not let the LLM's `chosen` string become a tag.
-- **Facts sourcing + the 46% ISRC gap.** Prefer the ISRC→MB MBID when the agreed identity is Shazam-driven;
-  else use the fingerprint MBID. If neither yields an MBID for `chosen`, the track parks (or keep-untagged
-  via ADR-020). The LLM never fills the gap.
+  Any failure → **park** with `reason` + `contradictions`. **Consequences a builder can't get wrong:**
+  (a) a lone present/agreeing sense → **park**; Shazam *alone* never lands (ADR-019); (b) `chosen_candidate
+  == null` or no augmented candidate for the agreed identity → **park / keep-untagged**, never an
+  LLM-invented ID; (c) the fingerprint is *overridden* only when `yt + sz` both **support a non-fp
+  candidate** (the deliberate ADR-021 reversal). **The real-but-wrong-ISRC class (Strawberry Swing):** Shazam
+  can return a real ISRC for the *wrong* recording (a cover). It parks correctly here because agreement is on
+  **artist AND title** — yt says "Frank Ocean", sz says "Coldplay", so neither supports the other's candidate
+  → < 2 agree. **Eyes-open residual:** where two senses are *genuinely* fooled together onto the same wrong
+  identity, B auto-lands wrong; the override case is validated at n=1 (Pa Salieu). Accepted, recorded risk.
 - **Shazam fail-soft AND hard timeout.** `app/shazam.py` returns the §6 record or `{matched:false,
   error:...}`. A **hard wall-clock timeout** (default 8s, tunable) maps a hang to `{matched:false,
   error:"timeout"}` — a hang is *not* "unavailable" and, on the serial pipeline, would otherwise block every
@@ -132,35 +142,51 @@ are exactly R1 — only faster and reached via the vote.
   confidence field before the gate function and before persistence**; it reaches neither the accept decision
   nor the review row. The row's discriminator stays the fingerprint/tag `score` (R1).
 - **Feature parity.** The landed file must match R1's outputs exactly (art, synced lyrics, genre, year,
-  tags, `Artist/Album/`). Enrichment plugins are unchanged; only their scheduling (parallel) changes. A
-  parity regression is a build failure (see §7).
+  tags, `Artist/Album/`). Enrichment plugins **and their inline/serial scheduling** are unchanged — only the
+  *identity* stage feeding them changes. A parity regression is a build failure (see §7).
 - **Determinism + cost.** Temperature 0; one reconcile call per track. Council-estimated ~$0.05–0.20 for the
   corpus (an estimate, not a measured spike figure).
 
 ### Open build seam — Shazam packaging (resolve in the Shazam ticket; record as an ADR)
 
 The spike ran `shazamio` in an isolated **Python 3.12** venv (`server/.venv-shazam`) — the app's 3.14 venv
-has no `shazamio-core` wheel. **Lean: invoke it as a subprocess against the 3.12 venv**, which also
-quarantines the reverse-engineered dependency (ADR-019's accepted risk) behind a process boundary that can
-die on timeout without touching the worker. Alternatives (pin the server to 3.12; vendor the wheel) are the
-fallback. Blocks the Shazam ticket.
+has no `shazamio-core` wheel. **Decision (this spec): invoke it as a subprocess against the 3.12 venv** —
+it quarantines the reverse-engineered dependency (ADR-019's accepted risk) behind a process boundary that
+can be killed on timeout without touching the worker, and keeps the app on 3.14. The Shazam ticket records
+this as a short ADR and owns the subprocess contract (I/O shape, kill-on-timeout); pin-3.12 / vendor-wheel
+are documented fallbacks only if the subprocess path fails in build.
 
 ## 6. Interfaces
 
 ### The reconcile seam (`import_seam.py`)
 
-`reconcile(evidence) -> Verdict`, injected like `dominance_fn`. Evidence assembled per track from
-`SourceSignals`, `dominance` (`top_score` + `top_recording_ids`), the MusicBrainz `candidates` list (a
-canonical, fixed order — see below), and the optional Shazam record. Offline tests inject a stub.
+`FingerprintTrustSession` gains three constructor params alongside the existing `dominance_fn`:
+`source_signals` (the yt-dlp blob for this track), `shazam_fn` (called once per track, hard-timeout,
+returns the §6 Shazam record), and `reconcile_fn(evidence) -> Verdict`. Offline tests inject stubs for all
+three, exactly as `dominance_fn` is stubbed today. In `choose_item`, the order is: existing `dominance_fn`
+→ `shazam_fn` → **build the augmented `candidates[]`** (beets candidates + a synthetic ISRC entry if the
+Shazam ISRC resolves via the ISRC→MB lookup) → `reconcile_fn(evidence)` → apply the 2-of-3 gate (§5). An
+accepted `recording_id = candidates[chosen_candidate].mbid` is landed via `_forced_match`/`resolve_import`.
+Evidence = `SourceSignals` + `dominance` (`top_score` + `top_recording_ids`) + the augmented `candidates[]`
+(canonical fixed order) + the optional Shazam record.
 
 ### Verdict schema (structured output)
 
+The **augmented** `candidates[]` handed to the call (each entry carries a real MBID):
+
 ```jsonc
+// candidates[] = beets MusicBrainz candidates ++ (ISRC→MB entry, if the ISRC resolved)
+[ { "n": 0, "artist": "…", "title": "…", "mbid": "<real>", "source": "musicbrainz" },
+  { "n": 5, "artist": "Pa Salieu", "title": "Frontline", "mbid": "<real>", "source": "isrc" } ]
+```
+
+```jsonc
+// Verdict
 {
   "verdict": "accept" | "park",
-  "chosen_candidate": <int index into candidates[]> | null,   // enum-constrained to the list
-  "agreeing_senses": ["yt","fp","sz"],      // subset; auto-land needs length >= 2
-  "ranking": [<int>, ...],                   // FULL ordering of candidates[] for the review card
+  "chosen_candidate": <int n into candidates[]> | null,   // enum-constrained; NEVER a free-text identity
+  "agreeing_senses": ["yt","fp","sz"],      // LLM proposal; the gate RE-DERIVES + validates in code (§5)
+  "ranking": [<int n>, ...],                 // FULL ordering of candidates[] for the review card
   "reason": "<one line>",
   "contradictions": ["<why a sense disagrees>", ...],
   "genre_suggestion": "<str|null>",          // R1.5 does NOT write this (parity: lastgenre owns genre)
@@ -168,9 +194,10 @@ canonical, fixed order — see below), and the optional Shazam record. Offline t
 }
 ```
 
-`candidates[]` order is **canonical and fixed** (the order beets produced), serialized identically into the
-prompt and reused for `chosen_candidate`/`ranking` resolution and persistence — so an index never resolves
-against a different order than the LLM saw. No `confidence` field (dropped at the boundary, §5).
+`candidates[]` order is **canonical and fixed**, serialized identically into the prompt and reused for
+`chosen_candidate`/`ranking` resolution and persistence — an index never resolves against a different order
+than the LLM saw. There is **no free-text identity field**: the LLM can only point at a real-MBID entry, so
+it can never author an identity or an MBID. No `confidence` field (dropped at the boundary, §5).
 
 ### Shazam record (`app/shazam.py`)
 
@@ -187,8 +214,10 @@ recording MBID + artist/title. This is the only network floor B keeps on the ide
 
 ### Review row / SSE additions — **must persist** (ADR-010 lesson)
 
-`reviews` gains **columns** `reason TEXT`, `contradictions_json TEXT`, and the candidate list is stored in
-**LLM-ranked order** — a discriminator that lives only in the live SSE event and not in SQLite is
+`reviews` gains **columns** `reason TEXT`, `contradictions_json TEXT`, and the stored candidate list
+(`candidate_ids_json`) is written in **LLM-ranked order** — reorder `candidate_ids` by `ranking` *before*
+`create_review` (around `import_seam.py:758`), so the persisted order already reflects the ranking and a
+restart re-hydrates it. A discriminator that lives only in the live SSE event and not in SQLite is
 unimplementable after a restart (ADR-010 addendum). `track.review_required` carries `reason` +
 `contradictions` alongside the (ranked) `candidates`; no route signatures change.
 
@@ -196,12 +225,13 @@ unimplementable after a restart (ADR-010 addendum). `track.review_required` carr
 
 | Key | Needed by | R1.5 behaviour if missing |
 |---|---|---|
-| `ANTHROPIC_APIKEY` | reconcile | **Required for multi-sense auto-land.** Differs from SDK default — read explicitly. If absent: degrade to the **R1 fingerprint-only gate** (logged warning). *This reopens the wrong-recording mistag class (e.g. Pa Salieu auto-lands as Vanessa Bling) — an eyes-open operational fallback, not an invisible one.* |
+| `ANTHROPIC_APIKEY` | reconcile | **Required for multi-sense auto-land.** Differs from SDK default — read explicitly. **Absent OR rejected (401/expired)** → degrade to the **R1 fingerprint-only gate** (logged warning), so a stale key degrades gracefully rather than parking *every* track. *This reopens the wrong-recording mistag class (e.g. Pa Salieu auto-lands as Vanessa Bling) — an eyes-open operational fallback, not an invisible one.* (A mid-run *transient* failure on a valid key still parks that one track, per §5.) |
 
 ## 7. Acceptance checklist (R1.5 is "done" when…)
 
-- [ ] **Speed:** a representative track's identity stage completes in **~single-digit seconds** (target: beat
-      today's 11s/37s by a wide margin on a `/verify` replay of the spike corpus).
+- [ ] **Speed:** on a `/verify` replay of the spike corpus, the identity stage's **median wall-clock is
+      < 6s** (exp 9 measured ~4.2s), vs today's instrumented **10.96s park / 36.20s auto-land** baseline.
+      Shazam tail spikes are capped by the §5 timeout, not counted as sustained latency.
 - [ ] **Happy path:** fingerprint + Shazam (+yt) agree → auto-tag and land, **zero clicks**, same outcome as R1.
 - [ ] **The override win (Pa Salieu):** fingerprint matches the *wrong* recording but yt-dlp + Shazam agree →
       B **lands the correct identity** (Pa Salieu), zero clicks, with the real MBID from the ISRC lookup.

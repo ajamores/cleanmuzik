@@ -41,10 +41,11 @@ reconciliation**, chosen over A (veto-only adjudicator):
 
 ## ⟹ NEXT
 
-1. ✅ **`docs/r1.5/spec.md` rewritten for B** (v2, 2026-08-10) — 2-of-3 safety §5, facts-from-real-lookup,
-   feature-parity acceptance, review-panel findings folded (Shazam subprocess-to-3.12 lean, hard timeout,
-   persist `reason`/`contradictions`, ISRC→MB 46% fallback to fp MBID, confidence dropped at boundary).
-   Roadmap updated: **R1.5 = `specing` current**, R1.6/R2 sequenced behind. ⟹ **Owner signs off the spec.**
+1. ✅ **`docs/r1.5/spec.md` written for B → cold-reviewed → patched to v3** (2026-08-10). v2 cold-build found
+   2 blockers (override had no schema channel; parallel-vs-serial self-contradiction) + a safety gap; **all
+   closed in v3**: augmented candidates carry real MBIDs so `chosen_candidate` can name the ISRC override;
+   enrichment stays serial; agreement = artist AND title over *present* senses (Strawberry Swing parks).
+   Roadmap: **R1.5 = `specing` current**. ⟹ **Owner signs off the spec.**
 2. Then: **decompose R1.5 tickets** (dep order: SourceSignals → Shazam+packaging ADR → reconcile+2-of-3 →
    review-card fields). **ADR-016 design gate** on the review card (reason/contradictions render) before its
    component code. R2's spec is `ready-for-agent` but sequenced behind.
