@@ -1,0 +1,430 @@
+<style>
+  :root {
+    /* dark-first — this is the designed primary */
+    --bg: #0b0f14;
+    --surface: #121a22;
+    --surface-2: #18222c;
+    --line: #263340;
+    --line-soft: #1c2731;
+    --text: #d8e0e8;
+    --muted: #8b9aa8;
+    --faint: #5d6c79;
+    --accent: #34d3e0;
+    --accent-ink: #0b0f14;
+    --yt: #ff7a66;
+    --fp: #34d3e0;
+    --sz: #8f9bff;
+    --pass: #57d68a;
+    --park: #f2b84b;
+    --fail: #ff6f6b;
+    --shadow: 0 1px 0 rgba(255,255,255,.03), 0 18px 40px -24px rgba(0,0,0,.8);
+    --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"]) {
+      --bg: #f5f7f9;
+      --surface: #ffffff;
+      --surface-2: #eef2f5;
+      --line: #d7dee5;
+      --line-soft: #e6ebef;
+      --text: #16202b;
+      --muted: #566370;
+      --faint: #8593a0;
+      --accent: #0a97a8;
+      --accent-ink: #ffffff;
+      --yt: #d64f3a;
+      --fp: #0a97a8;
+      --sz: #4a57d6;
+      --pass: #1a9e5f;
+      --park: #b9791a;
+      --fail: #d64545;
+      --shadow: 0 1px 0 rgba(0,0,0,.02), 0 18px 40px -28px rgba(20,40,60,.28);
+    }
+  }
+  :root[data-theme="light"] {
+    --bg: #f5f7f9;
+    --surface: #ffffff;
+    --surface-2: #eef2f5;
+    --line: #d7dee5;
+    --line-soft: #e6ebef;
+    --text: #16202b;
+    --muted: #566370;
+    --faint: #8593a0;
+    --accent: #0a97a8;
+    --accent-ink: #ffffff;
+    --yt: #d64f3a;
+    --fp: #0a97a8;
+    --sz: #4a57d6;
+    --pass: #1a9e5f;
+    --park: #b9791a;
+    --fail: #d64545;
+    --shadow: 0 1px 0 rgba(0,0,0,.02), 0 18px 40px -28px rgba(20,40,60,.28);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-sans);
+    line-height: 1.6;
+    margin: 0;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 980px; margin: 0 auto; padding: clamp(1.4rem, 4vw, 4rem) clamp(1.1rem, 4vw, 2.2rem) 5rem; }
+
+  .eyebrow {
+    font-family: var(--font-mono); font-size: .72rem; letter-spacing: .22em; text-transform: uppercase;
+    color: var(--accent); font-weight: 600;
+  }
+  h1 {
+    font-size: clamp(2.1rem, 6vw, 3.5rem); line-height: 1.02; letter-spacing: -.02em; font-weight: 850;
+    text-wrap: balance; margin: .5rem 0 0;
+  }
+  h1 .hl { color: var(--accent); }
+  .thesis {
+    font-size: clamp(1.05rem, 2.4vw, 1.35rem); color: var(--muted); max-width: 34ch; text-wrap: balance;
+    margin: 1.1rem 0 0; line-height: 1.45;
+  }
+  .status {
+    display: inline-flex; align-items: center; gap: .5rem; margin-top: 1.5rem;
+    font-family: var(--font-mono); font-size: .74rem; letter-spacing: .04em;
+    border: 1px solid var(--line); border-radius: 100px; padding: .34rem .8rem; color: var(--muted);
+    background: var(--surface);
+  }
+  .status .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--park); box-shadow: 0 0 0 3px color-mix(in srgb, var(--park) 22%, transparent); }
+
+  /* stat row */
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; background: var(--line-soft);
+    border: 1px solid var(--line-soft); border-radius: 14px; overflow: hidden; margin-top: 2.6rem; }
+  .stat { background: var(--surface); padding: 1.15rem 1.15rem 1.25rem; }
+  .stat .n { font-family: var(--font-mono); font-size: clamp(1.4rem, 3.4vw, 2rem); font-weight: 650;
+    letter-spacing: -.02em; font-variant-numeric: tabular-nums; color: var(--text); }
+  .stat .n b { color: var(--accent); font-weight: 650; }
+  .stat .k { font-family: var(--font-mono); font-size: .68rem; text-transform: uppercase; letter-spacing: .13em;
+    color: var(--faint); margin-top: .3rem; }
+  @media (max-width: 640px) { .stats { grid-template-columns: repeat(2, 1fr); } }
+
+  section { margin-top: clamp(2.8rem, 6vw, 4.4rem); }
+  .sec-label { font-family: var(--font-mono); font-size: .72rem; letter-spacing: .2em; text-transform: uppercase;
+    color: var(--faint); display: flex; align-items: center; gap: .7rem; }
+  .sec-label::after { content: ""; height: 1px; flex: 1; background: var(--line-soft); }
+  h2 { font-size: clamp(1.4rem, 3.2vw, 1.9rem); letter-spacing: -.015em; font-weight: 800; margin: .9rem 0 0;
+    text-wrap: balance; }
+  .lede { color: var(--muted); max-width: 64ch; margin: .7rem 0 0; }
+
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); }
+  .pad { padding: clamp(1.1rem, 3vw, 1.6rem); }
+
+  /* A vs B */
+  .shift { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 1.4rem; }
+  @media (max-width: 640px) { .shift { grid-template-columns: 1fr; } }
+  .shift .tag { font-family: var(--font-mono); font-size: .7rem; letter-spacing: .12em; text-transform: uppercase; }
+  .shift h3 { margin: .5rem 0 .4rem; font-size: 1.05rem; }
+  .shift p { margin: 0; color: var(--muted); font-size: .95rem; }
+  .shift .old { border-color: var(--line); }
+  .shift .old .tag { color: var(--faint); }
+  .shift .new { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
+  .shift .new .tag { color: var(--accent); }
+
+  /* pipeline flow */
+  .flow { display: flex; align-items: stretch; gap: .5rem; margin-top: 1.5rem; overflow-x: auto; padding-bottom: .4rem; }
+  .stage { flex: 0 0 auto; min-width: 96px; background: var(--surface); border: 1px solid var(--line); border-radius: 11px;
+    padding: .7rem .8rem; display: flex; flex-direction: column; gap: .25rem; }
+  .stage .st-k { font-family: var(--font-mono); font-size: .82rem; font-weight: 600; }
+  .stage .st-s { font-family: var(--font-mono); font-size: .64rem; color: var(--faint); text-transform: uppercase; letter-spacing: .1em; }
+  .stage.identity { flex: 1 1 auto; min-width: 260px; border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
+    background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 9%, var(--surface)), var(--surface)); }
+  .stage.identity .st-k { color: var(--accent); }
+  .arrow { flex: 0 0 auto; align-self: center; color: var(--faint); font-family: var(--font-mono); }
+  .id-inner { display: flex; gap: .4rem; margin-top: .5rem; flex-wrap: wrap; }
+  .id-chip { font-family: var(--font-mono); font-size: .66rem; padding: .18rem .45rem; border-radius: 6px;
+    border: 1px solid var(--line); color: var(--muted); }
+
+  /* vote diagram */
+  .vote { margin-top: 1.6rem; display: flex; flex-direction: column; align-items: center; gap: 0; }
+  .senses { display: grid; grid-template-columns: repeat(3, 1fr); gap: .8rem; width: 100%; }
+  @media (max-width: 640px) { .senses { grid-template-columns: 1fr; } }
+  .sense { border-radius: 12px; border: 1px solid var(--line); background: var(--surface); padding: .9rem 1rem;
+    position: relative; overflow: hidden; }
+  .sense::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--h); }
+  .sense.yt { --h: var(--yt); } .sense.fp { --h: var(--fp); } .sense.sz { --h: var(--sz); }
+  .sense .s-k { font-family: var(--font-mono); font-size: .68rem; letter-spacing: .1em; text-transform: uppercase; color: var(--h); font-weight: 600; }
+  .sense .s-n { font-weight: 700; margin-top: .25rem; font-size: 1rem; }
+  .sense .s-d { color: var(--muted); font-size: .82rem; margin-top: .2rem; }
+  .converge { height: 34px; width: 2px; background: linear-gradient(var(--line), var(--accent)); margin: 0 auto; }
+  .gate { border: 1px solid color-mix(in srgb, var(--accent) 50%, var(--line)); background: var(--surface-2);
+    border-radius: 100px; padding: .6rem 1.3rem; text-align: center; font-family: var(--font-mono);
+    font-weight: 650; letter-spacing: .02em; color: var(--text); box-shadow: var(--shadow); }
+  .gate b { color: var(--accent); }
+  .gate .sub { display: block; font-size: .66rem; color: var(--muted); letter-spacing: .08em; font-weight: 400; margin-top: .2rem; text-transform: uppercase; }
+  .outcomes { display: grid; grid-template-columns: 1fr 1fr; gap: .8rem; width: 100%; margin-top: 0; }
+  @media (max-width: 640px) { .outcomes { grid-template-columns: 1fr; } }
+  .outcome { border-radius: 12px; padding: .8rem 1rem; border: 1px solid var(--line); }
+  .outcome.land { border-color: color-mix(in srgb, var(--pass) 45%, var(--line)); background: color-mix(in srgb, var(--pass) 8%, var(--surface)); }
+  .outcome.park { border-color: color-mix(in srgb, var(--park) 45%, var(--line)); background: color-mix(in srgb, var(--park) 8%, var(--surface)); }
+  .outcome .o-k { font-family: var(--font-mono); font-size: .72rem; letter-spacing: .1em; text-transform: uppercase; font-weight: 650; }
+  .outcome.land .o-k { color: var(--pass); } .outcome.park .o-k { color: var(--park); }
+  .outcome .o-d { color: var(--muted); font-size: .85rem; margin-top: .25rem; }
+  .split { display: grid; grid-template-columns: 1fr 1fr; width: 100%; }
+  .split .leg { height: 26px; border-top: 2px solid var(--line); }
+  .split .leg.l { border-left: 2px solid var(--line); border-top-left-radius: 8px; margin-left: 25%; }
+  .split .leg.r { border-right: 2px solid var(--line); border-top-right-radius: 8px; margin-right: 25%; }
+
+  /* worked examples */
+  .examples { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 1.5rem; }
+  @media (max-width: 720px) { .examples { grid-template-columns: 1fr; } }
+  .ex .ex-head { display: flex; align-items: baseline; justify-content: space-between; gap: .6rem; margin-bottom: .7rem; }
+  .ex .ex-t { font-weight: 750; font-size: 1rem; }
+  .ex .verdict { font-family: var(--font-mono); font-size: .68rem; letter-spacing: .08em; text-transform: uppercase;
+    padding: .2rem .55rem; border-radius: 6px; font-weight: 650; white-space: nowrap; }
+  .ex .verdict.land { color: var(--pass); background: color-mix(in srgb, var(--pass) 14%, transparent); }
+  .ex .verdict.park { color: var(--park); background: color-mix(in srgb, var(--park) 14%, transparent); }
+  .votes { display: flex; flex-direction: column; gap: .4rem; }
+  .vrow { display: grid; grid-template-columns: 88px 1fr auto; gap: .6rem; align-items: center; font-size: .85rem; }
+  .vrow .vk { font-family: var(--font-mono); font-size: .66rem; text-transform: uppercase; letter-spacing: .08em; color: var(--h); }
+  .vrow.yt { --h: var(--yt); } .vrow.fp { --h: var(--fp); } .vrow.sz { --h: var(--sz); }
+  .vrow .vv { color: var(--text); }
+  .vrow .badge { font-family: var(--font-mono); font-size: .64rem; padding: .1rem .4rem; border-radius: 5px; letter-spacing: .04em; }
+  .vrow .badge.ok { color: var(--pass); border: 1px solid color-mix(in srgb, var(--pass) 40%, transparent); }
+  .vrow .badge.no { color: var(--fail); border: 1px solid color-mix(in srgb, var(--fail) 40%, transparent); }
+  .ex .ex-note { margin-top: .7rem; padding-top: .7rem; border-top: 1px solid var(--line-soft); font-size: .82rem; color: var(--muted); }
+
+  /* rules */
+  .rules { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 1.4rem; }
+  @media (max-width: 640px) { .rules { grid-template-columns: 1fr; } }
+  .rule .r-n { font-family: var(--font-mono); font-size: .72rem; color: var(--accent); letter-spacing: .1em; text-transform: uppercase; }
+  .rule h3 { margin: .4rem 0 .5rem; font-size: 1.08rem; letter-spacing: -.01em; }
+  .rule p { margin: 0; color: var(--muted); font-size: .92rem; }
+
+  /* speed bars */
+  .bars { margin-top: 1.4rem; display: flex; flex-direction: column; gap: .9rem; }
+  .bar-row { display: grid; grid-template-columns: 120px 1fr; gap: .9rem; align-items: center; }
+  @media (max-width: 560px) { .bar-row { grid-template-columns: 1fr; gap: .3rem; } }
+  .bar-row .bl { font-family: var(--font-mono); font-size: .74rem; color: var(--muted); }
+  .track { background: var(--surface-2); border-radius: 7px; height: 30px; position: relative; overflow: hidden; border: 1px solid var(--line-soft); }
+  .fill { height: 100%; display: flex; align-items: center; padding: 0 .6rem; font-family: var(--font-mono);
+    font-size: .74rem; font-weight: 600; color: var(--accent-ink); border-radius: 6px; white-space: nowrap;
+    font-variant-numeric: tabular-nums; }
+  .fill.a { background: color-mix(in srgb, var(--faint) 55%, var(--surface-2)); color: var(--text); }
+  .fill.b { background: var(--accent); }
+
+  /* parity chips + scope */
+  .chips { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: 1.2rem; }
+  .chip { font-family: var(--font-mono); font-size: .76rem; border: 1px solid var(--line); border-radius: 8px;
+    padding: .35rem .7rem; color: var(--text); display: inline-flex; align-items: center; gap: .45rem; background: var(--surface); }
+  .chip .ck { color: var(--pass); font-weight: 700; }
+  .scope { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 1.4rem; }
+  @media (max-width: 640px) { .scope { grid-template-columns: 1fr; } }
+  .scope ul { margin: .6rem 0 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: .5rem; }
+  .scope li { font-size: .9rem; color: var(--muted); padding-left: 1.3rem; position: relative; }
+  .scope .in li::before { content: "+"; position: absolute; left: 0; color: var(--pass); font-family: var(--font-mono); font-weight: 700; }
+  .scope .out li::before { content: "→"; position: absolute; left: 0; color: var(--faint); font-family: var(--font-mono); }
+  .scope li b { color: var(--text); font-weight: 650; }
+
+  /* risk callout */
+  .risk { border: 1px solid color-mix(in srgb, var(--park) 40%, var(--line)); border-radius: 14px;
+    background: color-mix(in srgb, var(--park) 6%, var(--surface)); margin-top: clamp(2.8rem,6vw,4.4rem); }
+  .risk .pad { display: flex; gap: 1rem; align-items: flex-start; }
+  .risk .mark { font-family: var(--font-mono); color: var(--park); font-weight: 700; font-size: 1.4rem; line-height: 1; }
+  .risk h3 { margin: 0 0 .35rem; font-size: 1.05rem; }
+  .risk p { margin: 0; color: var(--muted); font-size: .92rem; max-width: 68ch; }
+
+  footer { margin-top: 3.5rem; padding-top: 1.4rem; border-top: 1px solid var(--line-soft);
+    display: flex; flex-wrap: wrap; gap: .5rem 1.4rem; font-family: var(--font-mono); font-size: .72rem; color: var(--faint); }
+  footer b { color: var(--muted); font-weight: 600; }
+  code { font-family: var(--font-mono); font-size: .86em; color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, transparent);
+    padding: .05em .35em; border-radius: 4px; }
+
+  .reveal { opacity: 0; transform: translateY(10px); animation: rise .7s cubic-bezier(.2,.7,.2,1) forwards; }
+  @keyframes rise { to { opacity: 1; transform: none; } }
+  @media (prefers-reduced-motion: reduce) { .reveal { animation: none; opacity: 1; transform: none; } }
+</style>
+
+<div class="wrap">
+
+  <header class="reveal">
+    <div class="eyebrow">CleanMuzik · Release R1.5 · Engine spec</div>
+    <h1>The fingerprint proposes.<br>Two senses <span class="hl">vote</span>.</h1>
+    <p class="thesis">A music-identity engine that reconciles three senses with one LLM call — faster, and it fixes the mistags the old path could only flag.</p>
+    <div class="status"><span class="dot"></span> DRAFT v3 · pending owner sign-off · architecture&nbsp;B</div>
+
+    <div class="stats">
+      <div class="stat"><div class="n">~<b>4.2</b>s</div><div class="k">median identity</div></div>
+      <div class="stat"><div class="n"><b>8.6×</b></div><div class="k">faster than today</div></div>
+      <div class="stat"><div class="n"><b>2</b>/3</div><div class="k">senses to auto-land</div></div>
+      <div class="stat"><div class="n"><b>0</b></div><div class="k">LLM-invented facts</div></div>
+    </div>
+  </header>
+
+  <section class="reveal">
+    <div class="sec-label">The shift</div>
+    <h2>From a judge that parks mistakes to an engine that fixes them</h2>
+    <p class="lede">Today, identity comes from a single acoustic fingerprint down a slow chain of lookups. When it's wrong, the only safe move is to hand the song to a human. R1.5 gathers three independent senses and reconciles them.</p>
+    <div class="shift">
+      <div class="card pad old">
+        <div class="tag">A — rejected</div>
+        <h3>Veto-only adjudicator</h3>
+        <p>The LLM could confirm the fingerprint or park it — never correct it. Safe, but no speed, and every mistag became a chore for you.</p>
+      </div>
+      <div class="card pad new">
+        <div class="tag">B — chosen</div>
+        <h3>Multi-sense reconciliation</h3>
+        <p>Three senses vote. When two agree, the engine lands the right answer itself — even when the fingerprint got it wrong. Facts still come only from a real lookup.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="reveal">
+    <div class="sec-label">The pipeline · one organ changes</div>
+    <h2>Only the identity stage moves</h2>
+    <p class="lede">Download, transcode, landing, dedup, and the Jellyfin scan are exactly as they ship today. The slow single-sense lookup chain is replaced; everything else is untouched.</p>
+    <div class="flow">
+      <div class="stage"><span class="st-k">Download</span><span class="st-s">yt-dlp</span></div>
+      <span class="arrow">→</span>
+      <div class="stage"><span class="st-k">Transcode</span><span class="st-s">MP3 320</span></div>
+      <span class="arrow">→</span>
+      <div class="stage identity">
+        <span class="st-k">Identify — reconcile</span><span class="st-s">the changed organ</span>
+        <div class="id-inner">
+          <span class="id-chip">yt-dlp title</span>
+          <span class="id-chip">AcoustID fingerprint</span>
+          <span class="id-chip">Shazam</span>
+          <span class="id-chip">→ 1 LLM call</span>
+        </div>
+      </div>
+      <span class="arrow">→</span>
+      <div class="stage"><span class="st-k">Land</span><span class="st-s">beets · serial</span></div>
+      <span class="arrow">→</span>
+      <div class="stage"><span class="st-k">Jellyfin</span><span class="st-s">scan</span></div>
+    </div>
+  </section>
+
+  <section class="reveal">
+    <div class="sec-label">The safety spine · 2-of-3 vote</div>
+    <h2>Three witnesses, one decision</h2>
+    <p class="lede">Each sense is a witness to the song's identity. Auto-land needs at least two to agree on <b>artist and title</b>, and the identity must resolve to a real MusicBrainz ID. One dissenter, or no real ID, and it parks for you.</p>
+
+    <div class="vote">
+      <div class="senses">
+        <div class="sense yt"><div class="s-k">Sense 1 · yt-dlp</div><div class="s-n">The YouTube claim</div><div class="s-d">Title, uploader, "- Topic" channel</div></div>
+        <div class="sense fp"><div class="s-k">Sense 2 · AcoustID</div><div class="s-n">The fingerprint</div><div class="s-d">One acoustic ear → a real recording ID</div></div>
+        <div class="sense sz"><div class="s-k">Sense 3 · Shazam</div><div class="s-n">The second ear</div><div class="s-d">Artist, title, ISRC — never lands alone</div></div>
+      </div>
+      <div class="converge"></div>
+      <div class="gate">≥&nbsp;<b>2</b>&nbsp;agree on artist + title<span class="sub">code re-checks the vote · real ID required</span></div>
+      <div class="split"><div class="leg l"></div><div class="leg r"></div></div>
+      <div class="outcomes">
+        <div class="outcome land"><div class="o-k">Auto-land · 0 clicks</div><div class="o-d">Two senses corroborate a real recording — it tags and files itself.</div></div>
+        <div class="outcome park"><div class="o-k">Park · you decide</div><div class="o-d">Senses disagree, or no real ID exists. Ranked candidates + a plain reason wait in review.</div></div>
+      </div>
+    </div>
+
+    <div class="examples">
+      <div class="card pad ex">
+        <div class="ex-head"><span class="ex-t">Pa Salieu — "Frontline"</span><span class="verdict land">lands correct</span></div>
+        <div class="votes">
+          <div class="vrow yt"><span class="vk">yt-dlp</span><span class="vv">Pa Salieu</span><span class="badge ok">agrees</span></div>
+          <div class="vrow fp"><span class="vk">AcoustID</span><span class="vv">Vanessa Bling ✗</span><span class="badge no">dissents</span></div>
+          <div class="vrow sz"><span class="vk">Shazam</span><span class="vv">Pa Salieu</span><span class="badge ok">agrees</span></div>
+        </div>
+        <div class="ex-note">The fingerprint matched the wrong recording — today this auto-lands as Vanessa Bling. Two senses outvote it, and the real ID comes from Shazam's ISRC lookup. <b>The mistag is fixed, zero clicks.</b></div>
+      </div>
+      <div class="card pad ex">
+        <div class="ex-head"><span class="ex-t">Strawberry Swing (a cover)</span><span class="verdict park">parks — correct</span></div>
+        <div class="votes">
+          <div class="vrow yt"><span class="vk">yt-dlp</span><span class="vv">Frank Ocean</span><span class="badge no">disagree</span></div>
+          <div class="vrow fp"><span class="vk">AcoustID</span><span class="vv">silent</span><span class="badge no">absent</span></div>
+          <div class="vrow sz"><span class="vk">Shazam</span><span class="vv">Coldplay</span><span class="badge no">disagree</span></div>
+        </div>
+        <div class="ex-note">Shazam returns a real ISRC — but for the <i>wrong</i> song. Because agreement is on artist <b>and</b> title, the two never agree. No 2-of-3 → it parks instead of mistagging.</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="reveal">
+    <div class="sec-label">The two guardrails</div>
+    <h2>What keeps it honest</h2>
+    <div class="rules">
+      <div class="card pad rule">
+        <div class="r-n">Rule 1 · the vote</div>
+        <h3>Senses must agree</h3>
+        <p>Auto-land needs ≥2 of the three senses on the same artist + title. The LLM may override a wrong fingerprint — but only when two other senses back it. A lone sense always parks.</p>
+      </div>
+      <div class="card pad rule">
+        <div class="r-n">Rule 2 · the facts</div>
+        <h3>IDs come from a real lookup</h3>
+        <p>The permanent MusicBrainz ID comes from the fingerprint or the ISRC lookup — never the LLM's memory. Already how it works today; carried forward, not new. No invented IDs.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="reveal">
+    <div class="sec-label">The payoff · measured on 26 real rips</div>
+    <h2>The identity stage collapses</h2>
+    <p class="lede">The old path is a chain of one-call-per-second lookups. B replaces it with one Shazam call, one exact ID lookup, and one LLM call. Enrichment (art, lyrics, genre) is unchanged.</p>
+    <div class="bars">
+      <div class="bar-row"><span class="bl">Today · auto-land</span><div class="track"><div class="fill a" style="width:100%">36.2s</div></div></div>
+      <div class="bar-row"><span class="bl">Today · park</span><div class="track"><div class="fill a" style="width:30%">11.0s</div></div></div>
+      <div class="bar-row"><span class="bl">R1.5 · either</span><div class="track"><div class="fill b" style="width:12%">~4.2s</div></div></div>
+    </div>
+  </section>
+
+  <section class="reveal">
+    <div class="sec-label">Non-negotiable · feature parity</div>
+    <h2>Faster is never allowed to mean less</h2>
+    <p class="lede">Every landed file must carry exactly what it carries today. A song that lands with poorer tags is a build failure, not a trade-off.</p>
+    <div class="chips">
+      <span class="chip"><span class="ck">✓</span> Embedded cover art</span>
+      <span class="chip"><span class="ck">✓</span> Synced lyrics</span>
+      <span class="chip"><span class="ck">✓</span> Genre</span>
+      <span class="chip"><span class="ck">✓</span> Year</span>
+      <span class="chip"><span class="ck">✓</span> Title / artist / album</span>
+      <span class="chip"><span class="ck">✓</span> Organized Artist/Album/</span>
+    </div>
+  </section>
+
+  <section class="reveal">
+    <div class="sec-label">The fence</div>
+    <h2>What's in, and what waits</h2>
+    <div class="scope">
+      <div class="card pad in">
+        <div class="tag" style="font-family:var(--font-mono);font-size:.7rem;letter-spacing:.12em;text-transform:uppercase;color:var(--pass)">In R1.5</div>
+        <ul>
+          <li><b>SourceSignals</b> surfaced from yt-dlp</li>
+          <li><b>Shazam</b> as a per-track sense (subprocess, hard 8s timeout, fail-soft)</li>
+          <li>The <b>reconcile call</b> + the 2-of-3 gate</li>
+          <li>ISRC → MusicBrainz for real facts</li>
+          <li>Review card gains a <b>reason</b> + ranked candidates (persisted)</li>
+        </ul>
+      </div>
+      <div class="card pad out">
+        <div class="tag" style="font-family:var(--font-mono);font-size:.7rem;letter-spacing:.12em;text-transform:uppercase;color:var(--faint)">Deferred</div>
+        <ul>
+          <li><b>LLM-authored genre / mood</b> → R1.6 (after the confident-wrong test)</li>
+          <li><b>Shazam art / lyrics</b> replacing beets → R1.6</li>
+          <li><b>Pipeline concurrency</b> beyond serial land → R2.x</li>
+          <li><b>Re-search rescue agent</b> → later</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <div class="risk reveal">
+    <div class="pad">
+      <span class="mark">!</span>
+      <div>
+        <h3>The one accepted risk — eyes open</h3>
+        <p>If two senses are <i>genuinely</i> fooled onto the same wrong song, the engine auto-lands wrong. No structure fully removes this — it's the price of B's speed and its power to fix mistakes. The override case is validated at n=1 (Pa Salieu); wider real-use sampling is owed. Recorded, not hidden.</p>
+      </div>
+    </div>
+  </div>
+
+  <footer>
+    <span><b>Spec:</b> docs/r1.5/spec.md · v3</span>
+    <span><b>Evidence:</b> engine-rethink-spike.md · exp 8/9</span>
+    <span><b>Binding:</b> ADR-021 (amended) · ADR-022</span>
+    <span><b>Status:</b> pending owner sign-off</span>
+  </footer>
+
+</div>
