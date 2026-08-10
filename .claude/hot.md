@@ -41,13 +41,15 @@ reconciliation**, chosen over A (veto-only adjudicator):
 
 ## ⟹ NEXT
 
-1. **Rewrite `docs/r1.5/spec.md` for B.** The drafted spec is for **A** and is holey (3-reviewer panel: cold-build
-   + adversarial + consistency — findings still valid). New §5 safety = the 2-of-3 rule, not veto-only.
-2. **Open build items to fold into the B spec:** Shazam **packaging seam** (lean: subprocess to the 3.12
-   `.venv-shazam`); **hard Shazam timeout** (exp 8 tail); ISRC→MB covers only ~46% (fingerprint MBID covers the
-   confident rest); the review-card `reason`/`contradictions` **persist to SQLite** (don't repeat ADR-010);
-   **ADR-016 design gate** on the review card. Then decompose tickets + add R1.5/R1.6 rows to `docs/roadmap.md`.
-3. R1.6+: genre/mood enrichment (ADR-023, gated on the unrun exp 4), re-search rescue agent (T-034/035).
+1. ✅ **`docs/r1.5/spec.md` rewritten for B** (v2, 2026-08-10) — 2-of-3 safety §5, facts-from-real-lookup,
+   feature-parity acceptance, review-panel findings folded (Shazam subprocess-to-3.12 lean, hard timeout,
+   persist `reason`/`contradictions`, ISRC→MB 46% fallback to fp MBID, confidence dropped at boundary).
+   Roadmap updated: **R1.5 = `specing` current**, R1.6/R2 sequenced behind. ⟹ **Owner signs off the spec.**
+2. Then: **decompose R1.5 tickets** (dep order: SourceSignals → Shazam+packaging ADR → reconcile+2-of-3 →
+   review-card fields). **ADR-016 design gate** on the review card (reason/contradictions render) before its
+   component code. R2's spec is `ready-for-agent` but sequenced behind.
+3. R1.6+: LLM genre/mood (ADR-023, gated on the unrun **exp 4**), Shazam-vs-LRCLIB synced lyrics, re-search
+   rescue agent (T-034/035).
 
 ## Live library mess (real cleanup, unticketed)
 
