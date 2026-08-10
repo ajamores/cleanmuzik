@@ -96,7 +96,78 @@ concentrated on cards that *have* a right answer; the freestyle tail needs the S
 **Verdict: provisionally positive** — correct-#1 where possible, honest-empty where not, 0 cards made worse.
 The hard seconds-per-card number remains an owner-timed step before the lock is fully closed.
 
-## Experiment 7 — inspect head-to-head (lock 7) — *pending shazamio + Anthropic key*
+## Experiment 6 — Shazam reliability + freestyle rescue — **PASS**
+
+**Method.** `shazamio` (keyless) installed in an isolated Python 3.12 venv (`server/.venv-shazam`;
+the app's 3.14 venv has no prebuilt `shazamio-core` wheel and no Rust toolchain). All 26 rips
+re-downloaded via the app's hardened `download_song`, then recognized one-at-a-time (2s spacing).
+Artifacts: `download_corpus.py`, `shazam_arm.py`, `shazam.jsonl`; audio in gitignored `spike/audio/`.
+
+**Result.** Shazam matched **25/26**, median **1.58s** (min 1.19 / max 8.65), **0 errors** — the one
+miss returned empty, never a crash. On the 20 confident auto-lands it matched all 20.
+
+**The freestyle tail (the 6 blank-fingerprint dead-ends AcoustID couldn't touch):**
+
+| id | YouTube | Shazam | |
+|---|---|---|---|
+| 6 | Lute – Ballad of Westside Scoop | Lute – Ballad of Westside Scoop | ✅ rescued |
+| 19 | Jay-Z – Coming Of Age ft. Memphis Bleek | Jay-Z – Coming Of Age (feat. Memphis Bleek) | ✅ rescued (had **0** MB candidates — total dead-end) |
+| 21 | After The Club | Odeal – After The Club | ✅ rescued |
+| 3 | Nines – "Franklin" outro | *(empty)* | honest miss |
+| 2 | Dave East – Spanish Harlem Diary #3 | 50 Cent – Ski Mask Way | ❌ wrong (heard the beat) |
+| 13 | Moonwalking – Dave East | garbage | ❌ wrong |
+
+**3/6 rescued** — including one with zero MusicBrainz candidates that was 100% manual today. The 2
+confidently-wrong (Dave East freestyled over another artist's beat, so Shazam ID'd the beat) are **why
+the design never lets Shazam auto-land** — as an input to the referee they contradict YouTube + the
+blank fingerprint and park. Fail-soft holds.
+
+## Experiment 7 — inspect head-to-head (lock 7) — **PASS**
+
+**Method.** The one thing the Anthropic key unlocked: real production-path latency of one Haiku
+adjudication call (`speed_haiku.py`, `claude-haiku-4-5`, reads `ANTHROPIC_APIKEY`, 12 songs). Path B's
+other half (Shazam) measured in exp 6. B_identity = Shazam + Haiku; art-bytes + LRCLIB parallelize off
+the critical path (different servers, not behind MusicBrainz's 1/sec floor).
+
+**Result.**
+
+| Path | Identity latency |
+|---|---|
+| **A — today's beets chain** (AcoustID → MB match → MB year → Last.fm) | **10.96s** (park) / **36.20s** (auto-land) — measured |
+| **B — Shazam + Haiku** | Shazam **1.58s** + Haiku **1.37s** median ≈ **~3.0s** |
+
+**~12× faster on the auto-land path.** The identify stage the council measured as the bottleneck (62–85%
+of wall clock) collapses from the serial AcoustID→MusicBrainz lookup chain to one Shazam call + one Haiku
+call (genre/mood = zero extra network). Haiku was latency-stable at 1.1–1.7s; the ~200-token system prompt
+is below Haiku's cache floor so nothing cached, yet full-price input (~500 tokens) is negligible.
+
+**Caveat.** ~3s is the *identity* decision. A fully-landed file still fetches cover-art bytes + synced
+lyrics — but those are shared by both paths and parallelize, so they don't reopen A's serial floor. The
+lock-7 claim is the inspect head-to-head, and B wins it by a wide margin.
+
+**Verdict: lock 7 PASS.**
+
+## Gate summary
+
+| Lock | Result |
+|---|---|
+| **1b** — never override a correct fingerprint | ✅ **PASS** — 0/17, caught the Frontline mistag |
+| **3** — review labor drops | 🟡 mechanism proven (correct-#1 where a candidate exists; Shazam rescues 3/6 freestyles); final seconds-per-card is owner-timed |
+| **7** — Shazam+LLM faster than beets | ✅ **PASS** — ~3s vs 37s, ~12× |
+
+The two hard go/no-go locks (1b, 7) pass. Lock 3's original worry — that the referee would *raise* review
+labor — is disproven directly: it parked only 2 extra songs and improved every parked card, so the
+seconds-per-card measurement is confirmatory (gather it in real R1.5 use), not a build blocker. **The spike
+supports committing to R1.5** — the LLM-adjudicator + Shazam-input build, still per the council's
+containment (veto/confirm only, `chosen_mbid` enum-constrained, `_matching_candidate` hard veto, Shazam
+never auto-lands).
+
+**Beyond the gate (why this is more than a matcher swap).** A fingerprint answers only "what recording."
+An LLM in that seat is a reasoning layer, which is what the PRD's "richly-tagged library" actually needs:
+the genre/mood/style opinion layer (council `enrich.py`, exp 4 — untested here for lack of niche-genre
+corpus), the human-triggered re-search rescue agent (council §3; deferred T-034/035), and alias/context
+disambiguation the audio path structurally cannot do (the Yasiin Bey = Mos Def over-park). Scope these as
+R1.5+ follow-ons; they are the upside the go/no-go doesn't capture.
 
 ## Artifacts (branch `spike/engine-rethink`)
 
