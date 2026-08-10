@@ -22,7 +22,8 @@ Two tiers live here:
   - [`T-039.md`](T-039.md) — inbox shows "Nothing waiting" during cold-load hydration instead of a loading state *(UX gap, untriaged)*
   - ~~[`T-040.md`](T-040.md)~~ — keep_untagged resolve fails and re-parks *(**RESOLVED 2026-08-05** — same bug as the `8ba2c2f` dup-stage defusal, fixed the day after filing and never re-tested; re-verified end-to-end that keep-untagged now lands with a blank-MBID item already in the library)*
   - [`T-041.md`](T-041.md) — signal-glow `pointermove` calls `getBoundingClientRect()` every move, forcing sync reflow — cursor jank on low-end machines *(micro-perf, untriaged; from T-105 review)*
-  - [`T-042.md`](T-042.md) — loudness normalization: write portable ReplayGain tags at import *(untriaged; the pipeline does no leveling by design — currently delegated to Jellyfin's LUFS scan; needs an ADR for target level + track/album default)*
+  - [`T-042.md`](T-042.md) — loudness normalization: write portable ReplayGain tags at import *(untriaged; the pipeline does no leveling by design — currently delegated to Jellyfin's LUFS scan; needs an ADR for target level + track/album default)* — the **`replaygain`** plugin is the built-in mechanism (confirmed, 2026-08-10 beets audit)
+  - [`T-043.md`](T-043.md) — `scrub` plugin: strip surviving YouTube junk ID3 frames on write *(untriaged; `from_scratch` clears the beets model, not arbitrary frames — from the 2026-08-10 beets audit)*
 - **Unscoped ideas** — broader directions not yet worked into tickets:
 
 - Playlist support (batch of tracks from one URL)
@@ -31,6 +32,11 @@ Two tiers live here:
   **deduplication sweep**: `beet duplicates` finds copies, and the `chroma` plugin (AcoustID
   fingerprinting) catches the *same song even when filenames and tags differ* across a phone rip
   and a computer rip — because it matches on how the audio sounds, not what the file is named.
+  **(2026-08-10 beets audit — use the built-in migrate plugins, don't hand-roll):** `mbsync`
+  re-fetches updated MusicBrainz metadata for any item carrying an `mb_trackid` (every
+  CleanMuzik-landed track has one) — the "re-tag from MB later" engine; `fromfilename` gives beets a
+  usable artist/title query on legacy files whose tags are junk but filenames are clean. Scope these
+  three (`duplicates` + `mbsync` + `fromfilename`) into the R2.5 migrate spec when it's written.
   Keep-which decisions route to the **review queue**, matching R1's acquire-time policy — which
   **ADR-009 settled as non-destructive: never auto-delete.** (An earlier draft here said "auto-keep
   the better copy, send ambiguous ones to review" — *withdrawn*; beets deletes the old file before

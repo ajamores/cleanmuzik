@@ -938,3 +938,17 @@ Format: `- <date> — what went wrong → the correction / rule now in place`
   `MAX_RECORDINGS = 5` and `MAX_RELEASES = 5` `[source]` `chroma.py:47-48`. Two tracks that differ
   only after two minutes are indistinguishable to this tier. Below `SCORE_THRESH = 0.5` `[source]`
   `chroma.py:44,128`, a match is silently discarded.
+- 2026-08-10 — (beets audit, reference) **`fetchart` + `embedart` are loaded in `PLUGINS` but INERT on
+  our path — their import stages are album-scoped (`if task.is_album:`) and we import singletons.** Real
+  cover art is hand-rolled in `app/artwork.py` (Cover Art Archive by release MBID → iTunes by
+  artist+title); we reuse only embedart's *writer* (`embed_item`) directly. Do **not** reason about art as
+  "beets fetchart handles it" — it does not run for us. Corollary that killed a spec item: the proposed
+  "Shazam art/lyrics" tier was chasing what we already do — **synced** lyrics come from the `lyrics` plugin
+  (`synced=True`, LRCLIB) and Shazam's `art_url` is the *same iTunes source* `artwork.py` already hits. If
+  art coverage is thin, add sources to `artwork.py` (fanart.tv, Spotify, …), not a Shazam round-trip.
+- 2026-08-10 — (beets audit, reference) **AcousticBrainz is three different things; only the local one is
+  alive.** (1) The **AcousticBrainz *service/database*** (MetaBrainz) was shut down in 2022 — API offline,
+  frozen 2022 dump only. (2) The beets **`acousticbrainz` plugin** fetched from it → dead with it. (3)
+  **Essentia** — the *local* analysis library — is alive and is what PRD §6 already names for the R3
+  acoustic tier (BPM/key/energy). Rule: spec the R3 acoustic tier around **local** Essentia/Librosa
+  analysis, never the AcousticBrainz service or its plugin. We use none of them today (R3 is unstarted).

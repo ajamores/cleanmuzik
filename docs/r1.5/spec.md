@@ -66,9 +66,11 @@ The fence — tempting, deliberately not R1.5.
   parity. R1.6 opens with **exp 4** (the never-run confident-wrong-rate test + the curated enum with an
   `uncertain` member) and only then hands genre to the LLM. The reconcile call *may emit* a genre suggestion,
   but R1.5 **does not write it** — `lastgenre` still owns the genre tag.
-- **Shazam-sourced art/lyrics replacing the beets plugins → R1.6.** R1.5 captures Shazam's `art_url`/`lyrics`
-  if present but still writes art/lyrics via `fetchart`/`lyrics` (parity, and synced-lyrics quality). Deciding
-  Shazam-vs-LRCLIB for *synced* lyrics is an R1.6 measurement.
+- **Shazam art/lyrics — DROPPED (beets audit 2026-08-10, `docs/learnings.md`).** Not deferred, dropped:
+  synced lyrics are fully covered by the `lyrics` plugin (LRCLIB, `synced=True`); cover art comes from our
+  `artwork.py` (CAA + iTunes) and Shazam's `art_url` is the *same iTunes source* — redundant. R1.5 captures
+  Shazam's `art_url`/`lyrics` fields in the record shape but **writes neither**; art/lyrics land via the
+  existing path exactly as R1. If art coverage is ever thin, add sources to `artwork.py`, not Shazam.
 - **Pipeline concurrency beyond serial land (ADR-022 parallel half) → R2.x/R3.** Gated on throttle evidence;
   exp 8 cleared Shazam's *own* cadence but not full-pipeline fan-out. Serial land only.
 - **The re-search rescue *agent*** (tool-using MB-search loop; council §3 / T-034/035) → later. R1.5's
