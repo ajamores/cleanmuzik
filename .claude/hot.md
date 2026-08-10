@@ -11,8 +11,8 @@ status: evergreen
 
 > This repo's own working-memory board — session continuity, loaded at session start via `/hot`.
 > A cache, not a journal: rewritten each save, never appended. Durable knowledge lives in this repo's
-> stores (`docs/r1/adr.md` · `docs/learnings.md` · `docs/research/` · `docs/r2/spec.md` · git);
-> business/vault learnings go to the garden via `/graft`.
+> stores (`docs/r1/adr.md` · `docs/learnings.md` · `docs/research/` · `docs/backlog/` · git); business
+> learnings go to the garden via `/graft`.
 
 ## What this repo is
 
@@ -21,52 +21,50 @@ CleanMuzik — personal YouTube → Jellyfin music tool. Purpose, stack, constra
 
 ## Current State (2026-08-10)
 
-- **On `main`**, pushed to `origin` at `e569052`. **Uncommitted:** today's spike exp 8/9 (`throttle_probe.py`,
-  `b_flow.py` + result JSONs), the ADR-021 amendment, the spike-ledger update, this board.
-- **R1 + R1.1 shipped.** R2 (playlists + T-037) scope-locked, `docs/r2/spec.md` `ready-for-agent`, parked
-  behind the engine decision. Migrate/clean → R2.5.
+- **On `main`, pushed to `origin` at `8210074`.** Tree clean.
+- **R1 + R1.1 shipped.** **R1.5 is the current release (`specing`)** — the engine rethink. R1.6 (LLM genre)
+  and R2 (playlists + migrate) sequence behind it (`docs/roadmap.md`).
 
-## ⟹ Engine decision — architecture **B locked in** (2026-08-10)
+## ⟹ Engine decision — architecture **B** locked; R1.5 spec effectively signed off
 
-Evidence: `docs/research/engine-rethink-spike.md` (exp 1/3/6/7 gate + exp 8/9 head-to-head). **B = multi-sense
-reconciliation**, chosen over A (veto-only adjudicator):
+**B = multi-sense reconciliation.** Identity from 3 senses (yt-dlp title · AcoustID fingerprint · Shazam)
+reconciled by one LLM call. Spec: `docs/r1.5/spec.md` (v3). Evidence: `docs/research/engine-rethink-spike.md`
+(exp 1/3/6/7 gate + exp 8/9 head-to-head). Binding: **ADR-021 (amended 2026-08-10)**, ADR-022. Two rules:
 
-- **Rule 1 — senses vote (2-of-3).** Auto-land needs ≥2 of {yt-dlp title, AcoustID fingerprint, Shazam} to
-  agree; disagreement → park. The LLM *may* now override a wrong fingerprint iff 2 senses corroborate — this
-  **reversed ADR-021's veto-only clause** (amended 2026-08-10). Validated on Pa Salieu, n=1 for the override.
-- **Rule 2 — facts only from a real lookup** (already true, carried forward): ID from fingerprint MBID or
-  ISRC→MB; LLM never invents one. No-ID freestyles land untagged, undeduped — unchanged; acoustic dedup = R2.
-- **Why:** B ~4s vs today's 11/37s (8.6×), Shazam sustains back-to-back (exp 8, no throttle), and B *resolves*
-  the Pa Salieu mistag A could only park.
+- **Rule 1 — 2-of-3 vote.** Auto-land needs ≥2 senses agreeing on **artist AND title** (code re-derives the
+  vote over *present* senses); else park. LLM may override a wrong fingerprint iff 2 senses agree.
+- **Rule 2 — facts from a real lookup** (fingerprint MBID or ISRC→MB), never LLM-invented. Carried forward.
+- **Speed:** ~4.2s vs today's 11/37s (8.6×). **Parity:** must land everything R1 lands (art/synced-lyrics/
+  genre/year/tags). Owner agreed to all of it; the beets question (below) was the last open thread — settled.
 
-## ⟹ NEXT
+## ⟹ NEXT — decompose R1.5 tickets
 
-1. ✅ **`docs/r1.5/spec.md` written for B → cold-reviewed → patched to v3** (2026-08-10). v2 cold-build found
-   2 blockers (override had no schema channel; parallel-vs-serial self-contradiction) + a safety gap; **all
-   closed in v3**: augmented candidates carry real MBIDs so `chosen_candidate` can name the ISRC override;
-   enrichment stays serial; agreement = artist AND title over *present* senses (Strawberry Swing parks).
-   Roadmap: **R1.5 = `specing` current**. ⟹ **Owner signs off the spec.**
-2. Then: **decompose R1.5 tickets** (dep order: SourceSignals → Shazam+packaging ADR → reconcile+2-of-3 →
-   review-card fields). **ADR-016 design gate** on the review card (reason/contradictions render) before its
-   component code. R2's spec is `ready-for-agent` but sequenced behind.
-3. R1.6+: LLM genre/mood (ADR-023, gated on the unrun **exp 4**), Shazam-vs-LRCLIB synced lyrics, re-search
-   rescue agent (T-034/035).
+Dep order: **SourceSignals** (`download.py:~299`) → **Shazam** (`app/shazam.py`, subprocess to 3.12
+`.venv-shazam` + short ADR, hard 8s timeout) → **reconcile + 2-of-3 gate** (`choose_item`; augmented
+candidates carry real MBIDs so `chosen_candidate` can name the ISRC override; persist `reason`/
+`contradictions`) → **review-card fields**. **ADR-016 design gate** on the review card before its UI code.
+Add R1.5 tickets file (`docs/r1.5/tickets.md` — none yet).
+
+## Backlog added this session (not R1.5)
+
+`T-043` scrub (clean tag writes) · `T-042` replaygain (loudness) · `mbsync`/`duplicates`/`fromfilename`
+folded into the R2.5 migrate idea (`docs/backlog/README.md`). Artifact: `docs/r1.5/r1.5-overview.html`
+(visual spec brief, published private).
 
 ## Live library mess (real cleanup, unticketed)
 
-`Vanessa Bling…/Frontline.mp3` is really Pa Salieu (spike marquee fixture — re-tag). `JAŸ-Z/Roc Boys` — T-037.
+`Vanessa Bling…/Frontline.mp3` is really Pa Salieu (spike marquee fixture). `JAŸ-Z/Roc Boys` — T-037.
 
 ## Recent sessions (rolling — last 2–3)
 
-- **2026-08-10** — Ratified ADR-021–023 + filed librarian direction (`prd §2.1`), merged spike→main (suites
-  green), pushed. Drafted `r1.5/spec.md` (for A) → ran a 3-agent cold review (real holes). Then ran exp 8
-  (Shazam no-throttle) + exp 9 (full B head-to-head, 8.6× + resolved Pa Salieu) → **pivoted A→B, locked in**,
-  amended ADR-021. Next: rewrite the spec for B.
-- **2026-08-09** — Ran the accuracy/speed spike (locks 1b/3/7 met). R2 specced; council → identify (not
-  download) is the bottleneck.
+- **2026-08-10** — Big session: ratified ADR-021–023 + merged spike→main. Drafted R1.5 spec for A →
+  cold-reviewed → **ran exp 8/9, pivoted A→B**, amended ADR-021 → rewrote spec v2 → cold-reviewed (2
+  blockers) → **v3** (closed) → **beets audit**: dropped Shazam art/lyrics (beets already does synced
+  lyrics; art is hand-rolled `artwork.py`), filed T-043 + learnings (acousticbrainz service dead → local
+  Essentia for R3). Spec effectively signed off. Suites green on main (432/65).
+- **2026-08-09** — Accuracy/speed spike (locks 1b/3/7 met); council → identify is the bottleneck.
 
 ## Where the rest of the context lives
 
-`docs/research/engine-rethink-spike.md` (spike + B decision) · `engine-rethink-council.md` · `docs/roadmap.md`
-· `docs/r1.5/spec.md` (A-draft, to rewrite) · `docs/r2/spec.md` · `docs/r1/adr.md` · `docs/learnings.md` · git.
-Business/vault → `/garden`.
+`docs/r1.5/spec.md` (v3) · `docs/research/engine-rethink-spike.md` · `docs/roadmap.md` · `docs/r1/adr.md`
+· `docs/learnings.md` · `docs/backlog/` · `docs/r2/spec.md` · git. Business/vault → `/garden`.
