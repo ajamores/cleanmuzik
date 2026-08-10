@@ -21,8 +21,8 @@ CleanMuzik — personal YouTube → Jellyfin music tool. Purpose, stack, constra
 
 ## Current State (2026-08-09)
 
-- **On branch `spike/engine-rethink`** (NOT main), tree clean, pushed to origin. Holds the full spike
-  harness + results; nothing merged to main yet.
+- **On branch `spike/engine-rethink`** (NOT main), pushed to origin. Holds the full spike harness +
+  results; nothing merged to main yet. **Uncommitted:** the 3 ratified ADRs + the librarian vision note.
 - **R1 + R1.1 shipped.** R2 (playlists + T-037) scope-locked, `docs/r2/spec.md` `ready-for-agent`,
   parked behind the engine decision. Migrate/clean → R2.5.
 
@@ -45,8 +45,9 @@ Claude Code harness — no key needed for accuracy). Artifacts in `server/spike/
 
 ## ⟹ NEXT
 
-1. Owner **ratifies the 3 proposed ADRs** (spike passed) → move from council doc §2 into `adr.md`:
-   narrow ADR-001 (land pool=1), narrow ADR-005 (LLM=adjudicator, beets=writer/facts), genre-enum-swap.
+1. ✅ **ADRs ratified 2026-08-09** → written as **ADR-021** (LLM=adjudicator, narrows ADR-005),
+   **ADR-022** (land pool=1, narrows ADR-001), **ADR-023** (genre-enum-swap) in `adr.md`. Librarian
+   direction filed as `cleanmuzik-prd.md §2.1`. **Commit these, then R1.5 is unblocked.**
 2. **Build R1.5** (flagged, between R1.1 and R2): surface `SourceSignals` (`download.py:~299`), inject
    `llm_adjudicate` at `choose_item`, `app/shazam.py`, `app/enrich.py`. Graduating spike artifacts: the
    Verdict schema/prompt/accept-rule, the Shazam fail-soft taxonomy. **Prereq:** ADR-020 manual exits.

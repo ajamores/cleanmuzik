@@ -583,3 +583,49 @@ Format: `ADR-NNN — decision. Rationale. [date]`
     would misfire on the Nines fixture (correct answer at 0.757 among five near-identical rows). Full
     measurement in `docs/learnings.md`.
   (Owner decision, 2026-07-29, on sign-off of the six-screen flow.) [2026-07-29]
+
+- **ADR-021 — The LLM adjudicates identity (veto/confirm) and authors the opinion layer
+  (genre/mood/style); beets + MusicBrainz remain the engine of record. Narrows ADR-005 — does not
+  repeal it.** Splits ADR-005's two halves. The *identification* half reopens: an LLM replaces the
+  bare `_matching_candidate` + `SCORE_MIN` boolean at `import_seam.py :: choose_item`, injected like
+  `dominance_fn` so tests stay offline. The *writer / organizer* half must **not** reopen — beets
+  keeps landing, dedup, NTFS-on-WSL path sanitization, `%aunique` collision handling (the
+  hard-to-rebuild plumbing ADR-009/010/015 + T-029 hardened over four rounds). **Containment is
+  structural, not a prompt:** on the auto-land path the LLM may only **CONFIRM** the fingerprint's
+  top recording or **VETO-to-park** — `chosen_mbid` is enum-constrained to the supplied candidate
+  MBIDs, `_matching_candidate` survives as a hard veto, and accept requires
+  `dominance.top_score >= SCORE_MIN` **AND** `verdict == accept` **AND**
+  `chosen_mbid == top_recording_ids[0]`. It may **never** override to a recording the fingerprint
+  didn't return (veto-to-park is worst-case-equals-today; override-to-different is how it would
+  corrupt a match the fingerprint got right). Facts (recording MBID, ISRC, year) stay MusicBrainz's;
+  the LLM never authors them — it hallucinates every one, and dedup + T-037 rest on a *real* MBID.
+  Rationale: spike lock 1b measured **0/17 overrides** and caught the Pa Salieu "Frontline" → Vanessa
+  Bling mistag on real audio; lock 7 measured the path ~12× faster. Evidence:
+  `docs/research/engine-rethink-spike.md`; design: `engine-rethink-council.md §1`.
+  (Owner ratified 2026-08-09 on the spike gate.) [2026-08-09]
+
+- **ADR-022 — Landing is strictly serial (pool = 1); the rest of the pipeline may parallelize
+  per-stage. Narrows ADR-001 — does not repeal it.** ADR-001's blanket "sequential, do not
+  parallelize" reopens as a *per-stage* constraint: **download** pool 1–3 with delays/jitter
+  preserved (a first-class rate-limiter, not incidental spacing), **transcode/fingerprint** parallel
+  to cores, **identify** fans out for LLM/Shazam while AcoustID/MusicBrainz queue on their own
+  limiters. **Land stays pool = 1** — the moment there is a second worker, `choose_item`'s live dedup
+  (ADR-009) double-lands. Land serialization is the single point at which ADR-001's rate-limit and
+  dedup protection now lives. Rationale: measured wall-clock put the cost in *identify*, not download
+  (`engine-rethink-council.md §2a`), so per-stage parallelism is the real lever — but only above the
+  serial land point. **Not yet safe to build:** no fan-out ships until the throttle probes (spike
+  exp 5/8) run; R1.5 lands the adjudicator serially. Parallelism is an R2.x/R3 layer over the single
+  serialization point, **not** an R2 blocker. (Owner ratified 2026-08-09 on the spike gate.) [2026-08-09]
+
+- **ADR-023 — Genre/mood is authored by the LLM against an owner-curated enum that MUST include an
+  explicit `uncertain` member; drop the `lastgenre` plugin.** Remove `lastgenre` from `PLUGINS`
+  (`beets_engine.py:52`). Author `genre` + `mood`/`style` as a post-run tag write in
+  `finalize_outcomes`, mirroring `_stamp_original_year`. Constrained to a curated enum whose
+  `uncertain`/`unsorted` member is **load-bearing, not optional**: without it a forced enum converts
+  Last.fm's honest blank into a confident wrong fill on contested micro-genres (drill / road-rap /
+  grime / afroswing / dancehall all post to the same channels — "GRM Daily", "Link Up TV" — which
+  name the *scene*, not the *sub-genre*). Fail-soft (blank on error), deterministic (temperature 0 +
+  cache keyed by recording MBID). Last.fm is **demoted to a witness** (one input), not deleted. This
+  opinion layer is a genuine LLM strength (no ground truth to contradict) and is the foundation the
+  future "AI librarian" direction stands on (see `cleanmuzik-prd.md §2.1`). Rationale + risk R3:
+  `engine-rethink-council.md §4`. (Owner ratified 2026-08-09 on the spike gate.) [2026-08-09]

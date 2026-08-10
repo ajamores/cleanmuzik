@@ -25,6 +25,28 @@ The app does two distinct things:
 
 Jellyfin is the **central hub** — library, storage, streaming, and (for now) playback.
 
+### 2.1 Where this is going — the AI librarian (direction, not yet scoped)
+
+The two jobs above are the *hands* — how the tool reads one track and files it. The longer arc is a
+**librarian**: an LLM that knows the whole collection and acts on it. Four jobs it unlocks, roughly
+in order of ambition:
+
+1. **The tidier** — sweeps the whole library for inconsistencies: same-song duplicates, an artist
+   spelled two ways, tracks with no genre, a mistag. The engine that judges one track's tags is the
+   same brain that can judge the whole shelf. (This is job 2, "migrate + clean", made continuous.)
+2. **The conversational front door** — talk to the library: *"make me a late-night afroswing set,"
+   "what am I light on in drill,"* "do I have anything like this?"
+3. **The curator** — proactively groups into coherent moods/shelves you didn't ask for.
+4. **The collector's assistant** — knows the gaps and helps grow the collection.
+
+**The load-bearing insight:** all four are just *reads and writes over well-tagged data* — none need
+new machinery, they need the metadata to be **rich and trustworthy**. So the LLM enrichment layer
+(ADR-023: genre/mood, plus Shazam's rich `about_song` fields) is not a side feature — it is the
+**foundation the librarian stands on**. The base to get right first is therefore *identity you can
+trust + tags rich enough to be worth asking questions about*, not merely "tags a song." Build that
+once, well, and the four jobs are small front-ends layered on later — **explicitly R2.5+, and NOT to
+be smeared into R1.5**, which stays narrow (adjudicator + Shazam input + enrich).
+
 ## 3. Goals
 
 - Paste one or many YouTube URLs (single tracks *and* playlists) and walk away
