@@ -147,6 +147,53 @@ lock-7 claim is the inspect head-to-head, and B wins it by a wide margin.
 
 **Verdict: lock 7 PASS.**
 
+## Experiment 8 — Shazam back-to-back throttle probe — **PASS (no throttle)**
+
+**Method.** The one B risk that can't be reasoned, only measured (council §5, exp 8): B makes Shazam a
+*primary* sense called on every track, but ADR-019/exp-6 only ever paced it at 2s. `throttle_probe.py`
+(3.12 Shazam venv) fired all 26 rips **back-to-back, zero spacing** from the residential IP, 30s hard
+timeout per call (a hang is a finding). Artifact: `throttle.jsonl`.
+
+**Result.** 25/26 matched, **0 throttle errors, 0 bans**; the one miss (id 3) is a genuine no-DB
+freestyle, not a throttle. Latency **min/median/max = 1.28 / 1.80 / 28.45s**; **1st-half median 1.69s vs
+2nd-half 1.83s — flat, not rising.** Two tail spikes (28.45s id 23, 15.93s id 24) with fast calls on
+either side → network jitter, not systematic degradation. Total wall 93.8s for 26 songs.
+
+**Verdict: PASS** — Shazam sustains B's per-track cadence on this corpus. **Two bounded caveats:** n=26,
+one IP, one session (a 200-song playlist is untested); and the tail proves a **hard per-call timeout is
+mandatory** (which also closes the fail-soft-covers-hangs gap the R1.5 spec review flagged).
+
+## Experiment 9 — full architecture-B head-to-head — **B faster AND resolves mistags A can only park**
+
+**Method.** `b_flow.py` (app venv) runs the *whole* proposed B flow per song with **real** calls:
+fresh Shazam (exp 8) → **ISRC→MusicBrainz** lookup for a real recording MBID + facts (stdlib HTTP,
+1/sec) → one **real Haiku reconcile** call (yt-dlp signals + AcoustID + candidates + Shazam + ISRC-MB →
+`{verdict, artist, title, mbid, genre, mood}`). Timed per stage; identity scored against `answer_key.json`.
+Artifact: `b_flow_results.json`.
+
+**Result (26 songs).**
+
+| | B (this run) | A (today, measured) |
+|---|---|---|
+| Identity+facts latency | **median 4.21s** (min 3.26, max 30.37 — the max is *entirely* Shazam tail) | 10.96s park / 36.20s auto-land |
+| Speedup | **8.6× vs auto-land, 2.6× vs park** | — |
+| Real ID via **ISRC→MB** | **12/26 (46%)**, 11 title-correct | — |
+| Identity sensible | 26/26 by a *lenient title scorer* (caveat below) | 17/26 land, **id 7 MIS-lands as Vanessa Bling** |
+
+**The finding that reframed the design (id 7, Pa Salieu "Frontline").** In A the fingerprint matches the
+*wrong* recording (Vanessa Bling) and A's only safe move is **park**. In B, yt-dlp **and** Shazam both say
+"Pa Salieu," so B **auto-landed the correct answer, zero clicks** — it *resolved* the mistag A can only
+flag. **But it did so by trusting two text senses over the fingerprint** — the exact move ADR-021's
+veto-only containment forbids. B's power (fix mistakes) and B's risk (override the fingerprint) are the
+**same mechanism**; it was validated correct here at **n=1** for the override case specifically.
+
+**Honest caveats.** (1) The 26/26 is a *title-substring* scorer — lenient: e.g. id 11 (Frank Ocean's
+*Strawberry Swing*, a Coldplay cover) B labelled "Coldplay" but **parked** it, so no mis-land, but
+artist-level accuracy is below 100%. B correctly parked the genuinely ambiguous ones (samples, covers,
+freestyles). (2) ISRC→MB covered only 46%; the confident rest still have the **fingerprint's** real MBID,
+and genuine freestyles (Nines "Franklin") have **no ID in any database** — a property of the song, not the
+design. (3) One IP, one session.
+
 ## Gate summary
 
 | Lock | Result |
@@ -161,6 +208,28 @@ seconds-per-card measurement is confirmatory (gather it in real R1.5 use), not a
 supports committing to R1.5** — the LLM-adjudicator + Shazam-input build, still per the council's
 containment (veto/confirm only, `chosen_mbid` enum-constrained, `_matching_candidate` hard veto, Shazam
 never auto-lands).
+
+## Architecture decision — B ("multi-sense reconciliation") locked in (2026-08-10)
+
+Exp 8 + 9 reopened the A-vs-B choice the gate summary above left at "A (adjudicator) per council
+containment." **Owner decision (2026-08-10): commit to B, not A.** A only *judges* the fingerprint and
+parks its mistakes; B *reconciles* several senses and, when they corroborate, **resolves** them (Pa Salieu,
+exp 9) — at ~4s vs ~37s (exp 9) with Shazam proven to sustain the cadence (exp 8). The two guardrails that
+make B safe:
+
+- **Rule 1 — senses vote (this SUPERSEDES ADR-021's veto-only clause).** Auto-land requires **≥2 independent
+  senses** (yt-dlp title / AcoustID fingerprint / Shazam) to agree on the identity; disagreement → **park**.
+  The LLM *may* now land a recording the fingerprint didn't return **iff two other senses corroborate it** —
+  which is exactly why Pa Salieu resolved correctly. This is a deliberate reversal of ADR-021's "never
+  override the fingerprint," recorded there as an amendment.
+- **Rule 2 — facts only from a real lookup (already true; carried forward, NOT new).** The permanent ID comes
+  from the fingerprint MBID or the ISRC→MB lookup; the LLM never invents one. No-ID songs (freestyles) land
+  untagged and are not deduped — unchanged from today; acoustic dedup stays R2.
+
+**Open, eyes-open:** the override-when-2-agree is validated at n=1; ISRC→MB covers ~46% (fingerprint MBID
+covers the confident rest); Shazam needs a hard timeout; the 2-of-3 rule wants a wider real-use sample.
+**Consequence:** the drafted `docs/r1.5/spec.md` was written for A and must be **rewritten for B** (the next
+step) — its safety §5 is now the 2-of-3 rule, not veto-only.
 
 **Beyond the gate (why this is more than a matcher swap).** A fingerprint answers only "what recording."
 An LLM in that seat is a reasoning layer, which is what the PRD's "richly-tagged library" actually needs:

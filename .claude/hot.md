@@ -1,7 +1,7 @@
 ---
 type: meta
 title: "Hot — cleanmuzik"
-updated: 2026-08-09
+updated: 2026-08-10
 tags:
   - meta
   - hot-cache
@@ -11,7 +11,7 @@ status: evergreen
 
 > This repo's own working-memory board — session continuity, loaded at session start via `/hot`.
 > A cache, not a journal: rewritten each save, never appended. Durable knowledge lives in this repo's
-> stores (`docs/r1/adr.md` · `docs/learnings.md` · `docs/r2/spec.md` · `docs/research/` · git);
+> stores (`docs/r1/adr.md` · `docs/learnings.md` · `docs/research/` · `docs/r2/spec.md` · git);
 > business/vault learnings go to the garden via `/graft`.
 
 ## What this repo is
@@ -19,60 +19,51 @@ status: evergreen
 CleanMuzik — personal YouTube → Jellyfin music tool. Purpose, stack, constraints, read-order in
 `CLAUDE.md`; scope in `cleanmuzik-prd.md`. Not restated here.
 
-## Current State (2026-08-09)
+## Current State (2026-08-10)
 
-- **On `main`** — spike branch fast-forwarded in (`654069f`), suites green there (server 432, client 65).
-  Carries the spike harness (`server/spike/`), the 3 ratified ADRs, and the librarian vision note.
-  **Not yet pushed to `origin/main`.**
-- **R1 + R1.1 shipped.** R2 (playlists + T-037) scope-locked, `docs/r2/spec.md` `ready-for-agent`,
-  parked behind the engine decision. Migrate/clean → R2.5.
+- **On `main`**, pushed to `origin` at `e569052`. **Uncommitted:** today's spike exp 8/9 (`throttle_probe.py`,
+  `b_flow.py` + result JSONs), the ADR-021 amendment, the spike-ledger update, this board.
+- **R1 + R1.1 shipped.** R2 (playlists + T-037) scope-locked, `docs/r2/spec.md` `ready-for-agent`, parked
+  behind the engine decision. Migrate/clean → R2.5.
 
-## ⟹ Spike DONE — gate MET (results: `docs/research/engine-rethink-spike.md`)
+## ⟹ Engine decision — architecture **B locked in** (2026-08-10)
 
-26-song real-rip corpus, isolated capture → offline fixture, blinded **Haiku** adjudicator (via the
-Claude Code harness — no key needed for accuracy). Artifacts in `server/spike/`.
+Evidence: `docs/research/engine-rethink-spike.md` (exp 1/3/6/7 gate + exp 8/9 head-to-head). **B = multi-sense
+reconciliation**, chosen over A (veto-only adjudicator):
 
-- ✅ **Lock 1b (never override a correct fingerprint): PASS** — 0/17; caught the **Pa Salieu "Frontline"
-  → Vanessa Bling** mistag on real audio; 0 false-accepts on blanks.
-- ✅ **Lock 7 (speed): PASS** — Shazam 1.58s + real Haiku 1.37s ≈ **~3s vs today's 11s/37s beets chain,
-  ~12×.** (Anthropic key now in `.env` as `ANTHROPIC_APIKEY` — SDK default name differs; R1.5 code must
-  read it explicitly.)
-- 🟡 **Lock 3 (review labor): effectively met** — referee parked only 2 extra songs and improved every
-  card; Shazam rescued 3/6 freestyles (one had 0 MB candidates). Seconds-per-card is confirmatory, not a
-  blocker. Shazam installed in isolated 3.12 venv `server/.venv-shazam` (keyless).
-
-**Verdict: commit to R1.5** — LLM-adjudicator + Shazam-input, per council containment (veto/confirm only,
-`chosen_mbid` enum-constrained, `_matching_candidate` hard veto, Shazam never auto-lands).
+- **Rule 1 — senses vote (2-of-3).** Auto-land needs ≥2 of {yt-dlp title, AcoustID fingerprint, Shazam} to
+  agree; disagreement → park. The LLM *may* now override a wrong fingerprint iff 2 senses corroborate — this
+  **reversed ADR-021's veto-only clause** (amended 2026-08-10). Validated on Pa Salieu, n=1 for the override.
+- **Rule 2 — facts only from a real lookup** (already true, carried forward): ID from fingerprint MBID or
+  ISRC→MB; LLM never invents one. No-ID freestyles land untagged, undeduped — unchanged; acoustic dedup = R2.
+- **Why:** B ~4s vs today's 11/37s (8.6×), Shazam sustains back-to-back (exp 8, no throttle), and B *resolves*
+  the Pa Salieu mistag A could only park.
 
 ## ⟹ NEXT
 
-1. ✅ **ADRs ratified + integrated on `main` 2026-08-09** — ADR-021 (LLM=adjudicator, narrows ADR-005),
-   ADR-022 (land pool=1, narrows ADR-001), ADR-023 (genre-enum-swap); librarian direction as
-   `cleanmuzik-prd.md §2.1`. ADR-020 prereq (manual exits) confirmed **shipped** (T-103 on main). **R1.5
-   is genuinely unblocked.** ⟹ **Next: write `docs/r1.5/spec.md` + decompose tickets** (no r1.5 dir yet).
-2. **Build R1.5** (flagged, between R1.1 and R2): surface `SourceSignals` (`download.py:~299`), inject
-   `llm_adjudicate` at `choose_item`, `app/shazam.py`, `app/enrich.py`. Graduating spike artifacts: the
-   Verdict schema/prompt/accept-rule, the Shazam fail-soft taxonomy. **Prereq:** ADR-020 manual exits.
-3. R1.5+ follow-ons (the platform upside): genre/mood enrichment (exp 4), re-search rescue agent
-   (T-034/035), alias disambiguation. Scoped in the spike doc "Beyond the gate".
+1. **Rewrite `docs/r1.5/spec.md` for B.** The drafted spec is for **A** and is holey (3-reviewer panel: cold-build
+   + adversarial + consistency — findings still valid). New §5 safety = the 2-of-3 rule, not veto-only.
+2. **Open build items to fold into the B spec:** Shazam **packaging seam** (lean: subprocess to the 3.12
+   `.venv-shazam`); **hard Shazam timeout** (exp 8 tail); ISRC→MB covers only ~46% (fingerprint MBID covers the
+   confident rest); the review-card `reason`/`contradictions` **persist to SQLite** (don't repeat ADR-010);
+   **ADR-016 design gate** on the review card. Then decompose tickets + add R1.5/R1.6 rows to `docs/roadmap.md`.
+3. R1.6+: genre/mood enrichment (ADR-023, gated on the unrun exp 4), re-search rescue agent (T-034/035).
 
 ## Live library mess (real cleanup, unticketed)
 
-`Vanessa Bling…/Frontline.mp3` is really Pa Salieu (the spike's marquee fixture — re-tag). `JAŸ-Z/Roc
-Boys` — T-037 recurrence.
+`Vanessa Bling…/Frontline.mp3` is really Pa Salieu (spike marquee fixture — re-tag). `JAŸ-Z/Roc Boys` — T-037.
 
 ## Recent sessions (rolling — last 2–3)
 
-- **2026-08-09 (pm)** — Ran the whole spike: test env (26-song corpus + isolated capture fixture),
-  passed lock 1b (0 overrides, caught Frontline), lock 3 (review-labor mechanism proven), and lock 7
-  (Shazam+Haiku ~12× faster, real key). Gate met → R1.5 recommended. Filed `engine-rethink-spike.md`;
-  branch `spike/engine-rethink` pushed. Lessons: capture `item_tags` are pre-tag YouTube input not landed
-  truth (scorer bug, fixed); Python 3.14 venv has no `shazamio-core` wheel → isolated 3.12 venv.
-- **2026-08-09 (am)** — R2 specced; engine-rethink council → LLM-as-adjudicator verdict; measured
-  identify (not download) as the 11s/36s bottleneck.
+- **2026-08-10** — Ratified ADR-021–023 + filed librarian direction (`prd §2.1`), merged spike→main (suites
+  green), pushed. Drafted `r1.5/spec.md` (for A) → ran a 3-agent cold review (real holes). Then ran exp 8
+  (Shazam no-throttle) + exp 9 (full B head-to-head, 8.6× + resolved Pa Salieu) → **pivoted A→B, locked in**,
+  amended ADR-021. Next: rewrite the spec for B.
+- **2026-08-09** — Ran the accuracy/speed spike (locks 1b/3/7 met). R2 specced; council → identify (not
+  download) is the bottleneck.
 
 ## Where the rest of the context lives
 
-`docs/research/engine-rethink-spike.md` (results) · `engine-rethink-council.md` (§5 plan, §2 ADRs) ·
-`docs/roadmap.md` · `docs/r2/spec.md` · `docs/workflow.md` · `docs/r1/adr.md` · `docs/learnings.md` · git.
+`docs/research/engine-rethink-spike.md` (spike + B decision) · `engine-rethink-council.md` · `docs/roadmap.md`
+· `docs/r1.5/spec.md` (A-draft, to rewrite) · `docs/r2/spec.md` · `docs/r1/adr.md` · `docs/learnings.md` · git.
 Business/vault → `/garden`.

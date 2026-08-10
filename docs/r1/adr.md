@@ -604,6 +604,22 @@ Format: `ADR-NNN — decision. Rationale. [date]`
   `docs/research/engine-rethink-spike.md`; design: `engine-rethink-council.md §1`.
   (Owner ratified 2026-08-09 on the spike gate.) [2026-08-09]
 
+  - **Amendment (2026-08-10) — veto-only containment SUPERSEDED by "senses vote" (2-of-3).** The full
+    B-flow spike (exp 8 + exp 9, `engine-rethink-spike.md`) reversed this ADR's core containment. The
+    original clause — *"the LLM may never override to a recording the fingerprint didn't return"* — is
+    **withdrawn**. New rule: **auto-land requires ≥2 independent senses (yt-dlp title / AcoustID
+    fingerprint / Shazam) to agree on the identity; any disagreement parks.** The LLM *may* now land a
+    recording the fingerprint didn't return **iff two other senses corroborate it.** *Why the reversal:*
+    exp 9's marquee case (Pa Salieu "Frontline") — which A/veto-only could only **park** — B **resolved
+    correctly and auto-landed** precisely by trusting yt-dlp + Shazam over a wrong fingerprint. The
+    veto-only rule was strictly *safer* but strictly *less capable*; the 2-of-3 rule keeps the Pa Salieu
+    catch's safety (a lone dissenting sense still parks) while gaining the fix. **Still binding from the
+    original:** facts (MBID/ISRC/year) come only from a real lookup, never LLM-invented (now ADR-021 Rule
+    2); Shazam never auto-lands *alone* (it is one of the ≥2 votes, never the sole one). **Eyes-open:** the
+    override-when-2-agree is validated at n=1; wider real-use sampling is owed. This also supersedes the A
+    shape of `docs/r1.5/spec.md`, which must be rewritten for B. (Owner decision 2026-08-10 on the exp 8/9
+    head-to-head.) [2026-08-10]
+
 - **ADR-022 — Landing is strictly serial (pool = 1); the rest of the pipeline may parallelize
   per-stage. Narrows ADR-001 — does not repeal it.** ADR-001's blanket "sequential, do not
   parallelize" reopens as a *per-stage* constraint: **download** pool 1–3 with delays/jitter
