@@ -58,6 +58,7 @@ from beets.importer import Action, DuplicateAction, ImportSession
 from beetsplug.musicbrainz import _get_date
 
 from app import isrc as isrc_lookup
+from app import normalize
 from app import reconcile as reconcile_seam
 from app import shazam as shazam_sense
 from app.artwork import embed_cover, fetch_cover_art
@@ -365,6 +366,23 @@ class Outcome:
     candidates: list[dict] | None = None  # parked: rich candidate rows for the UI
 
 
+@dataclass
+class _Reconciliation:
+    """One reconcile attempt's outcome — what the T-205 2-of-3 gate consumes.
+
+    `verdict` is the validated `Verdict`, or `None` on a failure the gate turns into a
+    park. `candidates` is the augmented `candidates[]` the verdict's indices point into,
+    and `shazam` is the raw Shazam record — both needed to RE-DERIVE agreement in code.
+    `degraded` means the adjudicator is unusable (a rejected/expired key), so the gate
+    falls back to the R1 fingerprint gate instead of parking (spec §6 degrade row).
+    """
+
+    verdict: reconcile_seam.Verdict | None
+    candidates: list[dict]
+    shazam: dict | None
+    degraded: bool = False
+
+
 # --- original release year (ADR-014) ----------------------------------------
 
 _mb_api_cache = None
@@ -486,6 +504,11 @@ class FingerprintTrustSession(ImportSession):
         self.reconcile_fn = reconcile_fn
         # T-204 produces a Verdict here; T-205 makes the land/park decision consume it.
         self.verdict: reconcile_seam.Verdict | None = None
+        # The augmented candidates the Verdict's indices point into (beets' MB
+        # candidates ++ the synthetic ISRC entry). Stashed for T-206, which persists the
+        # LLM-ranked candidate order onto a parked review — the Verdict's `ranking` is
+        # meaningless without this list to resolve its indices to real MBIDs.
+        self.reconcile_candidates: list[dict] = []
         self.outcomes: list[Outcome] = []
         # Accepted matches await finalization: choose_item can only *decide* to
         # land; whether beets actually copied the file is known only after run()
@@ -495,7 +518,14 @@ class FingerprintTrustSession(ImportSession):
     # --- the gate ---------------------------------------------------------
 
     def choose_item(self, task):
-        """The one decision. Return a `TrackMatch` to land, or `Action.SKIP` to park."""
+        """The one decision. Return a `TrackMatch` to land, or `Action.SKIP` to park.
+
+        R1.5 (T-205): when a reconcile adjudicator is wired, the **2-of-3 gate** decides
+        (`_reconcile_gate`); with none wired — no `ANTHROPIC_APIKEY`, a rejected key, or
+        a resolve session — the pipeline **degrades** to R1's fingerprint-only gate
+        (`_fingerprint_gate`, spec §6 degrade row). A fingerprint-lookup failure parks
+        regardless: an identity we couldn't even fingerprint can't be reconciled.
+        """
         try:
             dominance = self.dominance_fn(task.item.path)
         except AcoustidPermanentError as exc:
@@ -528,13 +558,38 @@ class FingerprintTrustSession(ImportSession):
 
         candidates = list(task.candidates or [])
 
-        # R1.5 (T-204): gather the other senses, build the augmented candidate list, and
-        # ask the LLM to reconcile — producing a validated Verdict stashed on the session.
-        # The order is dominance_fn (above) → shazam_fn → augment → reconcile_fn (spec §6).
-        # This ticket ONLY produces the Verdict; the land/park decision below is still R1's
-        # (T-205 rewires it to consume the Verdict), so behaviour is unchanged here.
-        self.verdict = self._reconcile(task, dominance, candidates)
+        if self.reconcile_fn is None:
+            # No adjudicator wired (no ANTHROPIC_APIKEY, or a resolve/keep-untagged
+            # session) — R1's fingerprint-only gate, unchanged (spec §6 degrade row).
+            return self._fingerprint_gate(task, dominance, candidates)
 
+        # An adjudicator IS wired (R1.5): reconcile the three senses into a Verdict,
+        # then let the 2-of-3 gate decide. A rejected/expired key degrades to the R1
+        # gate — a stale key must not park every track; a transient failure on a valid
+        # key parks THIS track ('adjudication unavailable'), never a silent land.
+        result = self._reconcile(task, dominance, candidates)
+        self.verdict = result.verdict
+        self.reconcile_candidates = result.candidates  # for T-206's ranked persistence
+        if result.degraded:
+            return self._fingerprint_gate(task, dominance, candidates)
+        if result.verdict is None:
+            self.verdict = reconcile_seam.Verdict(
+                verdict="park",
+                chosen_candidate=None,
+                reason="adjudication unavailable",
+            )
+            self._park(task, candidates, dominance)
+            return Action.SKIP
+        return self._reconcile_gate(task, dominance, candidates, result)
+
+    # --- R1 fingerprint gate (the degrade target) -------------------------
+
+    def _fingerprint_gate(self, task, dominance, candidates):
+        """R1's fingerprint-trust gate (ADR-006), also R1.5's degrade path.
+
+        Auto-land a dominant fingerprint (score ≥ `score_min`, gap ≥ `gap_min`) whose
+        winning recording is among beets' candidates; anything else parks.
+        """
         if (
             candidates
             and dominance.top_score >= self.score_min
@@ -542,28 +597,17 @@ class FingerprintTrustSession(ImportSession):
         ):
             match = _matching_candidate(candidates, dominance.top_recording_ids)
             if match is not None:
-                # T-009 acquire-time dedup, done HERE rather than via beets' import
-                # duplicate stage. beets can't detect our duplicates: its probe is
-                # built from the match's TrackInfo (recording id under `track_id`)
-                # *before* the track_id→mb_trackid mapping, so a duplicate_keys query
-                # on mb_trackid always finds nothing (verified). We already hold the
-                # winning recording id and the library, so we query it directly.
-                existing = self._library_duplicates(match.info.track_id)
-                if existing:
-                    return self._resolve_duplicate(task, existing, dominance)
-
-                # Dominant, taggable, and not already in the library. Accept it —
-                # but DON'T record "landed" yet: the receipt must not lie if the copy
-                # later fails. The real outcome is settled in finalize_outcomes().
-                self._accepted.append((task, match, dominance))
-                logger.info(
-                    "accepting %s: score=%.3f gap=%.3f recording=%s",
-                    self.staging_path,
-                    dominance.top_score,
-                    dominance.gap,
-                    match.info.track_id,
+                # The fingerprint IS the identity here, so its dominance describes the
+                # landed recording — correct release ids for the cover-art fetch.
+                return self._accept(
+                    task,
+                    match,
+                    dominance,
+                    detail=(
+                        f"score={dominance.top_score:.3f} "
+                        f"gap={dominance.gap:.3f} (fingerprint)"
+                    ),
                 )
-                return match
             # Dominant fingerprint but its recording isn't among beets' candidates
             # (rare). Trusting a *different* candidate would betray the fingerprint,
             # so park rather than mis-tag.
@@ -575,24 +619,161 @@ class FingerprintTrustSession(ImportSession):
         self._park(task, candidates, dominance)
         return Action.SKIP
 
-    # --- the reconcile seam (R1.5 T-204) ----------------------------------
+    def _accept(self, task, match, dominance: Dominance, *, detail: str = ""):
+        """Accept `match` for landing — the shared tail of both gates.
 
-    def _reconcile(self, task, dominance, candidates):
-        """Gather the senses, build augmented candidates, and return a validated `Verdict`.
+        Runs T-009's acquire-time dedup HERE rather than via beets' import duplicate
+        stage: beets can't detect our duplicates (its probe is built from the match's
+        TrackInfo — recording id under `track_id` — *before* the track_id→mb_trackid
+        mapping, so a duplicate_keys query on mb_trackid always finds nothing). We hold
+        the winning recording id and the library, so we query it directly and park an
+        upgrade for the owner.
+
+        Records the accept but DON'T mark "landed" yet: whether beets actually copied
+        the file is known only post-`run()` (finalize_outcomes) — the receipt must not
+        lie if the copy later fails. `dominance` must describe the LANDED recording (its
+        release ids drive the cover-art fetch); the reconcile gate zeroes it when the
+        fingerprint dissented, so art never comes from a recording we didn't land.
+        """
+        existing = self._library_duplicates(match.info.track_id)
+        if existing:
+            return self._resolve_duplicate(task, existing, dominance)
+        self._accepted.append((task, match, dominance))
+        logger.info(
+            "accepting %s: recording=%s %s",
+            self.staging_path,
+            match.info.track_id,
+            detail,
+        )
+        return match
+
+    # --- the 2-of-3 reconcile gate (R1.5 T-205) ---------------------------
+
+    def _reconcile_gate(self, task, dominance, candidates, result: _Reconciliation):
+        """The 2-of-3 accept gate (spec §5) — the safety spine.
+
+        Auto-land iff ALL hold: (1) the Verdict accepts; (2) **≥2 present senses**
+        genuinely support the chosen candidate, RE-DERIVED in code (`_agreeing_senses`),
+        never the LLM's own `agreeing_senses` count; (3) the chosen candidate carries a
+        real MBID. Anything else parks (carrying the Verdict's reason/contradictions,
+        which T-206 persists). An accepted identity lands via the same
+        `match_for_recording` machinery a manual resolve uses — no new landing path, and
+        the same T-009 duplicate check the fingerprint gate runs.
+        """
+        verdict = result.verdict
+        chosen = _candidate_by_n(result.candidates, verdict.chosen_candidate)
+        agreeing = (
+            self._agreeing_senses(chosen, dominance, result.shazam) if chosen else []
+        )
+
+        if (
+            verdict.verdict == "accept"
+            and chosen is not None
+            and chosen.get("mbid")
+            and len(agreeing) >= 2
+        ):
+            # match_for_recording can hit a LIVE MusicBrainz lookup (track_for_id) when
+            # the chosen candidate — e.g. the synthetic ISRC entry — isn't among beets'
+            # candidates. A transient MB failure must PARK this track, never error the
+            # run (spec §5: a reconcile-path failure is never a silent land, and never a
+            # crash either). A `None` return (recording no longer resolves) parks too.
+            try:
+                match = match_for_recording(task, chosen["mbid"])
+            except Exception as exc:  # noqa: BLE001 — a live-lookup failure parks, not errors
+                logger.warning(
+                    "reconcile land-lookup failed for %s (recording %s: %s) — parking",
+                    self.staging_path,
+                    chosen["mbid"],
+                    exc,
+                )
+                match = None
+            if match is not None:
+                # Carry a dominance that describes the recording we're LANDING, not the
+                # fingerprint's pick. When fp is among the agreeing senses its
+                # recording IS the chosen one, so its release ids give correct cover
+                # art; otherwise (an ISRC correction the fingerprint dissented from)
+                # zero it so `_embed_art` falls back to artist/title instead of
+                # embedding the wrong recording's cover (as ResolveSession does).
+                land_dominance = dominance if "fp" in agreeing else Dominance(0.0, 0.0, ())
+                return self._accept(
+                    task,
+                    match,
+                    land_dominance,
+                    detail=f"source={chosen.get('source')} senses={agreeing} (reconcile)",
+                )
+            # The chosen recording no longer resolves to metadata — park, not a hole.
+            logger.warning(
+                "reconcile chose recording %s for %s but it did not resolve — parking",
+                chosen["mbid"],
+                self.staging_path,
+            )
+
+        logger.info(
+            "reconcile-park %s: verdict=%s chosen=%s agreeing=%s (llm claimed %s) reason=%r",
+            self.staging_path,
+            verdict.verdict,
+            verdict.chosen_candidate,
+            agreeing,
+            verdict.agreeing_senses,
+            verdict.reason,
+        )
+        self._park(task, candidates, dominance)
+        return Action.SKIP
+
+    def _agreeing_senses(self, chosen, dominance, shazam) -> list[str]:
+        """Which PRESENT senses genuinely support `chosen`, re-derived in code (spec §5).
+
+        The load-bearing guard the whole 2-of-3 rule rests on — never trusting the LLM's
+        `agreeing_senses`. A sense counts only when it is both present and supports the
+        chosen candidate on artist AND title (loose containment, `normalize.loose_match`),
+        except `fp`, which supports by recording-MBID *identity*, and `sz` for the
+        ISRC-sourced candidate, which IS Shazam's own identity.
+        """
+        senses: list[str] = []
+        ss = self.source_signals
+        # yt: present always; but a None yt_artist is an unrecoverable claim → supports
+        # nothing (T-201). Needs BOTH artist and title to match, or it can't vote — this
+        # is what parks Strawberry Swing (yt "frankocean" ⊄ candidate "coldplay").
+        if (
+            ss is not None
+            and ss.yt_artist
+            and normalize.loose_match(ss.yt_artist, chosen["artist"])
+            and normalize.loose_match(ss.yt_title, chosen["title"])
+        ):
+            senses.append("yt")
+        # fp: present iff the fingerprint named any recording; supports iff the chosen
+        # candidate IS one of them — recording identity, not a text match.
+        if dominance.top_recording_ids and chosen["mbid"] in set(
+            dominance.top_recording_ids
+        ):
+            senses.append("fp")
+        # sz: present iff Shazam matched; supports the ISRC-sourced candidate by
+        # construction (that entry is Shazam's identity), else on both fields matching.
+        if shazam and shazam.get("matched"):
+            if chosen["source"] == "isrc" or (
+                normalize.loose_match(shazam.get("shazam_artist"), chosen["artist"])
+                and normalize.loose_match(shazam.get("shazam_title"), chosen["title"])
+            ):
+                senses.append("sz")
+        return senses
+
+    # --- sense gathering + adjudication (R1.5 T-204/T-205) ----------------
+
+    def _reconcile(self, task, dominance, candidates) -> _Reconciliation:
+        """Gather the senses, build augmented candidates, adjudicate → a `_Reconciliation`.
 
         Order (spec §6): `shazam_fn` (once per track) → resolve its ISRC via `isrc_fn` →
         build the augmented `candidates[]` (beets' MB candidates ++ the synthetic ISRC
-        entry *iff* the ISRC resolved) → `reconcile_fn(evidence)`. Returns `None` when
-        reconciliation is unavailable (no `reconcile_fn` wired — e.g. no `ANTHROPIC_APIKEY`,
-        or a resolve/keep-untagged session), so the sense-gathering never runs on those
-        paths. `dominance` was already computed by the caller and rides in the evidence.
+        entry *iff* the ISRC resolved) → `reconcile_fn(evidence)`. Only reached when a
+        `reconcile_fn` is wired (choose_item gates on that), so the sense-gathering never
+        runs on the R1/degrade path. `dominance` was already computed by the caller and
+        rides in the evidence.
 
-        A reconcile failure here is caught and downgraded to "no verdict this track" — the
-        R1 gate still decides land/park in T-204, so this must never destabilize it. T-205
-        turns a reconcile failure into a park with reason 'adjudication unavailable'.
+        Failure is never a silent land. A rejected/expired key (401/403) returns
+        `degraded=True` → choose_item falls back to the R1 gate (spec §6 degrade). Any
+        other reconcile failure — a transient 5xx/timeout, a non-schema response, or a
+        sense that raised — returns `verdict=None` → choose_item parks this one track.
         """
-        if self.reconcile_fn is None:
-            return None
         try:
             shazam_record = self.shazam_fn(self.staging_path) if self.shazam_fn else None
             isrc_recording = None
@@ -602,14 +783,40 @@ class FingerprintTrustSession(ImportSession):
             evidence = reconcile_seam.build_evidence(
                 self.source_signals, dominance, augmented, shazam_record
             )
-            return self.reconcile_fn(evidence)
-        except Exception as exc:  # noqa: BLE001 — a reconcile failure must not crash the gate
+        except Exception as exc:  # noqa: BLE001 — can't build evidence → park, don't crash
             logger.warning(
-                "reconcile failed for %s (%s) — no verdict this track",
+                "reconcile evidence-gathering failed for %s (%s) — parking",
                 self.staging_path,
                 exc,
             )
-            return None
+            return _Reconciliation(verdict=None, candidates=[], shazam=None)
+
+        try:
+            verdict = self.reconcile_fn(evidence)
+        except Exception as exc:  # noqa: BLE001 — a reconcile failure must not crash the gate
+            if _is_auth_error(exc):
+                logger.warning(
+                    "reconcile rejected the key for %s (%s) — degrading to the R1 gate",
+                    self.staging_path,
+                    exc,
+                )
+                return _Reconciliation(
+                    verdict=None,
+                    candidates=augmented,
+                    shazam=shazam_record,
+                    degraded=True,
+                )
+            logger.warning(
+                "reconcile failed for %s (%s) — parking (adjudication unavailable)",
+                self.staging_path,
+                exc,
+            )
+            return _Reconciliation(
+                verdict=None, candidates=augmented, shazam=shazam_record
+            )
+        return _Reconciliation(
+            verdict=verdict, candidates=augmented, shazam=shazam_record
+        )
 
     def finalize_outcomes(self) -> list[Outcome]:
         """Settle accepted matches against what beets actually did, post-`run()`.
@@ -911,6 +1118,58 @@ def _matching_candidate(candidates, recording_ids: tuple[str, ...]):
     return None
 
 
+def match_for_recording(task, recording_id: str | None):
+    """A `TrackMatch` for `recording_id`, from `task.candidates` or a MusicBrainz lookup.
+
+    The one place a settled recording id becomes a landable match — shared by the
+    reconcile gate's accept (T-205, where the id can be the synthetic ISRC candidate
+    beets never generated) and `ResolveSession._forced_match` (the owner's explicit
+    pick). Prefers a beets candidate: it carries the full `TrackInfo` (album, year, …)
+    a bare recording lookup lacks. Falls back to `track_for_id` for a recording that
+    isn't among this task's candidates. `None` when the id no longer resolves.
+    """
+    if not recording_id:
+        return None
+    match = _matching_candidate(task.candidates or [], (recording_id,))
+    if match is not None:
+        return match
+    info = metadata_plugins.track_for_id(recording_id, "musicbrainz")
+    if info is None:
+        return None
+    # Distance() is an empty (zero) distance: nothing is being ranked — the identity is
+    # settled — and beets only reads it for display/threshold logic a forced match bypasses.
+    return TrackMatch(Distance(), info, task.item)
+
+
+def _candidate_by_n(candidates: list[dict], n: int | None) -> dict | None:
+    """The augmented candidate at index `n` (its `n` field), or `None`.
+
+    Resolves the Verdict's `chosen_candidate`/`ranking` indices against the *same*
+    augmented list the model was shown, so an index never resolves against a different
+    order (T-204's canonical-order guarantee, re-checked here at the gate).
+    """
+    if n is None:
+        return None
+    for candidate in candidates:
+        if candidate.get("n") == n:
+            return candidate
+    return None
+
+
+def _is_auth_error(exc: Exception) -> bool:
+    """True for an auth/permission rejection (a bad or expired ANTHROPIC_APIKEY).
+
+    Detected structurally — an HTTP 401/403 `status_code`, or the Anthropic SDK's
+    `AuthenticationError`/`PermissionDeniedError` class name — so this module needn't
+    import `anthropic`, and a test stub can raise a plain object carrying
+    `status_code=401`. A rejected key degrades to the R1 gate (spec §6); every other
+    failure parks (see `_reconcile`).
+    """
+    if getattr(exc, "status_code", None) in (401, 403):
+        return True
+    return type(exc).__name__ in ("AuthenticationError", "PermissionDeniedError")
+
+
 # --- T-009: acquire-time duplicate quality ----------------------------------
 #
 # When an incoming song is the same recording as one already in the library
@@ -1163,25 +1422,14 @@ class ResolveSession(FingerprintTrustSession):
         return match
 
     def _forced_match(self, task) -> TrackMatch | None:
-        """A `TrackMatch` for `self.recording_id`, from beets' candidates or MusicBrainz.
+        """A `TrackMatch` for `self.recording_id` (the owner's explicit pick).
 
-        Prefers a candidate beets already generated for this task — it carries the full
-        `TrackInfo` (album, year, …) that a bare recording lookup does not (MusicBrainz's
-        `RECORDING_INCLUDES` has no releases). Falls back to a direct `track_for_id` for
-        the case where the candidate list drifted since the park, or where the row's
-        recording is the *existing* library copy's (a duplicate park, whose recording was
-        never in this task's candidates at all).
+        Thin wrapper over the shared `match_for_recording`: prefers a beets candidate
+        for its full `TrackInfo`, falls back to `track_for_id` when the candidate list
+        drifted since the park or the row's recording is the existing library copy's (a
+        duplicate park, never in this task's candidates). `None` if it no longer resolves.
         """
-        match = _matching_candidate(task.candidates or [], (self.recording_id,))
-        if match is not None:
-            return match
-        info = metadata_plugins.track_for_id(self.recording_id, "musicbrainz")
-        if info is None:
-            return None
-        # Distance() is an empty (zero) distance: we aren't ranking anything, the
-        # owner already chose. beets only reads it for display/threshold logic that
-        # a forced match bypasses.
-        return TrackMatch(Distance(), info, task.item)
+        return match_for_recording(task, self.recording_id)
 
 
 def _no_dominance(*args, **kwargs):

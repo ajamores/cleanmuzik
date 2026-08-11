@@ -22,12 +22,12 @@ song, so the caller treats a False return as "no art", not a failure.
 
 import logging
 import os
-import re
 import tempfile
 
 import requests
 from beetsplug._utils import art
 
+from app import normalize
 from app.config import MUSICBRAINZ_USER_AGENT
 
 logger = logging.getLogger("cleanmuzik")
@@ -45,20 +45,16 @@ _PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 _MAX_CAA_RELEASES = 3
 
 
-def _norm(value: str) -> str:
-    """Lowercase alphanumerics only — for loose artist-name comparison."""
-    return re.sub(r"[^a-z0-9]+", "", (value or "").lower())
-
-
 def _artist_matches(candidate: str, wanted: str) -> bool:
     """True if two artist names plausibly refer to the same act.
 
-    Deliberately loose (substring either way, punctuation/case-insensitive) so
-    "a-ha" matches "A-Ha" but a different act's name doesn't — enough to reject an
-    iTunes text-search hit for the wrong artist without over-rejecting real ones.
+    Delegates to `normalize.loose_match` — the one loose alnum-fold containment shared
+    with the T-205 sense gate, so "same artist" means the same thing to the cover-art
+    gate and the identity gate (and both gain the case/diacritic fold: "a-ha" ≈ "A-Ha",
+    "Beyonce" ≈ "Beyoncé"). Loose by design — enough to reject an iTunes text-search hit
+    for the wrong artist without over-rejecting real ones.
     """
-    a, b = _norm(candidate), _norm(wanted)
-    return bool(a and b and (a in b or b in a))
+    return normalize.loose_match(candidate, wanted)
 
 
 def _image_suffix(image_bytes: bytes) -> str:

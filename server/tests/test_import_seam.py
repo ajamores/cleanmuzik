@@ -931,7 +931,9 @@ def test_choose_item_without_reconcile_fn_produces_no_verdict(store):
     assert session.verdict is None
 
 
-def test_choose_item_reconcile_failure_is_swallowed(store):
+def test_choose_item_reconcile_failure_parks_adjudication_unavailable(store):
+    # T-205: a transient reconcile failure on a wired adjudicator must never crash the
+    # gate and never silently land — it parks THIS track with a distinct reason.
     def boom(_evidence):
         raise RuntimeError("anthropic down")
 
@@ -943,5 +945,265 @@ def test_choose_item_reconcile_failure_is_swallowed(store):
         reconcile_fn=boom,
     )
 
-    session.choose_item(_task(["rec-A"]))  # must not raise
+    choice = session.choose_item(_task(["rec-A"]))  # must not raise
+
+    assert choice is Action.SKIP
+    assert len(store.list_reviews()) == 1
+    assert session.verdict.verdict == "park"
+    assert session.verdict.reason == "adjudication unavailable"
+
+
+# --- T-205: the 2-of-3 accept gate + degrade (the safety spine) --------------
+#
+# The gate consumes the Verdict + augmented candidates + the three senses and decides
+# land-vs-park, RE-DERIVING agreement in code. Senses are stubbed exactly as dominance_fn
+# is; source_signals is built full so the yt vote reads real fields. `_cand`/`_task` above
+# carry only a track_id, so these tests use `_rich_task`, whose candidates carry the
+# artist/title the loose-match vote compares against.
+
+
+def _signals(yt_artist, yt_title):
+    """A full SourceSignals with the two voting fields set (rest are inert defaults)."""
+    return seam.SourceSignals(
+        title=f"{yt_artist} - {yt_title}",
+        uploader="Uploader",
+        channel_is_topic=False,
+        description_head="",
+        tags=[],
+        duration=None,
+        video_id="vid",
+        yt_artist=yt_artist,
+        yt_title=yt_title,
+        yt_album=None,
+        yt_release_year=None,
+    )
+
+
+def _rich_candidate(track_id, artist, title):
+    return SimpleNamespace(info=SimpleNamespace(track_id=track_id, artist=artist, title=title))
+
+
+def _rich_task(candidates, rec=Recommendation.medium):
+    """A task whose candidates carry (track_id, artist, title) — what the vote compares."""
+    return SimpleNamespace(
+        item=SimpleNamespace(path=b"/staging/song.mp3"),
+        candidates=[_rich_candidate(*c) for c in candidates],
+        rec=rec,
+    )
+
+
+def _isrc_recording(mbid="mb-real", artist="Pa Salieu", title="Frontline"):
+    return SimpleNamespace(mbid=mbid, artist=artist, title=title)
+
+
+def test_gate_fingerprint_shazam_yt_all_agree_lands(store):
+    # The R1 happy path under reconcile: all three senses back the beets candidate → land.
+    art_seen: list = []
+    session = _session(
+        store,
+        Dominance(0.95, 0.20, ("rec-A",), ("rel-A",)),
+        source_signals=_signals("Pa Salieu", "Frontline"),
+        shazam_fn=lambda _p: _matched_shazam(),
+        isrc_fn=lambda _isrc: None,  # ISRC didn't resolve; the fp candidate is enough
+        reconcile_fn=lambda _ev: Verdict(
+            verdict="accept", chosen_candidate=0, agreeing_senses=["yt", "fp", "sz"]
+        ),
+        art_fn=lambda **kw: art_seen.append(kw.get("release_ids")) or None,
+    )
+
+    choice = session.choose_item(_rich_task([("rec-A", "Pa Salieu", "Frontline")]))
+    outcomes = session.finalize_outcomes()
+
+    assert choice.info.track_id == "rec-A"
+    assert outcomes[-1].action == "landed"
+    # fp backs the chosen recording → the real dominance is carried (correct art source).
+    assert outcomes[-1].top_score == 0.95
+    assert art_seen == [("rel-A",)]  # cover fetched by the landed recording's releases
+    assert store.list_reviews() == []
+
+
+def test_gate_lands_the_isrc_correction_when_fp_dissents(store, monkeypatch):
+    # Pa Salieu: the fingerprint points at the WRONG recording, but yt + Shazam both back
+    # the ISRC-sourced candidate (a real MBID) → land the correction, not the fp's choice.
+    # And the WRONG recording's cover art must NOT be embedded: because the fingerprint
+    # dissented, the landed dominance is zeroed so art falls back to artist/title (F2).
+    resolved = SimpleNamespace(track_id="mb-real", artist="Pa Salieu", title="Frontline")
+    monkeypatch.setattr(seam.metadata_plugins, "track_for_id", lambda *_a, **_k: resolved)
+    art_seen: list = []
+
+    session = _session(
+        store,
+        Dominance(0.95, 0.20, ("rec-wrong",), ("rel-wrong",)),  # fp confident but WRONG
+        source_signals=_signals("Pa Salieu", "Frontline"),
+        shazam_fn=lambda _p: _matched_shazam(),
+        isrc_fn=lambda _isrc: _isrc_recording(),  # resolves to the real recording
+        reconcile_fn=lambda ev: Verdict(
+            verdict="accept",
+            chosen_candidate=ev["candidates"][-1]["n"],  # the appended ISRC entry
+            agreeing_senses=["yt", "sz"],
+        ),
+        art_fn=lambda **kw: art_seen.append(kw.get("release_ids")) or None,
+    )
+
+    choice = session.choose_item(_rich_task([("rec-wrong", "Wrong", "Song")]))
+    outcomes = session.finalize_outcomes()
+
+    assert choice.info.track_id == "mb-real"  # the ISRC recording, not the fp's
+    assert outcomes[-1].action == "landed"
+    assert outcomes[-1].track_id == "mb-real"
+    assert outcomes[-1].top_score == 0.0  # landed dominance zeroed (fp dissented)
+    assert art_seen == [()]  # NO release ids — never rec-wrong's ("rel-wrong")
+
+
+def test_gate_land_lookup_failure_parks_not_errors(store, monkeypatch):
+    # F1: the accept path can hit a LIVE MusicBrainz lookup (track_for_id) for an ISRC
+    # candidate absent from beets' candidates. A transient failure must PARK, never crash.
+    def boom(*_a, **_k):
+        raise RuntimeError("musicbrainz 503")
+
+    monkeypatch.setattr(seam.metadata_plugins, "track_for_id", boom)
+
+    session = _session(
+        store,
+        Dominance(0.0, 0.0, ()),
+        source_signals=_signals("Pa Salieu", "Frontline"),
+        shazam_fn=lambda _p: _matched_shazam(),
+        isrc_fn=lambda _isrc: _isrc_recording(),
+        reconcile_fn=lambda ev: Verdict(
+            verdict="accept",
+            chosen_candidate=ev["candidates"][-1]["n"],  # ISRC entry, not in candidates
+            agreeing_senses=["yt", "sz"],
+        ),
+    )
+
+    choice = session.choose_item(_rich_task([("rec-other", "Other", "Song")]))  # no raise
+
+    assert choice is Action.SKIP
+    assert len(store.list_reviews()) == 1
+
+
+def test_gate_shazam_alone_never_lands(store):
+    # Only Shazam supports the candidate (fp absent, yt disagrees) → 1 sense → park.
+    session = _session(
+        store,
+        Dominance(0.0, 0.0, ()),  # fp absent
+        source_signals=_signals("Someone Else", "Other Title"),  # yt disagrees
+        shazam_fn=lambda _p: _matched_shazam(),  # matches the candidate
+        isrc_fn=lambda _isrc: None,
+        reconcile_fn=lambda _ev: Verdict(
+            verdict="accept", chosen_candidate=0, agreeing_senses=["sz"]
+        ),
+    )
+
+    choice = session.choose_item(_rich_task([("rec-A", "Pa Salieu", "Frontline")]))
+
+    assert choice is Action.SKIP
+    assert len(store.list_reviews()) == 1
+
+
+def test_gate_real_but_wrong_isrc_parks(store):
+    # Strawberry Swing: yt says "Frank Ocean", the ISRC entry is "Coldplay" (a real but
+    # WRONG recording). Only Shazam/ISRC agrees; yt can't (frankocean ⊄ coldplay) → park.
+    session = _session(
+        store,
+        Dominance(0.0, 0.0, ()),  # fp absent
+        source_signals=_signals("Frank Ocean", "Strawberry Swing"),
+        shazam_fn=lambda _p: {
+            "matched": True,
+            "shazam_artist": "Coldplay",
+            "shazam_title": "Strawberry Swing",
+            "isrc": "GB999",
+            "error": None,
+        },
+        isrc_fn=lambda _isrc: _isrc_recording("mb-cold", "Coldplay", "Strawberry Swing"),
+        reconcile_fn=lambda ev: Verdict(
+            verdict="accept",
+            chosen_candidate=ev["candidates"][-1]["n"],  # the Coldplay ISRC entry
+            agreeing_senses=["yt", "sz"],  # LLM is generous; the code isn't
+        ),
+    )
+
+    choice = session.choose_item(_rich_task([("rec-A", "Frank Ocean", "Some Song")]))
+
+    assert choice is Action.SKIP  # < 2 agree on artist AND title
+    assert len(store.list_reviews()) == 1
+
+
+def test_gate_re_derivation_is_load_bearing(store):
+    # THE guard test: the LLM claims two senses agree, but the senses themselves support
+    # only one (fp is absent — top_recording_ids empty). The gate must park on its OWN
+    # count, not the LLM's. Without the code re-derivation this test lands and fails.
+    session = _session(
+        store,
+        Dominance(0.0, 0.0, ()),  # fp ABSENT — it cannot support anything
+        source_signals=_signals("Pa Salieu", "Frontline"),  # yt genuinely agrees (1)
+        shazam_fn=lambda _p: {"matched": False, "error": "x"},  # sz absent
+        isrc_fn=lambda _isrc: None,
+        reconcile_fn=lambda _ev: Verdict(
+            verdict="accept",
+            chosen_candidate=0,
+            agreeing_senses=["yt", "fp"],  # over-eager: claims 2, only yt is real
+        ),
+    )
+
+    choice = session.choose_item(_rich_task([("rec-A", "Pa Salieu", "Frontline")]))
+
+    assert choice is Action.SKIP  # code-validated count is 1 (yt only) → park
+    assert len(store.list_reviews()) == 1
+
+
+def test_gate_park_verdict_parks_even_with_agreement(store):
+    # A "park" verdict parks regardless of how many senses agree — accept is required.
+    session = _session(
+        store,
+        Dominance(0.95, 0.20, ("rec-A",)),
+        source_signals=_signals("Pa Salieu", "Frontline"),
+        shazam_fn=lambda _p: _matched_shazam(),
+        isrc_fn=lambda _isrc: None,
+        reconcile_fn=lambda _ev: Verdict(
+            verdict="park", chosen_candidate=0, agreeing_senses=["yt", "fp", "sz"]
+        ),
+    )
+
+    choice = session.choose_item(_rich_task([("rec-A", "Pa Salieu", "Frontline")]))
+
+    assert choice is Action.SKIP
+    assert len(store.list_reviews()) == 1
+
+
+def test_gate_rejected_key_degrades_to_r1_gate(store):
+    # A rejected/expired key (401) must DEGRADE to the R1 fingerprint gate, not park every
+    # track: a dominant fingerprint whose recording is a candidate still lands.
+    class _AuthError(Exception):
+        status_code = 401
+
+    def boom(_ev):
+        raise _AuthError("invalid x-api-key")
+
+    session = _session(
+        store,
+        Dominance(0.95, 0.20, ("rec-A",)),
+        source_signals=_signals("Pa Salieu", "Frontline"),
+        shazam_fn=lambda _p: {"matched": False, "error": "x"},
+        isrc_fn=lambda _isrc: None,
+        reconcile_fn=boom,
+    )
+
+    choice = session.choose_item(_rich_task([("rec-A", "Pa Salieu", "Frontline")]))
+    outcomes = session.finalize_outcomes()
+
+    assert choice.info.track_id == "rec-A"  # R1 gate landed it
+    assert outcomes[-1].action == "landed"
+    assert session.verdict is None  # degrade leaves no reconcile verdict
+
+
+def test_gate_unset_key_falls_back_to_r1_and_parks(store):
+    # No reconcile_fn wired (ANTHROPIC_APIKEY unset) → the R1 gate decides. A weak
+    # fingerprint parks, exactly as R1 (spec §6 degrade row); no verdict is produced.
+    session = _session(store, Dominance(0.80, 0.30, ("rec-A",)))  # below SCORE_MIN
+
+    choice = session.choose_item(_task(["rec-A"]))
+
+    assert choice is Action.SKIP
+    assert len(store.list_reviews()) == 1
     assert session.verdict is None

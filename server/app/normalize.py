@@ -32,6 +32,7 @@ non-empty title never collapses to `""` (the empty-query guard below).
 """
 
 import re
+import unicodedata
 
 # A bracket group — (), [], or {} — capturing its inner text. YouTube uploaders
 # use all three interchangeably for the same cruft.
@@ -156,6 +157,43 @@ def _cleanup(title: str) -> str:
     """Collapse whitespace and shear any separator left dangling at the ends."""
     title = _WHITESPACE.sub(" ", title).strip()
     return _DANGLING_SEP.sub("", title).strip()
+
+
+# Everything that is not a lowercase letter or digit — the fold applied before a
+# loose sense-support comparison (R1.5 T-205).
+_ALNUM_FOLD = re.compile(r"[^a-z0-9]")
+
+
+def loose_key(s: str | None) -> str:
+    """Alnum-fold a string for loose matching: case+diacritic-fold, keep only `[a-z0-9]`.
+
+    `"Frank Ocean"` → `"frankocean"`; `"Pa Salieu (Official Video)"` →
+    `"pasalieuofficialvideo"`. Extends the architecture-B spike's fold (`spike/b_flow.py`,
+    plain `[^a-z0-9]` over `.lower()`) with a Unicode pre-fold so an ASCII YouTube rip
+    still matches its accented MusicBrainz identity: `casefold()` collapses case AND
+    `ß`→`ss`, and `NFKD` splits accented letters into base + combining mark so the
+    subsequent `[^a-z0-9]` drop keeps the base (`"Sigur Rós"`/`"Motörhead"` → `"sigurros"`
+    /`"motorhead"`, matching the un-accented rip). This is a strict superset of the spike
+    fold — every ASCII exp-9 case is unchanged. `None`/`""` fold to `""`.
+    """
+    folded = unicodedata.normalize("NFKD", (s or "").casefold())
+    return _ALNUM_FOLD.sub("", folded)
+
+
+def loose_match(a: str | None, b: str | None) -> bool:
+    """True iff either alnum-folded string contains the other (both non-empty).
+
+    Containment, not equality (owner-ratified 2026-08-10): it forgives YouTube's
+    extra-word cruft — `"Pa Salieu"` ⊂ `"Pa Salieu (Official Video)"` — that strict
+    equality would wrongly reject, while the 2-of-3 rule (T-205) covers the
+    short-name false-match risk a lone containment would otherwise carry. An empty
+    fold on either side is never a match: an absent claim supports nothing (this is
+    what parks Strawberry Swing — yt `"frankocean"` ⊄ candidate `"coldplay"`).
+    """
+    ka, kb = loose_key(a), loose_key(b)
+    if not ka or not kb:
+        return False
+    return ka in kb or kb in ka
 
 
 def normalize_title(raw: str, artist: str | None = None) -> str:

@@ -10,7 +10,7 @@ Run from the `server/` directory: `./.venv/bin/pytest tests/test_normalize.py -v
 
 import pytest
 
-from app.normalize import normalize_title
+from app.normalize import loose_key, loose_match, normalize_title
 
 # (raw_title, artist_or_None, expected). Grouped by the behaviour each row pins.
 CASES = [
@@ -126,3 +126,52 @@ def test_normalize_title_is_idempotent(raw: str, artist: str | None) -> None:
     # for titles that still carry an internal dash (finding 6).
     once = normalize_title(raw, artist)
     assert normalize_title(once, artist) == once
+
+
+# --- loose_key / loose_match: the T-205 sense-support comparison -------------
+
+
+@pytest.mark.parametrize(
+    "raw, expected",
+    [
+        ("Frank Ocean", "frankocean"),
+        ("Pa Salieu (Official Video)", "pasalieuofficialvideo"),
+        ("A$AP Rocky", "aaprocky"),
+        ("Sigur Rós", "sigurros"),  # NFKD splits the accent, the fold drops the mark
+        ("Straße", "strasse"),  # casefold expands ß → ss
+        ("  ", ""),
+        (None, ""),
+    ],
+)
+def test_loose_key_folds_to_alnum(raw, expected):
+    assert loose_key(raw) == expected
+
+
+@pytest.mark.parametrize(
+    "a, b",
+    [
+        ("Pa Salieu", "Pa Salieu (Official Video)"),  # containment forgives cruft
+        ("Frontline (feat. X)", "Frontline"),  # either direction
+        ("Coldplay", "coldplay"),  # case/space fold
+        ("Sigur Rós", "Sigur Ros"),  # diacritic fold: ASCII rip ≈ accented MB identity
+        ("Motörhead", "Motorhead"),
+        ("Beyoncé", "Beyonce"),
+        ("Blue Öyster Cult", "Blue Oyster Cult"),
+    ],
+)
+def test_loose_match_containment_matches(a, b):
+    assert loose_match(a, b)
+    assert loose_match(b, a)  # symmetric
+
+
+@pytest.mark.parametrize(
+    "a, b",
+    [
+        ("Frank Ocean", "Coldplay"),  # parks Strawberry Swing
+        ("Pa Salieu", ""),  # an empty claim supports nothing
+        ("", "anything"),
+        (None, "anything"),
+    ],
+)
+def test_loose_match_rejects_non_containment_and_empties(a, b):
+    assert not loose_match(a, b)

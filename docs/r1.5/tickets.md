@@ -181,7 +181,7 @@ status line flipped in the closing commit, transcribe corrections to `docs/learn
   seam. Offline (no network). (Spec §5 augmented candidates; §6 reconcile seam + Verdict schema.)
 
 ### T-205 — The 2-of-3 accept gate + degrade fallback (the safety spine)
-- **Status:** todo
+- **Status:** done
 - **Depends on:** T-204
 - **Agent:** back-end
 - **What:** Consume T-204's `Verdict` + augmented `candidates[]` + the three senses, and decide land-vs-park
