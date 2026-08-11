@@ -839,3 +839,109 @@ def test_choose_item_dedup_single_outcome_then_finalize(store):
     parked = [o for o in outcomes if o.action == "parked"]
     assert len(parked) == 1 and parked[0].review_id
     assert not any(o.action in ("landed", "skipped") for o in outcomes)
+
+
+# --- R1.5 reconcile seam wiring (T-204) -------------------------------------
+#
+# choose_item now gathers the other senses, builds the augmented candidate list, and
+# stashes a validated Verdict — but the land/park decision is still R1's (T-205 rewires
+# it). These tests exercise that production with all four seams stubbed, exactly as
+# dominance_fn is stubbed. Verdict is imported here to build stub returns.
+
+from app.reconcile import Verdict  # noqa: E402
+
+
+def _matched_shazam(isrc="GB123"):
+    return {
+        "matched": True,
+        "shazam_artist": "Pa Salieu",
+        "shazam_title": "Frontline",
+        "isrc": isrc,
+        "art_url": None,
+        "lyrics": None,
+        "error": None,
+    }
+
+
+def test_choose_item_builds_augmented_candidates_with_isrc_entry(store):
+    captured = {}
+
+    def reconcile_fn(evidence):
+        captured["evidence"] = evidence
+        chosen = evidence["candidates"][-1]["n"]  # the appended ISRC entry
+        return Verdict(verdict="accept", chosen_candidate=chosen, agreeing_senses=["yt", "sz"])
+
+    session = _session(
+        store,
+        Dominance(0.3, 0.1, ()),
+        shazam_fn=lambda _path: _matched_shazam(),
+        isrc_fn=lambda _isrc: SimpleNamespace(mbid="mb-real", artist="Pa Salieu", title="Frontline"),
+        reconcile_fn=reconcile_fn,
+    )
+
+    session.choose_item(_task(["rec-A"]))
+
+    cands = captured["evidence"]["candidates"]
+    assert [c["source"] for c in cands] == ["musicbrainz", "isrc"]
+    assert cands[-1]["mbid"] == "mb-real"  # a real MBID, appended last
+    assert session.verdict.chosen_candidate == 1  # indexes into that exact list
+    assert not hasattr(session.verdict, "confidence")  # confidence can't leave the seam
+
+
+def test_choose_item_no_isrc_entry_when_isrc_unresolved(store):
+    captured = {}
+
+    def reconcile_fn(evidence):
+        captured["evidence"] = evidence
+        return Verdict(verdict="park", chosen_candidate=None)
+
+    session = _session(
+        store,
+        Dominance(0.3, 0.1, ()),
+        shazam_fn=lambda _path: _matched_shazam(),
+        isrc_fn=lambda _isrc: None,  # the ~54% gap — ISRC resolves to nothing
+        reconcile_fn=reconcile_fn,
+    )
+
+    session.choose_item(_task(["rec-A"]))
+
+    assert [c["source"] for c in captured["evidence"]["candidates"]] == ["musicbrainz"]
+
+
+def test_choose_item_unmatched_shazam_skips_isrc_lookup(store):
+    isrc_calls = []
+
+    session = _session(
+        store,
+        Dominance(0.3, 0.1, ()),
+        shazam_fn=lambda _path: {"matched": False, "error": "timeout"},
+        isrc_fn=lambda isrc: isrc_calls.append(isrc),
+        reconcile_fn=lambda _ev: Verdict(verdict="park", chosen_candidate=None),
+    )
+
+    session.choose_item(_task(["rec-A"]))
+
+    assert isrc_calls == []  # a non-voting Shazam never triggers the ISRC lookup
+
+
+def test_choose_item_without_reconcile_fn_produces_no_verdict(store):
+    # The default (R1) path: no reconcile_fn wired → no sense gathered, verdict stays None.
+    session = _session(store, Dominance(0.3, 0.1, ()))
+    session.choose_item(_task(["rec-A"]))
+    assert session.verdict is None
+
+
+def test_choose_item_reconcile_failure_is_swallowed(store):
+    def boom(_evidence):
+        raise RuntimeError("anthropic down")
+
+    session = _session(
+        store,
+        Dominance(0.3, 0.1, ()),
+        shazam_fn=lambda _path: {"matched": False, "error": "x"},
+        isrc_fn=lambda _isrc: None,
+        reconcile_fn=boom,
+    )
+
+    session.choose_item(_task(["rec-A"]))  # must not raise
+    assert session.verdict is None

@@ -19,3 +19,9 @@ beets[chroma,lastgenre,fetchart,embedart,lyrics]==2.12.0
 # Art Archive / iTunes. beets' fetchart+lyrics extras already pull it transitively;
 # this pin (matching that resolution) just makes the direct dependency explicit.
 requests==2.34.2
+
+# The R1.5 reconcile call (app/reconcile.py, T-204): one structured-output tool-use
+# request per track to `claude-haiku-4-5`, temperature 0. Imported lazily and only
+# when ANTHROPIC_APIKEY is set (T-200) — absent, the pipeline degrades to the R1
+# fingerprint-only gate and never touches this.
+anthropic==0.121.0

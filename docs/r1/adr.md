@@ -690,3 +690,22 @@ Format: `ADR-NNN — decision. Rationale. [date]`
   spec §5), never the sole vote. The *Strawberry Swing* cover class ADR-019 condition 3 was written
   for (Shazam confidently returns the wrong recording's real ISRC) is caught by that gate, not by this
   tier. (Owner-authorized via spec §2/§5; filed on building T-202.) [2026-08-10]
+
+- **ADR-025 — The reconcile model is `claude-haiku-4-5` at `temperature=0`; do NOT "upgrade" it to
+  the newest Opus/Sonnet without removing `temperature` and re-validating the §7 corpus.** The R1.5
+  reconcile call (`app/reconcile.py`, T-204) pins model `claude-haiku-4-5` and sends `temperature=0`
+  (spec §5's determinism requirement). This is a **deliberate exception to the global "default to the
+  latest, most capable Claude model" rule**, recorded so a future session doesn't silently reverse it:
+  (1) the current frontier family (Opus 5 / 4.8 / 4.7, Sonnet 5) **rejects any sampling parameter with
+  a 400** — sending `temperature=0` to them errors the call, so "just bump the model" breaks the seam;
+  (2) Haiku 4.5 is the model the whole architecture-B spike ran on, so it is the model the **§7
+  acceptance corpus (= the exp-9 cases) was validated against** — changing it invalidates that mapping;
+  (3) it is the cost/latency fit for a per-track call (spec §5, ~$0.05–0.20 for the corpus). **To
+  change the model:** drop `temperature=0` (frontier models are deterministic-ish without it and 400
+  on it), then re-run the T-209 §7 sweep to confirm Pa-Salieu-lands / Strawberry-Swing-parks still
+  hold on the new model — never a blind swap. Structured output is a **forced `tool_choice` on a single
+  `record_verdict` tool** whose `chosen_candidate` is an enum over the present candidate indices + null
+  (no free-text identity field), so the LLM can only point at a real-MBID candidate by index and can
+  never author an MBID (spec §5; the spike's free-text `{artist,title,mbid}` schema is the forbidden
+  shape). Confidence is **structurally absent** from the `Verdict` dataclass, so it cannot travel past
+  the seam (spec §5, confidence never load-bearing). (Filed on building T-204.) [2026-08-10]

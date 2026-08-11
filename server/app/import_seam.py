@@ -57,6 +57,9 @@ from beets.autotag import Distance, Recommendation, TrackMatch
 from beets.importer import Action, DuplicateAction, ImportSession
 from beetsplug.musicbrainz import _get_date
 
+from app import isrc as isrc_lookup
+from app import reconcile as reconcile_seam
+from app import shazam as shazam_sense
 from app.artwork import embed_cover, fetch_cover_art
 from app.beets_engine import LIBRARY_DIRECTORY, configure_beets
 from app.config import Settings, get_settings
@@ -453,6 +456,10 @@ class FingerprintTrustSession(ImportSession):
         dominance_fn=fingerprint_dominance,
         art_fn=fetch_cover_art,
         date_fn=fetch_original_date,
+        source_signals: SourceSignals | None = None,
+        shazam_fn=None,
+        isrc_fn=None,
+        reconcile_fn=None,
     ) -> None:
         super().__init__(lib, None, [os.fspath(staging_path)], None)
         self.store = store
@@ -467,6 +474,18 @@ class FingerprintTrustSession(ImportSession):
         self.dominance_fn = dominance_fn
         self.art_fn = art_fn
         self.date_fn = date_fn
+        # R1.5 reconcile seam (T-204), each stubbable offline exactly as dominance_fn is.
+        # source_signals is sense 1 (T-201); shazam_fn is sense 3 (T-202, called once per
+        # track, hard-timeout); isrc_fn resolves a Shazam ISRC to a real MB recording
+        # (T-203); reconcile_fn(evidence) -> Verdict is the LLM adjudicator. All default to
+        # absent so the resolve/keep-untagged subclasses and the R1 gate are untouched —
+        # `_reconcile` bails when reconcile_fn is None, so no sense is even gathered then.
+        self.source_signals = source_signals
+        self.shazam_fn = shazam_fn
+        self.isrc_fn = isrc_fn
+        self.reconcile_fn = reconcile_fn
+        # T-204 produces a Verdict here; T-205 makes the land/park decision consume it.
+        self.verdict: reconcile_seam.Verdict | None = None
         self.outcomes: list[Outcome] = []
         # Accepted matches await finalization: choose_item can only *decide* to
         # land; whether beets actually copied the file is known only after run()
@@ -509,6 +528,13 @@ class FingerprintTrustSession(ImportSession):
 
         candidates = list(task.candidates or [])
 
+        # R1.5 (T-204): gather the other senses, build the augmented candidate list, and
+        # ask the LLM to reconcile — producing a validated Verdict stashed on the session.
+        # The order is dominance_fn (above) → shazam_fn → augment → reconcile_fn (spec §6).
+        # This ticket ONLY produces the Verdict; the land/park decision below is still R1's
+        # (T-205 rewires it to consume the Verdict), so behaviour is unchanged here.
+        self.verdict = self._reconcile(task, dominance, candidates)
+
         if (
             candidates
             and dominance.top_score >= self.score_min
@@ -548,6 +574,42 @@ class FingerprintTrustSession(ImportSession):
 
         self._park(task, candidates, dominance)
         return Action.SKIP
+
+    # --- the reconcile seam (R1.5 T-204) ----------------------------------
+
+    def _reconcile(self, task, dominance, candidates):
+        """Gather the senses, build augmented candidates, and return a validated `Verdict`.
+
+        Order (spec §6): `shazam_fn` (once per track) → resolve its ISRC via `isrc_fn` →
+        build the augmented `candidates[]` (beets' MB candidates ++ the synthetic ISRC
+        entry *iff* the ISRC resolved) → `reconcile_fn(evidence)`. Returns `None` when
+        reconciliation is unavailable (no `reconcile_fn` wired — e.g. no `ANTHROPIC_APIKEY`,
+        or a resolve/keep-untagged session), so the sense-gathering never runs on those
+        paths. `dominance` was already computed by the caller and rides in the evidence.
+
+        A reconcile failure here is caught and downgraded to "no verdict this track" — the
+        R1 gate still decides land/park in T-204, so this must never destabilize it. T-205
+        turns a reconcile failure into a park with reason 'adjudication unavailable'.
+        """
+        if self.reconcile_fn is None:
+            return None
+        try:
+            shazam_record = self.shazam_fn(self.staging_path) if self.shazam_fn else None
+            isrc_recording = None
+            if self.isrc_fn and shazam_record and shazam_record.get("matched"):
+                isrc_recording = self.isrc_fn(shazam_record.get("isrc"))
+            augmented = reconcile_seam.build_candidates(candidates, isrc_recording)
+            evidence = reconcile_seam.build_evidence(
+                self.source_signals, dominance, augmented, shazam_record
+            )
+            return self.reconcile_fn(evidence)
+        except Exception as exc:  # noqa: BLE001 — a reconcile failure must not crash the gate
+            logger.warning(
+                "reconcile failed for %s (%s) — no verdict this track",
+                self.staging_path,
+                exc,
+            )
+            return None
 
     def finalize_outcomes(self) -> list[Outcome]:
         """Settle accepted matches against what beets actually did, post-`run()`.
@@ -1335,6 +1397,9 @@ def import_song(
     gap_min: float = GAP_MIN,
     dominance_fn=None,
     source_signals: SourceSignals | None = None,
+    shazam_fn=None,
+    isrc_fn=None,
+    reconcile_fn=None,
 ) -> list[Outcome]:
     """Run one staged MP3 through the gate. Returns the outcome(s).
 
@@ -1367,6 +1432,17 @@ def import_song(
             fingerprint_dominance, api_key=_resolve_api_key(s)
         )
 
+    # R1.5 reconcile seam (T-204). The default reconcile_fn is built from the owner's
+    # ANTHROPIC_APIKEY (T-200); absent, make_reconcile_fn returns None and the seam never
+    # gathers a sense — the R1 gate runs exactly as before. shazam_fn/isrc_fn default to
+    # the real senses; they only fire once a reconcile_fn exists (see `_reconcile`).
+    if reconcile_fn is None:
+        reconcile_fn = reconcile_seam.make_reconcile_fn(s)
+    if shazam_fn is None:
+        shazam_fn = shazam_sense.recognize
+    if isrc_fn is None:
+        isrc_fn = isrc_lookup.isrc_to_mb
+
     session = FingerprintTrustSession(
         lib,
         store=store,
@@ -1376,6 +1452,10 @@ def import_song(
         score_min=score_min,
         gap_min=gap_min,
         dominance_fn=dominance_fn,
+        source_signals=source_signals,
+        shazam_fn=shazam_fn,
+        isrc_fn=isrc_fn,
+        reconcile_fn=reconcile_fn,
     )
     session.run()
     # Finalize AFTER run(): only now is a "landed" accept distinguishable from one

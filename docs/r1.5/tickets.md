@@ -146,7 +146,7 @@ status line flipped in the closing commit, transcribe corrections to `docs/learn
 ## Phase B — the reconcile spine (sequential; all in `import_seam.py` + `db.py`)
 
 ### T-204 — Reconcile seam: inject the three fns, build augmented candidates, return a validated `Verdict`
-- **Status:** todo
+- **Status:** done
 - **Depends on:** T-201, T-202, T-203
 - **Agent:** back-end
 - **What:** Extend `FingerprintTrustSession` (`import_seam.py:434`) with three constructor params
