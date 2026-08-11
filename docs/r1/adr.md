@@ -645,3 +645,48 @@ Format: `ADR-NNN — decision. Rationale. [date]`
   opinion layer is a genuine LLM strength (no ground truth to contradict) and is the foundation the
   future "AI librarian" direction stands on (see `cleanmuzik-prd.md §2.1`). Rationale + risk R3:
   `engine-rethink-council.md §4`. (Owner ratified 2026-08-09 on the spike gate.) [2026-08-09]
+
+- **ADR-024 — Shazam runs in an isolated 3.12 subprocess, and now runs on EVERY track (widens
+  ADR-019).** Two decisions the R1.5 Shazam sense (T-202) forced onto the record; both reverse or
+  widen something already written, so per the no-silent-reversal rule they are logged here.
+
+  **(a) The Shazam recognition runs as a subprocess against the 3.12 venv `server/.venv-shazam`,
+  not in-process.** The app runs on Python 3.14, which has **no `shazamio-core` wheel**, so the
+  recognition cannot be imported into the worker. `app/shazam.py` (3.14 side) spawns
+  `app/shazam_runner.py` — a standalone script that imports `shazamio` + stdlib and **nothing from
+  `app`** — with the 3.12 interpreter. The boundary is a *process*, not an import, on purpose: it
+  (1) keeps the app on 3.14 while the wheel only builds on 3.12, and (2) quarantines the
+  reverse-engineered dependency (ADR-019's explicitly accepted risk) behind a wall that can be
+  **SIGKILLed on timeout without touching the worker** — the child is spawned in its own process
+  group (`start_new_session=True`) and a hang is killed with `killpg`, so nothing it spawned
+  survives. **Subprocess contract:** `argv[1]` = audio path in → the JSON §6 record as the **last
+  non-empty stdout line** (the parent parses that line, not the whole stream, so shazamio's
+  reverse-engineered decode stack can emit noise to stdout ahead of it without breaking the parse);
+  the runner always exits 0 once it prints a record, so a non-zero exit means the runner itself
+  failed to run (e.g. `shazamio` missing) and the parent maps that to a non-vote. **Hard wall-clock
+  timeout, default 8s, tunable** (per-call arg + `shazam_timeout_s` in `.env`, bounded `> 0` via
+  Settings so a zero/negative cap can't silently disable the sense): a hang →
+  `{matched:false, error:"timeout"}` returned within the cap, because
+  on the serial pipeline an un-killed hang blocks every later track (exp 8 saw ~28s tail spikes) — a
+  hang is *killed*, not treated as "unavailable". **Pin-3.12 (run the whole app on 3.12) and
+  vendor-wheel (build/vendor `shazamio-core` for 3.14) are documented fallbacks only**, taken only if
+  the subprocess path fails in build; it did not (verified live end-to-end, 3.14 app → 3.12 subprocess
+  → `matched:true` + real ISRC `USDJ20301465` on the JAY-Z corpus track). Any error / empty / timeout
+  ⇒ Shazam is a *non-vote*; it is never written as a tag on its own authority (enforced downstream at
+  the T-205 gate). Records `art_url`/`lyrics` into the §6 record but **writes neither** (spec §3 —
+  art/lyrics land via the existing beets path; the fields are captured for the record only).
+
+  **(b) Shazam now runs on EVERY track — widening ADR-019's "backup tier".** ADR-019 defined Shazam
+  as a *backup identification tier* reached only **when AcoustID misses** (tier order `AcoustID →
+  Shazam → …`). R1.5 runs the Shazam call on **every** track, unconditionally, as one of three
+  independent senses fed to the reconcile call (spec §2). This **reverses ADR-019's tier order** — it
+  is no longer a fallback behind a fingerprint miss but a first-class parallel sense — so it is
+  recorded here rather than changed silently. Authorized by spec §2 and safe **only under the serial
+  pipeline** (ADR-022, pool = 1): per-track Shazam is affordable at one-track-at-a-time cadence and its
+  tail latency is capped by the (a) timeout. ADR-019's three binding conditions are **untouched and
+  still hold**: identification only (never writes tags / picks a release / bypasses MusicBrainz),
+  fail-soft, and — the load-bearing one for this widening — **a Shazam-derived match may never
+  auto-land alone**; under R1.5 it is one of the ≥2 senses the 2-of-3 gate requires (ADR-021 amended,
+  spec §5), never the sole vote. The *Strawberry Swing* cover class ADR-019 condition 3 was written
+  for (Shazam confidently returns the wrong recording's real ISRC) is caught by that gate, not by this
+  tier. (Owner-authorized via spec §2/§5; filed on building T-202.) [2026-08-10]

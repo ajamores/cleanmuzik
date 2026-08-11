@@ -8,6 +8,7 @@ defaults here encode that "absent is not a failure" contract.
 from functools import lru_cache
 from pathlib import Path
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # config.py lives at server/app/config.py, so the repo root — where `.env`
@@ -44,6 +45,13 @@ class Settings(BaseSettings):
     # path as `Store.staging_root`, so the review row and the audio it points at always
     # live in the same data dir. See that property for why.
     db_path: Path = SERVER_DIR / "data" / "cleanmuzik.db"
+
+    # Hard wall-clock cap for the Shazam subprocess (T-202, spec §5). Loaded from
+    # `.env` like every other setting — a bare `os.environ` read misses .env-only
+    # values. Bounded `> 0`: a zero/negative cap would time out every call
+    # instantly and silently disable the whole Shazam sense, so a bad value fails
+    # fast at boot with a clear pydantic error rather than degrading in the dark.
+    shazam_timeout_s: float = Field(default=8.0, gt=0)
 
 
 @lru_cache

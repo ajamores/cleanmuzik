@@ -104,7 +104,7 @@ status line flipped in the closing commit, transcribe corrections to `docs/learn
   arrives at `choose_item`. (Spec §2 SourceSignals; §6 reconcile evidence.)
 
 ### T-202 — Shazam sense via isolated 3.12 subprocess (sense 3) + ADR
-- **Status:** todo
+- **Status:** done
 - **Depends on:** none
 - **Agent:** back-end
 - **What:** Add `app/shazam.py`: one recognition call per track → the §6 Shazam record
