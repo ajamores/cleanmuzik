@@ -21,29 +21,27 @@ CleanMuzik — personal YouTube → Jellyfin music tool. Purpose, stack, constra
 
 ## Current State (2026-08-11)
 
-- **On `main`, at `1b6c070`, clean tree, pushed to origin.** Suite **515 passed**.
+- **On `main`, at `4089455`, clean tree.** Not yet pushed. Suite **524 passed**.
 - **R1 + R1.1 shipped.** **R1.5** (engine rethink, architecture **B** — multi-sense reconciliation) in
-  build. **Phase A + T-204/T-205 done.** **T-205 landed** — the 2-of-3 accept gate is live:
-  `choose_item` dispatches (no adjudicator → R1 fingerprint gate; wired → `_reconcile_gate`), the gate
-  **re-derives agreement in code** and lands iff accept + ≥2 present senses + real MBID, else parks.
-  Rejected key degrades; transient failure parks. New `normalize.loose_key/loose_match` (shared with
-  `artwork`). `/code-review`'d high: 3 correctness bugs fixed (uncaught MB lookup, wrong-cover-art
-  dominance, diacritic fold), 2 cleanups, 1 deferred to T-206. **ADR-025** = reconcile model.
+  build. **Phase A + T-204/T-205 done. T-206 landed.**
+- **T-206** — parked-review park story now persists: `reviews.reason` + `contradictions_json` columns
+  (additive migration via `_ADDED_COLUMNS`), `candidate_ids` written in the Verdict's ranked order
+  through the augmented list, so the **synthetic ISRC candidate reaches the row** (F6). Live
+  `track.review_required` event + `GET /api/reviews` both carry reason/contradictions and the same
+  ranked list — event↔row can't drift. `/code-review` high fixed 2: live-event still shipped
+  beets-only candidates (ISRC missing until reload); stale per-track `verdict`/`reconcile_candidates`
+  (now reset atop `choose_item`).
 
-## ⟹ NEXT — Phase B continues, sequential
+## ⟹ NEXT — Phase C, sequential
 
-**T-206 review-row persistence** (`db.py` + `create_review`) → **T-207 review-card UI** (ADR-016
-design gate FIRST) → **T-209 verify** (needs **T-200** = owner sets `ANTHROPIC_APIKEY` in `.env`).
-T-208 reserved.
-
-**Build note for T-206 (don't re-derive):**
-- Add columns via `db.py:_ADDED_COLUMNS` (additive migration, **not** a `CREATE TABLE` edit):
-  `("reviews","reason","TEXT")`, `("reviews","contradictions_json","TEXT")`.
-- Persist `session.verdict.reason` + `.contradictions`, and reorder `candidate_ids` by
-  `verdict.ranking` before `create_review` (`import_seam.py`). **T-205 already stashes
-  `session.reconcile_candidates`** (the augmented list) so ranking indices resolve to real MBIDs —
-  this is also how the synthetic **ISRC candidate** reaches the review row (the F6 gap T-205 left).
-- `candidate_scores_json` is MBID-keyed (not a parallel array), so reordering `candidate_ids` is safe.
+**T-207 review-card UI** — **ADR-016 design gate FIRST** (changes a user-visible state): flat HTML
+scenario screens, one per scenario *incl failure/edge* (2-of-3 park w/ contradictions; Pa-Salieu
+override auto-landed = no card; Shazam-absent park; reconcile-unavailable park; degrade-mode land),
+owner sign-off *before* component code. Then render the persisted `reason`/`contradictions`, ranked
+candidates, Shazam hint (labelled, ADR-020 exits only — no new landing path). **Don't** render LLM
+confidence (never reaches the row) or raw scores as a verdict (T-017). Acceptance is self-contained
+(§7 has no render item). Then **T-209 verify** — needs **T-200** = owner sets `ANTHROPIC_APIKEY` in
+`.env`. T-208 reserved.
 
 ## Watch at T-209 (filed, not open work)
 
@@ -54,14 +52,13 @@ T-208 reserved.
 
 ## Recent sessions (rolling — last 2–3)
 
-- **2026-08-11 (this session)** — Built + landed **T-205** (2-of-3 accept gate + degrade). Rewired
-  `choose_item` into `_fingerprint_gate`/`_reconcile_gate`; `_agreeing_senses` re-derives the vote in
-  code; shared `_accept` + `match_for_recording` (extracted from `ResolveSession`). Added
-  `normalize.loose_key/loose_match`; `artwork` delegates to it. High review fixed 3 correctness bugs;
-  filed T-211. +27 tests. Merged to main, pushed.
-- **2026-08-11 (earlier)** — Built + landed **T-204** (reconcile seam, `app/reconcile.py`, index-only
-  forced-tool schema). ADR-025 + `anthropic` dep. Merged, pushed.
-- **2026-08-10** — Built + landed R1.5 Phase A (T-201∥202∥203) via 3-worktree fan-out; ADR-024 + T-210.
+- **2026-08-11 (this session)** — Built + landed **T-206** (park-story persistence). `reason` +
+  `contradictions_json` columns; `_park` renders one ranked augmented list driving both the row and
+  the SSE event (ISRC candidate reaches both). High review fixed 2 (live-event drift, stale session
+  state). +9 tests, suite 524. Merged to main — **not yet pushed**.
+- **2026-08-11 (earlier)** — Built + landed **T-205** (2-of-3 accept gate + degrade); `_agreeing_senses`
+  re-derives the vote in code. Filed T-211. Merged, pushed.
+- **2026-08-11 (earlier)** — Built + landed **T-204** (reconcile seam, `app/reconcile.py`). ADR-025.
 
 ## Where the rest of the context lives
 
