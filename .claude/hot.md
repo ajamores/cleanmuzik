@@ -21,44 +21,47 @@ CleanMuzik — personal YouTube → Jellyfin music tool. Purpose, stack, constra
 
 ## Current State (2026-08-11)
 
-- **On `main`, at `e07147d`, clean tree, pushed to origin.** Suite **488 passed**.
+- **On `main`, at `1b6c070`, clean tree.** Suite **515 passed**. (Not yet pushed to origin.)
 - **R1 + R1.1 shipped.** **R1.5** (engine rethink, architecture **B** — multi-sense reconciliation) in
-  build. **Phase A done** (T-201/202/203 senses). **T-204 done** — the reconcile seam: `choose_item`
-  now gathers the senses, builds augmented `candidates[]`, and stashes a validated **`Verdict`**
-  (`app/reconcile.py`); it does **not** yet land/park on it. `/code-review`'d high (2 findings fixed,
-  1 skipped as intended-design). **ADR-025** filed (reconcile model = `claude-haiku-4-5` @ temp 0).
+  build. **Phase A + T-204/T-205 done.** **T-205 landed** — the 2-of-3 accept gate is live:
+  `choose_item` dispatches (no adjudicator → R1 fingerprint gate; wired → `_reconcile_gate`), the gate
+  **re-derives agreement in code** and lands iff accept + ≥2 present senses + real MBID, else parks.
+  Rejected key degrades; transient failure parks. New `normalize.loose_key/loose_match` (shared with
+  `artwork`). `/code-review`'d high: 3 correctness bugs fixed (uncaught MB lookup, wrong-cover-art
+  dominance, diacritic fold), 2 cleanups, 1 deferred to T-206. **ADR-025** = reconcile model.
 
-## ⟹ NEXT — Phase B continues, sequential (all `import_seam.py`/`db.py`)
+## ⟹ NEXT — Phase B continues, sequential
 
-**T-205 the 2-of-3 gate + degrade** (deps T-204 ✓) → **T-206 review-row persistence**. Then **T-207
-review-card UI** (ADR-016 design gate FIRST) → **T-209 verify** (needs **T-200** = owner sets
-`ANTHROPIC_APIKEY` in `.env`). T-208 reserved.
+**T-206 review-row persistence** (`db.py` + `create_review`) → **T-207 review-card UI** (ADR-016
+design gate FIRST) → **T-209 verify** (needs **T-200** = owner sets `ANTHROPIC_APIKEY` in `.env`).
+T-208 reserved.
 
-**Build note for T-205 (don't re-derive):**
-- Consume `session.verdict` (a `reconcile.Verdict`) + the augmented `candidates[]`. The gate
-  **RE-DERIVES `agreeing_senses` in code** from *present* senses — never trusts the LLM's count.
-  Auto-land iff ALL: `verdict=="accept"` **and** code-validated agreeing ≥ 2 **and**
-  `candidates[chosen].mbid` non-null; else park. `chosen_candidate` already coerced to a real index or
-  None (an accept-with-no-identity is downgraded to park in `_coerce_verdict`).
-- Normalizer = loose/containment (owner-ratified): port `spike/b_flow.py:43` alnum-fold + substring on
-  artist AND title into a shared `app/` helper. This is what parks Strawberry Swing.
-- Degrade: `ANTHROPIC_APIKEY` absent/rejected → R1 fingerprint-only gate (already the interim state,
-  since `reconcile_fn` is None without a key); a transient mid-run failure still parks that one track.
+**Build note for T-206 (don't re-derive):**
+- Add columns via `db.py:_ADDED_COLUMNS` (additive migration, **not** a `CREATE TABLE` edit):
+  `("reviews","reason","TEXT")`, `("reviews","contradictions_json","TEXT")`.
+- Persist `session.verdict.reason` + `.contradictions`, and reorder `candidate_ids` by
+  `verdict.ranking` before `create_review` (`import_seam.py`). **T-205 already stashes
+  `session.reconcile_candidates`** (the augmented list) so ranking indices resolve to real MBIDs —
+  this is also how the synthetic **ISRC candidate** reaches the review row (the F6 gap T-205 left).
+- `candidate_scores_json` is MBID-keyed (not a parallel array), so reordering `candidate_ids` is safe.
 
 ## Watch at T-209 (filed, not open work)
 
-- **`docs/backlog/T-210`** — isrc.py's 1/sec gate is independent of beets' MB limiter; back-to-back
-  calls can breach MB's floor. Low real risk; deferred, watched in the T-209 sweep.
+- **`docs/backlog/T-210`** — isrc.py's 1/sec gate independent of beets' MB limiter; back-to-back calls
+  can breach MB's floor. Low real risk; watched in the T-209 sweep.
+- **`docs/backlog/T-211`** — `loose_match` containment false-matches short names (`Sia`⊂`Asia`);
+  correlated yt+sz errors could auto-land wrong. Owner-ratified containment stands; very low risk.
 
 ## Recent sessions (rolling — last 2–3)
 
-- **2026-08-11 (this session)** — Built + landed **T-204** (reconcile seam). New `app/reconcile.py`
-  (index-only forced-tool schema, no free-text identity; confidence structurally absent). Wired 4
-  stubbable seams into `FingerprintTrustSession`; `import_song` builds defaults, degrades w/o key.
-  ADR-025 + `anthropic` dep declared. High review: fixed unguarded import + accept-with-no-identity;
-  skipped reconcile-per-track (intended B). Merged to main, pushed.
-- **2026-08-10** — Built + landed R1.5 Phase A (T-201∥202∥203) via 3-worktree fan-out; ADR-024 +
-  backlog T-210 filed.
+- **2026-08-11 (this session)** — Built + landed **T-205** (2-of-3 accept gate + degrade). Rewired
+  `choose_item` into `_fingerprint_gate`/`_reconcile_gate`; `_agreeing_senses` re-derives the vote in
+  code; shared `_accept` + `match_for_recording` (extracted from `ResolveSession`). Added
+  `normalize.loose_key/loose_match`; `artwork` delegates to it. High review fixed 3 correctness bugs;
+  filed T-211. +27 tests. Committed to main (not pushed).
+- **2026-08-11 (earlier)** — Built + landed **T-204** (reconcile seam, `app/reconcile.py`, index-only
+  forced-tool schema). ADR-025 + `anthropic` dep. Merged, pushed.
+- **2026-08-10** — Built + landed R1.5 Phase A (T-201∥202∥203) via 3-worktree fan-out; ADR-024 + T-210.
 
 ## Where the rest of the context lives
 
