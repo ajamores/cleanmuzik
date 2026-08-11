@@ -21,7 +21,7 @@ CleanMuzik — personal YouTube → Jellyfin music tool. Purpose, stack, constra
 
 ## Current State (2026-08-11)
 
-- **On `main`, at `4089455`, clean tree.** Not yet pushed. Suite **524 passed**.
+- **On `main`, at `1c6cee1`, clean tree, pushed to origin.** Suite **524 passed**.
 - **R1 + R1.1 shipped.** **R1.5** (engine rethink, architecture **B** — multi-sense reconciliation) in
   build. **Phase A + T-204/T-205 done. T-206 landed.**
 - **T-206** — parked-review park story now persists: `reviews.reason` + `contradictions_json` columns
@@ -55,7 +55,7 @@ confidence (never reaches the row) or raw scores as a verdict (T-017). Acceptanc
 - **2026-08-11 (this session)** — Built + landed **T-206** (park-story persistence). `reason` +
   `contradictions_json` columns; `_park` renders one ranked augmented list driving both the row and
   the SSE event (ISRC candidate reaches both). High review fixed 2 (live-event drift, stale session
-  state). +9 tests, suite 524. Merged to main — **not yet pushed**.
+  state). +9 tests, suite 524. Merged to main, pushed.
 - **2026-08-11 (earlier)** — Built + landed **T-205** (2-of-3 accept gate + degrade); `_agreeing_senses`
   re-derives the vote in code. Filed T-211. Merged, pushed.
 - **2026-08-11 (earlier)** — Built + landed **T-204** (reconcile seam, `app/reconcile.py`). ADR-025.
