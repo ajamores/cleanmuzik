@@ -128,7 +128,7 @@ status line flipped in the closing commit, transcribe corrections to `docs/learn
   the worker unblocked; the ADR is filed. (Spec §5 fail-soft + hard timeout; §7 fail-soft + timeout item.)
 
 ### T-203 — ISRC → MusicBrainz fact lookup
-- **Status:** todo
+- **Status:** done
 - **Depends on:** none
 - **Agent:** back-end
 - **What:** Add `app/isrc.py`: one exact lookup `GET /ws/2/isrc/{isrc}?fmt=json&inc=artist-credits`

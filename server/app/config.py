@@ -21,6 +21,14 @@ ENV_FILE = Path(__file__).resolve().parents[2] / ".env"
 # independent of cwd — same __file__ anchoring as ENV_FILE above.
 SERVER_DIR = Path(__file__).resolve().parents[1]
 
+# The descriptive User-Agent MusicBrainz etiquette (and ADR-001) requires on every
+# direct call to their API — sent by both the ISRC lookup (app/isrc.py) and the
+# cover-art fetch (app/artwork.py). One home so the app identity + contact URL can
+# never drift between the two modules (or leave one stuck on a stale value).
+MUSICBRAINZ_USER_AGENT = (
+    "CleanMuzik/0.1 (personal music library; +https://github.com/ajamores/cleanmuzik)"
+)
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=ENV_FILE, extra="ignore")

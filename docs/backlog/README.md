@@ -24,6 +24,7 @@ Two tiers live here:
   - [`T-041.md`](T-041.md) — signal-glow `pointermove` calls `getBoundingClientRect()` every move, forcing sync reflow — cursor jank on low-end machines *(micro-perf, untriaged; from T-105 review)*
   - [`T-042.md`](T-042.md) — loudness normalization: write portable ReplayGain tags at import *(untriaged; the pipeline does no leveling by design — currently delegated to Jellyfin's LUFS scan; needs an ADR for target level + track/album default)* — the **`replaygain`** plugin is the built-in mechanism (confirmed, 2026-08-10 beets audit)
   - [`T-043.md`](T-043.md) — `scrub` plugin: strip surviving YouTube junk ID3 frames on write *(untriaged; `from_scratch` clears the beets model, not arbitrary frames — from the 2026-08-10 beets audit)*
+  - [`T-210.md`](T-210.md) — share one MusicBrainz rate limiter across beets + the ISRC lookup (`app/isrc.py`'s gate is independent of beets', so back-to-back calls can breach MB's 1/sec) *(untriaged; from the 2026-08-10 T-203 review — low real risk per the 26-track spike, watched at T-209)*
 - **Unscoped ideas** — broader directions not yet worked into tickets:
 
 - Playlist support (batch of tracks from one URL)

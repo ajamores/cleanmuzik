@@ -28,13 +28,16 @@ import tempfile
 import requests
 from beetsplug._utils import art
 
+from app.config import MUSICBRAINZ_USER_AGENT
+
 logger = logging.getLogger("cleanmuzik")
 
 _CAA_FRONT = "https://coverartarchive.org/release/{mbid}/front"
 _ITUNES_SEARCH = "https://itunes.apple.com/search"
 # A descriptive UA — CAA and iTunes both prefer a real identifier over a bare
-# python-requests default, and MusicBrainz etiquette asks for one.
-_UA = {"User-Agent": "CleanMuzik/0.1 (personal music library; +https://github.com/)"}
+# python-requests default, and MusicBrainz etiquette asks for one. From its single
+# home in config so this and `app.isrc` never drift.
+_UA = {"User-Agent": MUSICBRAINZ_USER_AGENT}
 _PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 # A recording can appear on dozens of releases; the front cover is near-identical
 # across them, so trying more than a few just risks stalling the (synchronous,
