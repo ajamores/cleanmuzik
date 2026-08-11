@@ -36,8 +36,14 @@ Three properties, all binding:
 ## 2. In scope
 
 - **`SourceSignals` from yt-dlp** — stop discarding the `info` dict at `download.py:~299`; surface
-  `{ title, uploader, channel_is_topic, description_head, tags, duration, video_id }` into the session.
-  This is **sense 1** (the YouTube claim) and the reconcile call's textual evidence.
+  `{ title, uploader, channel_is_topic, description_head, tags, duration, video_id, yt_artist, yt_title,
+  yt_album, yt_release_year }` into the session. This is **sense 1** (the YouTube claim) and the reconcile
+  call's textual evidence. **Prefer YouTube's structured music fields** (`info["artist"]`/`["track"]`/
+  `["album"]`/`["release_year"]`) when present — cleaner than splitting the raw title; the title-parse and
+  Topic-uploader are fallbacks for `yt_artist`/`yt_title` (T-201). **`yt_album`/`yt_release_year` are
+  judgment-only evidence for the reconcile call — never a written fact and never in the §5 code vote**
+  (YouTube's year is the *upload* year; its album is often a `"- Topic"` auto-album), so written facts
+  still come only from a real MusicBrainz/ISRC lookup (§5 facts-from-a-real-lookup).
 - **Shazam as sense 3** (`app/shazam.py`) — one recognition call per track → `{ shazam_artist, shazam_title,
   isrc, art_url?, lyrics?, matched, error }`. **Fail-soft with a hard timeout** (§5). Called per-track (not
   only on an AcoustID miss — a widening of ADR-019's "backup tier," safe only under the serial pipeline).
