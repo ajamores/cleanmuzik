@@ -227,7 +227,7 @@ status line flipped in the closing commit, transcribe corrections to `docs/learn
   no-invented-facts, reconcile-parks, degrade.)
 
 ### T-206 — Review row: persist `reason` + `contradictions` + LLM-ranked candidate order
-- **Status:** todo
+- **Status:** done
 - **Depends on:** T-205
 - **Agent:** back-end
 - **What:** Persist the park discriminators so they **survive a restart** (ADR-010's lesson — a

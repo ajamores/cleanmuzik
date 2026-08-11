@@ -429,6 +429,11 @@ def _hydrate(review: Review, lib=None) -> dict:
         # hydrated shape so a card that reconnects/reloads recovers the reason the live
         # SSE `message` would otherwise have lost (finding #2).
         "last_error": review.last_error,
+        # The reconcile Verdict's park story (T-206), re-hydrated from the durable row so
+        # a card that reloads recovers why it parked and which senses disagreed — the live
+        # SSE `reason`/`contradictions` are lost with the stream. Null/[] on the R1 path.
+        "reason": review.reason,
+        "contradictions": review.contradictions,
         # Whether the copy this review exists to land is still on disk (T-106). The
         # resolve path already refuses such a row with a clear terminal error, but only
         # *after* the owner picks a candidate — until then a dead row renders identically
