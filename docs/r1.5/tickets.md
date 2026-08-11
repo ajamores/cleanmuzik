@@ -69,7 +69,7 @@ status line flipped in the closing commit, transcribe corrections to `docs/learn
 ## Phase A — the three senses (parallel fan-out)
 
 ### T-201 — SourceSignals from yt-dlp (sense 1)
-- **Status:** todo
+- **Status:** done
 - **Depends on:** none
 - **Agent:** back-end
 - **What:** Stop discarding the yt-dlp `info` dict at `download.py:299`. Surface a `SourceSignals` value —

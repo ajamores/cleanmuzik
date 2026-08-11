@@ -300,8 +300,10 @@ def run_pipeline(
 
     try:
         # 1. Download bestaudio into staging (playlist URLs were refused at the route).
+        #    `download_fn` now returns the path AND sense 1 — the yt-dlp `SourceSignals`
+        #    (R1.5, T-201) — which threads through to the import seam as reconcile evidence.
         try:
-            source = download_fn(url, staging_dir)
+            source, signals = download_fn(url, staging_dir)
         except Exception as exc:  # noqa: BLE001 — attributed to the stage below
             raise _StageFailure(STAGE_DOWNLOAD, str(exc)) from exc
 
@@ -338,7 +340,10 @@ def run_pipeline(
         registry.set_stage(job_id, STAGE_IDENTIFY)
         bus.publish(job_id, "track.identifying", {"job_id": job_id})
         try:
-            outcomes = import_fn(mp3, store=store, job_id=job_id, query=query, settings=s)
+            outcomes = import_fn(
+                mp3, store=store, job_id=job_id, query=query, settings=s,
+                source_signals=signals,
+            )
         except acoustid.NoBackendError as exc:
             raise _StageFailure(STAGE_IDENTIFY, f"fingerprint backend unavailable: {exc}") from exc
         except Exception as exc:  # noqa: BLE001 — a beets tag/land failure

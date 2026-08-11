@@ -28,7 +28,7 @@ for i, row in enumerate(corpus):
         continue
     tmp = Path(tempfile.mkdtemp(prefix="cmz-"))
     try:
-        p = download_song(url, tmp)
+        p, _signals = download_song(url, tmp)
         dest = AUD / f"{i:02d}_{vid}{p.suffix}"
         p.replace(dest)
         print(f"[{i:2}] downloaded {dest.name}", flush=True)

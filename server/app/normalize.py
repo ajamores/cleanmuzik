@@ -131,6 +131,27 @@ def _strip_artist_prefix(title: str, artist: str | None) -> str:
     return prefix.sub("", title, count=1)
 
 
+# A leading `Artist - Title` split for callers that DON'T already know the
+# artist (T-201's SourceSignals, parsing a raw YouTube title). Whitespace-flanked
+# separator, so `"Spider-Man"` is not split; the non-greedy artist splits on the
+# FIRST separator, matching `Artist - Title`.
+_ARTIST_TITLE = re.compile(rf"^\s*(?P<artist>.+?)\s+{_DASH}\s+(?P<title>.+?)\s*$")
+
+
+def split_leading_artist(title: str) -> tuple[str | None, str | None]:
+    """Split a raw `"Artist - Title"` into `(artist, title)`; `(None, None)` if it doesn't fit.
+
+    The public companion to `_strip_artist_prefix`: that removes a *known* artist
+    prefix, this *recovers* an unknown one. A plain title (`"Bohemian Rhapsody"`)
+    or a hyphenated word (`"Spider-Man"`) has no whitespace-flanked separator and
+    yields `(None, None)`, leaving the caller to keep the title whole.
+    """
+    match = _ARTIST_TITLE.match(title)
+    if not match:
+        return None, None
+    return match.group("artist").strip() or None, match.group("title").strip() or None
+
+
 def _cleanup(title: str) -> str:
     """Collapse whitespace and shear any separator left dangling at the ends."""
     title = _WHITESPACE.sub(" ", title).strip()
