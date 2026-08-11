@@ -277,22 +277,27 @@ def test_download_song_allows_single_video_with_empty_entries(tmp_path, monkeypa
         "requested_downloads": [{"filepath": str(dest)}],
     }
     monkeypatch.setattr("app.download.YoutubeDL", _fake_ydl_returning(video_info))
-    out = download_song("https://www.youtube.com/watch?v=dQw4w9WgXcQ", tmp_path)
+    out, _signals = download_song("https://www.youtube.com/watch?v=dQw4w9WgXcQ", tmp_path)
     assert out == Path(dest)
 
 
 def test_download_song_returns_path_for_a_single_video(tmp_path, monkeypatch) -> None:
     # The happy path must be untouched: a real single-video result still returns
-    # its `requested_downloads` filepath, no raise.
+    # its `requested_downloads` filepath, no raise. R1.5 (T-201) widened the return
+    # to `(path, SourceSignals)`; the path half is unchanged.
     dest = tmp_path / "vid.webm"
     video_info = {
         "_type": "video",
         "id": "vid",
+        "title": "Fleetwood Mac - Dreams",
         "requested_downloads": [{"filepath": str(dest)}],
     }
     monkeypatch.setattr("app.download.YoutubeDL", _fake_ydl_returning(video_info))
-    out = download_song("https://www.youtube.com/watch?v=dQw4w9WgXcQ", tmp_path)
+    out, signals = download_song("https://www.youtube.com/watch?v=dQw4w9WgXcQ", tmp_path)
     assert out == Path(dest)
+    # The discarded `info` is now surfaced as sense 1 alongside the path.
+    assert signals.video_id == "vid"
+    assert (signals.yt_artist, signals.yt_title) == ("Fleetwood Mac", "Dreams")
 
 
 def _claiming_extractors(url: str) -> list[str]:

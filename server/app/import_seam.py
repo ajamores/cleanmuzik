@@ -62,6 +62,7 @@ from app.beets_engine import LIBRARY_DIRECTORY, configure_beets
 from app.config import Settings, get_settings
 from app.db import Review, Store
 from app.events import candidate_row
+from app.source_signals import SourceSignals
 
 logger = logging.getLogger("cleanmuzik")
 
@@ -1333,6 +1334,7 @@ def import_song(
     score_min: float = SCORE_MIN,
     gap_min: float = GAP_MIN,
     dominance_fn=None,
+    source_signals: SourceSignals | None = None,
 ) -> list[Outcome]:
     """Run one staged MP3 through the gate. Returns the outcome(s).
 
@@ -1340,6 +1342,12 @@ def import_song(
     it drives the whole beets import (identify → tag → art/genre/lyrics →
     organize) and either lands the file or parks a review row — no web layer
     required, exactly as the spike proved the seam.
+
+    `source_signals` is sense 1 — the yt-dlp `SourceSignals` (R1.5, T-201) that
+    `run_pipeline` threads down from the download stage. **T-201 only carries it to
+    this boundary; T-204 wires it into `FingerprintTrustSession` as reconcile
+    evidence.** Optional and defaulting to `None` so the ad-hoc/script callers and
+    the offline orchestration tests need not supply it.
 
     Precondition: `job_id` must be a job already persisted via `store.create_job`
     — a parked review's `job_id` is a foreign key into `jobs`. T-012 owns creating

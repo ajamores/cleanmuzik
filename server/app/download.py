@@ -21,6 +21,8 @@ from urllib.parse import parse_qs, urlparse
 
 from yt_dlp import YoutubeDL
 
+from app.source_signals import SourceSignals
+
 # The classifier below keys off URL *shape* (path + query). Host matters in
 # exactly one place: `youtu.be/<id>` carries the video id in the **path**, where
 # every other YouTube host carries it in `?v=`. Both forms name one song, so both
@@ -248,13 +250,20 @@ def _make_staging_dir() -> Path:
     return Path(tempfile.mkdtemp(prefix="cleanmuzik-"))
 
 
-def download_song(url: str, staging_dir: Path | None = None) -> Path:
-    """Download one YouTube **song** as bestaudio into staging; return the path.
+def download_song(
+    url: str, staging_dir: Path | None = None
+) -> tuple[Path, SourceSignals]:
+    """Download one YouTube **song** as bestaudio into staging; return `(path, signals)`.
 
     Refuses a playlist URL up front (`PlaylistURLError`). Downloads bestaudio and
     embeds the source metadata via the `FFmpegMetadata` postprocessor — the API
     equivalent of the CLI `--embed-metadata` — so beets has a non-empty query and
     a tag fallback (learnings).
+
+    **Returns the yt-dlp `info` as `SourceSignals` alongside the path (R1.5, T-201).**
+    That dict used to be discarded here; it is now sense 1 of the reconcile call — the
+    YouTube claim — so `run_pipeline` threads the signals through to the import seam.
+    Building them is pure and cannot fail the download (the file is already on disk).
 
     **`noplaylist=True` is LOAD-BEARING — do not remove it as redundant.** It was
     once a second guard behind a classifier that refused every `list=` URL. Since
@@ -313,9 +322,14 @@ def download_song(url: str, staging_dir: Path | None = None) -> Path:
             f"URL resolved to a collection of tracks, not one song: {url}"
         )
 
+    # Sense 1 (spec §2): the yt-dlp claim, surfaced from the same `info` dict rather
+    # than discarded. Pure; built here (not in run_pipeline) so the signals ride the
+    # authoritative post-`extract_info` dict, next to the path they describe.
+    signals = SourceSignals.from_info(info)
+
     # After postprocessing, the authoritative final path is on each entry of
     # `requested_downloads`; `prepare_filename` is only the pre-postprocess guess.
     downloads = info.get("requested_downloads")
     if downloads:
-        return Path(downloads[0]["filepath"])
-    return Path(ydl.prepare_filename(info))
+        return Path(downloads[0]["filepath"]), signals
+    return Path(ydl.prepare_filename(info)), signals

@@ -28,6 +28,7 @@ from app.import_seam import Outcome
 from app.jellyfin import JellyfinScanError
 from app.jobs import JobRegistry, JobWorker, run_pipeline
 from app.reviews import ResolveRequest
+from app.source_signals import SourceSignals
 from test_events import parse_sse  # sibling test module (server/tests on sys.path)
 
 
@@ -41,13 +42,18 @@ def _store(tmp_path):
 
 
 def _fake_download(record):
-    """A download that writes a staging file and records the staging dir it got."""
+    """A download that writes a staging file and records the staging dir it got.
+
+    R1.5 (T-201) widened `download_song` to return `(path, SourceSignals)`; the fake
+    mirrors that so `run_pipeline`'s unpack is exercised. The signals are a minimal
+    stub — the orchestration under test only threads them to the import boundary.
+    """
 
     def download(url, staging_dir):
         record["staging_dir"] = staging_dir
         path = staging_dir / "song.webm"
         path.write_bytes(b"audio")
-        return path
+        return path, SourceSignals.from_info({"id": "vid", "title": "Song"})
 
     return download
 
@@ -277,7 +283,9 @@ def test_park_then_raise_keeps_staging_and_reports_review(tmp_path):
     store = _store(tmp_path)
     job = store.create_job("u")
 
-    def park_then_boom(staging_path, *, store, job_id, query, settings=None):
+    def park_then_boom(
+        staging_path, *, store, job_id, query, settings=None, source_signals=None
+    ):
         store.create_review(
             job_id=job_id, staging_path=str(staging_path), query=query,
             candidate_ids=["rec-A"], rec="medium",
