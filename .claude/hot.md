@@ -21,7 +21,7 @@ CleanMuzik — personal YouTube → Jellyfin music tool. Purpose, stack, constra
 
 ## Current State (2026-08-11)
 
-- **On `main`, at `1b6c070`, clean tree.** Suite **515 passed**. (Not yet pushed to origin.)
+- **On `main`, at `1b6c070`, clean tree, pushed to origin.** Suite **515 passed**.
 - **R1 + R1.1 shipped.** **R1.5** (engine rethink, architecture **B** — multi-sense reconciliation) in
   build. **Phase A + T-204/T-205 done.** **T-205 landed** — the 2-of-3 accept gate is live:
   `choose_item` dispatches (no adjudicator → R1 fingerprint gate; wired → `_reconcile_gate`), the gate
@@ -58,7 +58,7 @@ T-208 reserved.
   `choose_item` into `_fingerprint_gate`/`_reconcile_gate`; `_agreeing_senses` re-derives the vote in
   code; shared `_accept` + `match_for_recording` (extracted from `ResolveSession`). Added
   `normalize.loose_key/loose_match`; `artwork` delegates to it. High review fixed 3 correctness bugs;
-  filed T-211. +27 tests. Committed to main (not pushed).
+  filed T-211. +27 tests. Merged to main, pushed.
 - **2026-08-11 (earlier)** — Built + landed **T-204** (reconcile seam, `app/reconcile.py`, index-only
   forced-tool schema). ADR-025 + `anthropic` dep. Merged, pushed.
 - **2026-08-10** — Built + landed R1.5 Phase A (T-201∥202∥203) via 3-worktree fan-out; ADR-024 + T-210.
