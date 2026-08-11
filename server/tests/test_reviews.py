@@ -1118,6 +1118,7 @@ def test_get_reviews_lists_a_parked_song_with_its_shape(client, monkeypatch):
     row = body[0]
     assert set(row) == {
         "review_id", "job_id", "query", "rec", "candidates", "last_error",
+        "reason", "contradictions",  # T-206: the reconcile Verdict's park story
         "staging_missing",  # T-106
         "guess",  # T-103: what the machine searched with, for the re-search form
     }
@@ -1139,6 +1140,7 @@ def test_get_single_review_returns_its_hydrated_shape(client, monkeypatch):
     row = client.get(f"/api/reviews/{review.id}").json()
     assert set(row) == {
         "review_id", "job_id", "query", "rec", "candidates", "last_error",
+        "reason", "contradictions",  # T-206: the reconcile Verdict's park story
         "staging_missing",  # T-106
         "guess",  # T-103
     }

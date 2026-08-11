@@ -63,7 +63,9 @@ CREATE TABLE IF NOT EXISTS reviews (
     candidate_scores_json TEXT,
     rec                   TEXT NOT NULL,
     status                TEXT NOT NULL,
-    last_error            TEXT
+    last_error            TEXT,
+    reason                TEXT,
+    contradictions_json   TEXT
 );
 """
 
@@ -75,6 +77,14 @@ CREATE TABLE IF NOT EXISTS reviews (
 _ADDED_COLUMNS = [
     ("reviews", "candidate_scores_json", "TEXT"),  # T-028
     ("reviews", "last_error", "TEXT"),  # T-029 — reason a resolve last failed (re-park)
+    # T-206 — the reconcile Verdict's park discriminators, persisted so a parked card
+    # survives a restart (ADR-010's lesson: a discriminator that lives only in the live
+    # SSE event is unrecoverable after a reload). `reason` is why it parked, distinct
+    # from `last_error` (why a later *resolve* re-parked it); `contradictions_json` is
+    # the JSON list of senses that disagreed. NULL on any pre-T-206 row and on the R1
+    # degrade/fingerprint path, which has no Verdict.
+    ("reviews", "reason", "TEXT"),
+    ("reviews", "contradictions_json", "TEXT"),
 ]
 
 # Sentinel default for `release_review(last_error=...)`. It distinguishes "the caller
@@ -137,6 +147,13 @@ class Review:
     # first park; set by `release_review`. Persisted so the reason survives a reconnect
     # or reload — the SSE `message` alone is lost the moment the stream is (finding #2).
     last_error: str | None = None
+    # The reconcile Verdict's park discriminators (T-206), persisted so a parked card
+    # re-hydrates the *original* park story after a restart, not just its candidates.
+    # `reason` is the Verdict's one-line "why parked" — distinct from `last_error`, which
+    # is why a *later* resolve attempt re-parked. `contradictions` is the senses that
+    # disagreed. Both NULL/empty on the R1 fingerprint/degrade path (no Verdict).
+    reason: str | None = None
+    contradictions: list[str] = field(default_factory=list)
 
 
 # Review lifecycle (T-014). `pending` is what the queue lists and what a resolve
@@ -252,6 +269,8 @@ class Store:
         rec: str,
         status: str = REVIEW_PENDING,
         candidate_scores: dict[str, float] | None = None,
+        reason: str | None = None,
+        contradictions: list[str] | None = None,
     ) -> Review:
         review = Review(
             id=uuid.uuid4().hex,
@@ -262,13 +281,15 @@ class Store:
             rec=rec,
             status=status,
             candidate_scores=candidate_scores or {},
+            reason=reason,
+            contradictions=contradictions or [],
         )
         with self._connect() as conn:
             conn.execute(
                 "INSERT INTO reviews "
                 "(id, job_id, staging_path, query, candidate_ids_json, "
-                "candidate_scores_json, rec, status) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                "candidate_scores_json, rec, status, reason, contradictions_json) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     review.id,
                     review.job_id,
@@ -278,6 +299,8 @@ class Store:
                     json.dumps(review.candidate_scores),
                     review.rec,
                     review.status,
+                    review.reason,
+                    json.dumps(review.contradictions),
                 ),
             )
         return review
@@ -491,6 +514,10 @@ def _review_from_row(row: sqlite3.Row) -> Review:
         # that 500s is a queue the owner can't empty (`_hydrate`'s rule).
         candidate_scores=json.loads(row["candidate_scores_json"] or "{}"),
         last_error=row["last_error"],  # T-029; NULL on a first park or a pre-migration row
+        # T-206; NULL/absent on the R1 path or a pre-migration row → "" / [] via the same
+        # degrade-never-raise rule as candidate_scores above.
+        reason=row["reason"],
+        contradictions=json.loads(row["contradictions_json"] or "[]"),
     )
 
 

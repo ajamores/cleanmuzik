@@ -369,6 +369,8 @@ def run_pipeline(
                     review_id=parked.id, rec=parked.rec, query=query,
                     candidates=_id_only_candidates(parked.candidate_ids),
                     staging_path=parked.staging_path,
+                    reason=parked.reason,
+                    contradictions=parked.contradictions,
                 )
                 return _finish(
                     store, registry, job_id, bus=bus,
@@ -388,6 +390,8 @@ def run_pipeline(
                 review_id=parked.review_id, rec=parked.rec, query=query,
                 candidates=parked.candidates or [],
                 staging_path=mp3,
+                reason=parked.reason,
+                contradictions=parked.contradictions,
             )
             return _finish(
                 store, registry, job_id, bus=bus,
@@ -877,6 +881,8 @@ def _repark_after_release(
             candidates=_id_only_candidates(review.candidate_ids),
             staging_path=review.staging_path,
             message=message,
+            reason=review.reason,
+            contradictions=review.contradictions,
         )
         return _finish(
             store, registry, job_id, bus=bus,
@@ -1081,6 +1087,8 @@ def _emit_review_required(
     candidates: list[dict],
     staging_path,
     message: str | None = None,
+    reason: str | None = None,
+    contradictions: list[str] | None = None,
 ) -> None:
     """Publish the spec §6 `track.review_required` event — the one emit shape, in one
     place (T-029, finding #4). Three paths park a job: `run_pipeline`'s rich park and its
@@ -1100,6 +1108,11 @@ def _emit_review_required(
         "query": query,
         "candidates": candidates,
         "guess": guess_terms(staging_path, query),
+        # The reconcile Verdict's park story (T-206). Carried on the live event so the
+        # card shows why it parked without a fetch, and kept in step with the durable row
+        # (which GET /api/reviews re-hydrates from after a reload). Null/[] on the R1 path.
+        "reason": reason,
+        "contradictions": contradictions or [],
     }
     if message is not None:
         payload["message"] = message

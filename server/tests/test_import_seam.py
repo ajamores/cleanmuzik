@@ -1207,3 +1207,109 @@ def test_gate_unset_key_falls_back_to_r1_and_parks(store):
     assert choice is Action.SKIP
     assert len(store.list_reviews()) == 1
     assert session.verdict is None
+
+
+# --- T-206: the park story persists (reason + contradictions + ranked order) --
+
+
+def test_reconcile_park_persists_story_and_ranked_order_incl_isrc(store):
+    # A reconcile PARK (only Shazam agrees → the code count is 1) must still persist the
+    # Verdict's story: its reason, its contradictions, and its candidate ranking resolved
+    # through the augmented list — so the synthetic ISRC candidate reaches the row (the F6
+    # gap T-205 left) and a restart re-hydrates the card in the LLM's ranked order.
+    session = _session(
+        store,
+        Dominance(0.0, 0.0, ()),  # fp absent → this parks
+        source_signals=_signals("Frank Ocean", "Strawberry Swing"),
+        shazam_fn=lambda _p: {
+            "matched": True, "shazam_artist": "Coldplay",
+            "shazam_title": "Strawberry Swing", "isrc": "GB999", "error": None,
+        },
+        isrc_fn=lambda _isrc: _isrc_recording("mb-cold", "Coldplay", "Strawberry Swing"),
+        reconcile_fn=lambda ev: Verdict(
+            verdict="accept",  # accept, but only sz supports → the gate parks (1 sense)
+            chosen_candidate=ev["candidates"][-1]["n"],  # the ISRC entry
+            agreeing_senses=["sz"],
+            ranking=[ev["candidates"][-1]["n"], 0],  # ISRC first, then the beets candidate
+            reason="Only Shazam agrees; YouTube says Frank Ocean.",
+            contradictions=["yt: Frank Ocean ≠ Coldplay"],
+        ),
+    )
+
+    choice = session.choose_item(_rich_task([("rec-A", "Frank Ocean", "Some Song")]))
+
+    assert choice is Action.SKIP
+    # A fresh SELECT (list_reviews opens its own connection) — the durable row, not the
+    # in-memory session, carries the story.
+    [row] = store.list_reviews()
+    assert row.reason == "Only Shazam agrees; YouTube says Frank Ocean."
+    assert row.contradictions == ["yt: Frank Ocean ≠ Coldplay"]
+    # Ranked: the ISRC MBID first (absent from beets' candidates), then the beets one.
+    assert row.candidate_ids == ["mb-cold", "rec-A"]
+    # The live event (T-013 Outcome.candidates) carries the SAME ranked list, so the owner
+    # sees the ISRC option on the first live card — not only after a reload (T-206 review).
+    parked = session.outcomes[-1]
+    assert [c["candidate_id"] for c in parked.candidates] == ["mb-cold", "rec-A"]
+    assert parked.reason == "Only Shazam agrees; YouTube says Frank Ocean."
+
+
+def test_reconcile_park_ranking_reorders_never_filters(store):
+    # A reorder, not a filter: an incomplete `ranking` (naming only one of two beets
+    # candidates) must still persist BOTH — the un-ranked one appended, not dropped — so a
+    # candidate the owner might pick can never silently vanish from the row.
+    session = _session(
+        store,
+        Dominance(0.0, 0.0, ()),
+        source_signals=_signals("Someone", "Else"),  # yt disagrees → parks
+        shazam_fn=lambda _p: {"matched": False, "error": "x"},
+        isrc_fn=lambda _isrc: None,
+        reconcile_fn=lambda _ev: Verdict(
+            verdict="park",
+            chosen_candidate=None,
+            ranking=[1],  # names only the second candidate; the first is omitted
+            reason="ambiguous",
+        ),
+    )
+
+    session.choose_item(
+        _rich_task([("rec-A", "A", "one"), ("rec-B", "B", "two")])
+    )
+
+    [row] = store.list_reviews()
+    assert row.candidate_ids == ["rec-B", "rec-A"]  # ranked first, then the omitted one
+
+
+def test_r1_park_persists_no_story_and_beets_order(store):
+    # The degrade/R1 fingerprint park has no Verdict → no reason/contradictions, and the
+    # candidate order stays beets' own (nothing to rank). The control for the test above.
+    session = _session(store, Dominance(0.80, 0.30, ("rec-A",)))  # weak fp → parks
+
+    session.choose_item(_task(["rec-A", "rec-B"]))
+
+    [row] = store.list_reviews()
+    assert row.reason is None
+    assert row.contradictions == []
+    assert row.candidate_ids == ["rec-A", "rec-B"]
+
+
+def test_adjudication_unavailable_park_persists_its_reason(store):
+    # A transient reconcile failure parks with reason 'adjudication unavailable' and no
+    # ranking — the reason still persists; the order falls back to beets' own.
+    def boom(_ev):
+        raise RuntimeError("anthropic 503")
+
+    session = _session(
+        store,
+        Dominance(0.0, 0.0, ()),
+        source_signals=_signals("Pa Salieu", "Frontline"),
+        shazam_fn=lambda _p: {"matched": False, "error": "x"},
+        isrc_fn=lambda _isrc: None,
+        reconcile_fn=boom,
+    )
+
+    session.choose_item(_rich_task([("rec-A", "Pa Salieu", "Frontline")]))
+
+    [row] = store.list_reviews()
+    assert row.reason == "adjudication unavailable"
+    assert row.contradictions == []
+    assert row.candidate_ids == ["rec-A"]

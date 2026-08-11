@@ -354,6 +354,11 @@ class Outcome:
     gap: float
     track_id: str | None = None  # the accepted recording MBID (landed)
     review_id: str | None = None  # the parked review row id (parked)
+    # T-206: the reconcile Verdict's park discriminators, carried up so the live
+    # `track.review_required` event tells the same park story the persisted row does
+    # (the card need not fetch to learn why). Empty on the R1/degrade park (no Verdict).
+    reason: str | None = None
+    contradictions: list[str] = field(default_factory=list)
     rec: str | None = None  # parked: the row's `rec`, so the SSE event can tell the
     # card WHICH question to render — a weak/ambiguous match ("none"/"low"/…) vs a
     # "duplicate" (T-017). The card would otherwise have to fetch GET /api/reviews just
@@ -526,6 +531,13 @@ class FingerprintTrustSession(ImportSession):
         (`_fingerprint_gate`, spec §6 degrade row). A fingerprint-lookup failure parks
         regardless: an identity we couldn't even fingerprint can't be reconciled.
         """
+        # Reset the per-track reconcile state up front (T-206). A park that happens BEFORE
+        # the reconcile branch below — an AcoustID lookup failure — otherwise reads a
+        # Verdict/candidates left over from a prior track, which `_park` would persist onto
+        # this one. Safe by construction today (one session per song), but the reset makes
+        # `_park`'s correctness independent of that invariant rather than reliant on it.
+        self.verdict = None
+        self.reconcile_candidates = []
         try:
             dominance = self.dominance_fn(task.item.path)
         except AcoustidPermanentError as exc:
@@ -1001,6 +1013,8 @@ class FingerprintTrustSession(ImportSession):
         rec: str,
         dominance: Dominance,
         candidates: list[dict] | None = None,
+        reason: str | None = None,
+        contradictions: list[str] | None = None,
     ) -> Review:
         """Create a parked review row + its "parked" Outcome, and log the receipt.
 
@@ -1036,6 +1050,8 @@ class FingerprintTrustSession(ImportSession):
                 for row in (candidates or [])
                 if row.get("candidate_id") and row.get("score") is not None
             },
+            reason=reason,
+            contradictions=contradictions,
         )
         self.outcomes.append(
             Outcome(
@@ -1045,6 +1061,8 @@ class FingerprintTrustSession(ImportSession):
                 review_id=review.id,
                 rec=rec,
                 candidates=candidates or [],
+                reason=reason,
+                contradictions=contradictions or [],
             )
         )
         logger.info(
@@ -1060,15 +1078,38 @@ class FingerprintTrustSession(ImportSession):
 
     def _park(self, task, candidates, dominance: Dominance) -> Review:
         """Record candidate IDs + `task.rec` to the reviews table and note it."""
-        candidate_ids = [
-            c.info.track_id for c in candidates if getattr(c.info, "track_id", None)
-        ]
         rec = getattr(task, "rec", None)
         rec_name = rec.name.lower() if isinstance(rec, Recommendation) else str(rec)
+        beets_rows = _candidate_rows(candidates)
+        # R1.5 reconcile park (T-206): render the candidate rows from the Verdict's ranked,
+        # augmented list — beets' candidates ++ any synthetic ISRC entry, in LLM order —
+        # and carry the Verdict's discriminators. Rendering ONE ordered list drives both
+        # the persisted `candidate_ids` and the live `track.review_required` rows, so the
+        # ISRC candidate reaches the owner on the first live card (not only after a reload)
+        # and the durable row can never drift from the event (T-206 review, F6). The
+        # R1/degrade path has no Verdict, and an evidence-gathering failure leaves the
+        # augmented list empty — both keep beets' own rows/order.
+        reason: str | None = None
+        contradictions: list[str] = []
+        rows = beets_rows
+        verdict = self.verdict
+        if verdict is not None:
+            reason = verdict.reason or None
+            contradictions = verdict.contradictions
+            if self.reconcile_candidates:
+                rows = _ranked_candidate_rows(
+                    self.reconcile_candidates, verdict.ranking, beets_rows
+                )
+        candidate_ids = [row["candidate_id"] for row in rows if row["candidate_id"]]
         # The rich rows ride along for T-013's event only — the row still persists IDs
-        # alone. Built from the same candidates so the two never drift.
+        # alone. Both come off `rows`, so the event and the row can never disagree.
         return self._record_review(
-            candidate_ids, rec_name, dominance, candidates=_candidate_rows(candidates)
+            candidate_ids,
+            rec_name,
+            dominance,
+            candidates=rows,
+            reason=reason,
+            contradictions=contradictions,
         )
 
     def _park_duplicate(self, duplicates, dominance: Dominance) -> Review:
@@ -1154,6 +1195,70 @@ def _candidate_by_n(candidates: list[dict], n: int | None) -> dict | None:
         if candidate.get("n") == n:
             return candidate
     return None
+
+
+def _ranked_candidate_ids(candidates: list[dict], ranking: list[int]) -> list[str]:
+    """The augmented candidates' MBIDs, `ranking`-order first, the rest appended (T-206).
+
+    Resolves each `ranking` index against the same augmented list the model was shown
+    (via `_candidate_by_n`) → the recording MBID to persist, so a restart re-hydrates the
+    card in the LLM's order and the synthetic ISRC candidate — absent from beets' own list
+    — reaches the row (the F6 gap T-205 left). Every augmented candidate carries a real
+    MBID by construction (`reconcile.build_candidates` drops any without one).
+
+    A **reorder, never a filter**: any augmented candidate the ranking omits (or names by a
+    stray index that resolved to nothing) is appended in canonical `n` order, so a
+    partial/empty ranking can never make a real, pickable candidate silently vanish from
+    the review row. Returns [] only when there are no augmented candidates at all.
+    """
+    ids: list[str] = []
+    for n in ranking:
+        candidate = _candidate_by_n(candidates, n)
+        mbid = candidate.get("mbid") if candidate else None
+        if mbid and mbid not in ids:
+            ids.append(mbid)
+    for candidate in candidates:  # append any un-ranked candidate — reorder, not filter
+        mbid = candidate.get("mbid")
+        if mbid and mbid not in ids:
+            ids.append(mbid)
+    return ids
+
+
+def _ranked_candidate_rows(
+    candidates: list[dict], ranking: list[int], beets_rows: list[dict]
+) -> list[dict]:
+    """The augmented candidates as spec §6 rows, in `ranking` order (T-206).
+
+    The SSE/persistence counterpart to `_ranked_candidate_ids`: it renders the SAME set,
+    in the SAME order (it reuses that function so the order can't diverge), as
+    `candidate_row` dicts — so the live `track.review_required` event and the durable row
+    show one identical, ranked candidate list, the synthetic ISRC entry included.
+
+    `score` (beets' tag distance, 1 − distance) is a property of *this download* vs a
+    candidate, not of the recording, so it exists only on `beets_rows`; it's carried over
+    by MBID. The ISRC entry is not a beets candidate and has no such distance → its score
+    is null, exactly as a re-hydrated ISRC candidate reads from `GET /api/reviews`.
+    """
+    scores = {
+        row["candidate_id"]: row.get("score")
+        for row in beets_rows
+        if row.get("candidate_id")
+    }
+    by_mbid = {c["mbid"]: c for c in candidates if c.get("mbid")}
+    rows: list[dict] = []
+    for mbid in _ranked_candidate_ids(candidates, ranking):
+        cand = by_mbid.get(mbid)
+        if cand is None:
+            continue
+        rows.append(
+            candidate_row(
+                mbid,
+                title=cand.get("title"),
+                artist=cand.get("artist"),
+                score=scores.get(mbid),
+            )
+        )
+    return rows
 
 
 def _is_auth_error(exc: Exception) -> bool:
