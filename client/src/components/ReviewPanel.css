@@ -22,6 +22,103 @@
   margin: 0 0 12px;
 }
 
+/* --- park story: why it parked + which senses disagreed (T-207) ---------- */
+
+.review__why {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  margin: 0 0 13px;
+  padding: 11px 13px;
+  background: var(--warn-bg);
+  border: 1px solid color-mix(in srgb, var(--warn) 30%, var(--border));
+  border-left: 3px solid var(--warn);
+  border-radius: 8px;
+}
+
+.review__why-head {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--warn);
+}
+
+.review__why-text {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-h);
+}
+
+.review__contradictions {
+  list-style: none;
+  margin: 2px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.review__contra {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 9px;
+  align-items: baseline;
+  font-size: 12px;
+  color: var(--text);
+}
+
+/* A malformed note has no sense badge — let its text span the whole row. */
+.review__contra:not(:has(.review__sense)) {
+  grid-template-columns: 1fr;
+}
+
+.review__sense {
+  align-self: center;
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: 999px;
+  border: 1px solid currentColor;
+  white-space: nowrap;
+}
+
+.review__sense--fp {
+  color: var(--accent);
+}
+
+.review__sense--sz {
+  color: var(--sense-sz);
+}
+
+.review__sense--yt {
+  color: var(--danger);
+}
+
+.review__contra-text {
+  min-width: 0;
+}
+
+/* --- candidate list caption ---------------------------------------------- */
+
+.review__cand-caption {
+  margin: 0 0 8px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text);
+}
+
+.review__cand-caption-note {
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--text);
+  opacity: 0.85;
+}
+
 /* --- weak-match candidates ----------------------------------------------- */
 
 .review__candidates {

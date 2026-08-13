@@ -26,6 +26,12 @@ interface ReviewPanelProps {
   /** What the machine searched with, to pre-fill the re-search form (T-103, ADR-020).
    *  Absent/null just means an empty form. */
   guess?: ReviewGuess | null
+  /** The reconcile Verdict's one-line "why it parked" (T-206/T-207). Null/absent on
+   *  the R1/degrade park — the panel then shows no park story, only the candidate list. */
+  reason?: string | null
+  /** The senses that disagreed, one terse note each (T-206). Present ⇒ a Verdict ranked
+   *  the candidates, so the list is captioned as adjudicator-ranked. */
+  contradictions?: string[] | null
   /** Called after a resolve is accepted by the server. The card re-subscribes on
    *  this; the panel then unmounts as the job leaves `review_required`. */
   onResolved: () => void
@@ -53,6 +59,8 @@ export function ReviewPanel({
   query,
   candidates,
   guess,
+  reason,
+  contradictions,
   onResolved,
   message,
 }: ReviewPanelProps) {
@@ -93,6 +101,8 @@ export function ReviewPanel({
           query={query}
           candidates={candidates}
           guess={guess}
+          reason={reason}
+          contradictions={contradictions}
           submitting={submitting}
           onSubmit={submit}
         />
@@ -114,6 +124,8 @@ interface WeakMatchProps {
   query: string
   candidates: ReviewCandidate[]
   guess?: ReviewGuess | null
+  reason?: string | null
+  contradictions?: string[] | null
   submitting: boolean
   onSubmit: (body: ResolveBody) => void
 }
@@ -143,11 +155,22 @@ function WeakMatchPanel({
   query,
   candidates,
   guess,
+  reason,
+  contradictions,
   submitting,
   onSubmit,
 }: WeakMatchProps) {
   const [searched, setSearched] = useState<Searched | null>(null)
   const shown = searched?.rows ?? candidates
+  // Contradictions reach the card ONLY from a reconcile Verdict, and the same `_park`
+  // branch that carries a Verdict's contradictions also re-orders the rows through
+  // `_ranked_candidate_rows` (import_seam.py) — the two are emitted together or not at
+  // all. So a non-empty `contradictions` is the honest proxy for "these rows are in the
+  // adjudicator's order", which no single payload field states outright (the order IS
+  // the ranking). If that server invariant is ever split, this caption must move to an
+  // explicit flag. On a re-search the list is fresh MusicBrainz output, never the ranked
+  // park list, so drop the claim.
+  const ranked = !searched && (contradictions?.length ?? 0) > 0
 
   const [choice, setChoice] = useState<string | null>(
     () => candidates.find((c) => c.candidate_id)?.candidate_id ?? null,
@@ -211,6 +234,8 @@ function WeakMatchPanel({
         )}
       </p>
 
+      {!searched && <ParkStory reason={reason} contradictions={contradictions} />}
+
       {shown.length === 0 ? (
         <p className="review__empty">
           {searched
@@ -218,6 +243,15 @@ function WeakMatchPanel({
             : 'No candidates were found for this song. Correct the search, keep it with your own tags, or reject.'}
         </p>
       ) : (
+        <>
+        {ranked && (
+          <p className="review__cand-caption">
+            Candidates{' '}
+            <span className="review__cand-caption-note">
+              · ranked by the adjudicator, not by score
+            </span>
+          </p>
+        )}
         <ul
           className="review__candidates"
           role="radiogroup"
@@ -233,6 +267,7 @@ function WeakMatchPanel({
             />
           ))}
         </ul>
+        </>
       )}
 
       {searchOpen ? (
@@ -282,6 +317,79 @@ function WeakMatchPanel({
         </button>
       </div>
     </form>
+  )
+}
+
+// --- park story (T-206/T-207) ------------------------------------------------
+
+/** The three senses, keyed by the terse token the adjudicator prefixes a contradiction
+ *  with (`"fp: …"`, `"sz: …"`, `"yt: …"`). Long forms are accepted too — the note is
+ *  LLM-authored, so the parse is lenient and always has a plain-text fallback. */
+const SENSES: Record<string, { label: string; cls: string }> = {
+  fp: { label: 'fingerprint', cls: 'fp' },
+  fingerprint: { label: 'fingerprint', cls: 'fp' },
+  sz: { label: 'shazam', cls: 'sz' },
+  shazam: { label: 'shazam', cls: 'sz' },
+  yt: { label: 'youtube', cls: 'yt' },
+  youtube: { label: 'youtube', cls: 'yt' },
+}
+
+/** Peel an optional leading `<sense>:` off a contradiction note (the adjudicator's
+ *  format — `"fp: absent"`, `"yt: Frank Ocean ≠ Coldplay"`). A recognised token becomes
+ *  a badge and the remainder the text; anything else renders whole, unbadged. **Colon
+ *  only, not a dash** — a dash separator would mis-read `"youtube-dl: no stream"` as a
+ *  `youtube` sense. Never throws — a malformed note still shows as a plain line. */
+function parseContradiction(note: string): { sense: { label: string; cls: string } | null; text: string } {
+  const m = /^\s*([A-Za-z]+):\s*(.*)$/.exec(note)
+  if (m) {
+    const sense = SENSES[m[1].toLowerCase()]
+    if (sense) return { sense, text: m[2] }
+  }
+  return { sense: null, text: note.trim() }
+}
+
+/**
+ * "Why this parked" — the reconcile Verdict's park story (T-206), rendered above the
+ * candidates (T-207, ADR-016 screens 1/3/4). The one place R1.5's three-sense
+ * adjudication explains itself to the owner: a one-line `reason`, then the senses that
+ * disagreed. **Deliberately no confidence and no raw score** — neither reaches the card,
+ * and the discriminator stays the honest `ScoreBar` (T-017).
+ *
+ * Renders nothing on the R1/degrade park (no `reason`), so those cards are unchanged —
+ * the story appears only when an adjudicator actually produced one.
+ */
+function ParkStory({
+  reason,
+  contradictions,
+}: {
+  reason?: string | null
+  contradictions?: string[] | null
+}) {
+  const notes = contradictions ?? []
+  if (!reason && notes.length === 0) return null
+
+  return (
+    <div className="review__why">
+      <span className="review__why-head">Why this parked</span>
+      {reason && <p className="review__why-text">{reason}</p>}
+      {notes.length > 0 && (
+        <ul className="review__contradictions">
+          {notes.map((note, i) => {
+            const { sense, text } = parseContradiction(note)
+            return (
+              <li key={i} className="review__contra">
+                {sense && (
+                  <span className={`review__sense review__sense--${sense.cls}`}>
+                    {sense.label}
+                  </span>
+                )}
+                <span className="review__contra-text">{text}</span>
+              </li>
+            )
+          })}
+        </ul>
+      )}
+    </div>
   )
 }
 

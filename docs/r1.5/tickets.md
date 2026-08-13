@@ -249,7 +249,7 @@ status line flipped in the closing commit, transcribe corrections to `docs/learn
 ## Phase C — UI
 
 ### T-207 — Review card: reason, contradictions, Shazam hint, LLM-ranked candidates
-- **Status:** todo
+- **Status:** done
 - **Depends on:** T-206
 - **Agent:** front-end
 - **Design gate (ADR-016) — BEFORE component code.** This changes a user-visible **state** (what the

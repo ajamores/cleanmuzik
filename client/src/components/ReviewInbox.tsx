@@ -86,6 +86,8 @@ export function ReviewInbox({ reviews, onReviewResolved }: ReviewInboxProps) {
                       query={row.query}
                       candidates={row.candidates}
                       guess={row.guess}
+                      reason={row.reason}
+                      contradictions={row.contradictions}
                       message={row.last_error}
                       onResolved={() => {
                         setExpandedId(null)

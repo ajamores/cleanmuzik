@@ -31,6 +31,8 @@
   --ok-bg: rgba(70, 184, 120, 0.14);
   --danger: #e06060; /* --err — the one token the reference didn't define, gated in screen 7 */
   --danger-bg: rgba(224, 96, 96, 0.14);
+  /* the shazam sense (T-207) — no state token fit, so its own, themed like the rest */
+  --sense-sz: #b98cff;
   /* the pointer-tracked hover glow multiplies this triple into rgba() */
   --glow: 63, 182, 216;
   /* the ambient equalizer's field strength — quieter on the light ground */
@@ -73,6 +75,7 @@
     --ok-bg: rgba(30, 125, 76, 0.12);
     --danger: #b03434;
     --danger-bg: rgba(176, 52, 52, 0.1);
+    --sense-sz: #6d3fc0;
     --glow: 14, 125, 156;
     --ambient-op: 0.22;
     --shadow: rgba(0, 0, 0, 0.08) 0 1px 2px, rgba(0, 0, 0, 0.06) 0 4px 12px;
@@ -96,6 +99,7 @@
   --ok-bg: rgba(30, 125, 76, 0.12);
   --danger: #b03434;
   --danger-bg: rgba(176, 52, 52, 0.1);
+  --sense-sz: #6d3fc0;
   --glow: 14, 125, 156;
   --ambient-op: 0.22;
   --shadow: rgba(0, 0, 0, 0.08) 0 1px 2px, rgba(0, 0, 0, 0.06) 0 4px 12px;

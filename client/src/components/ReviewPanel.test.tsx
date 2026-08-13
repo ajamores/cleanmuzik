@@ -198,6 +198,134 @@ describe('weak match — "which of these is it?"', () => {
   })
 })
 
+describe('park story — why it parked (T-206/T-207)', () => {
+  it('shows the reason, the disagreeing senses as badges, and captions the list as ranked', () => {
+    mockBackend({})
+    render(
+      <ReviewPanel
+        reviewId="rev-1"
+        rec="low"
+        query="frank ocean strawberry swing"
+        candidates={CANDIDATES}
+        reason="Fingerprint and Shazam both matched Coldplay; the title said Frank Ocean."
+        contradictions={['fp: Coldplay — Strawberry Swing', 'yt: Frank Ocean ≠ Coldplay']}
+        onResolved={() => {}}
+      />,
+    )
+    expect(screen.getByText(/why this parked/i)).toBeInTheDocument()
+    expect(screen.getByText(/both matched Coldplay/i)).toBeInTheDocument()
+    // The terse `fp:`/`yt:` prefixes become sense badges, remainder as text.
+    expect(screen.getByText('fingerprint')).toBeInTheDocument()
+    expect(screen.getByText('youtube')).toBeInTheDocument()
+    expect(screen.getByText(/Coldplay — Strawberry Swing/)).toBeInTheDocument()
+    expect(screen.getByText(/ranked by the adjudicator/i)).toBeInTheDocument()
+  })
+
+  it('renders nothing on the R1/degrade park — no reason, no story, no ranked caption', () => {
+    mockBackend({})
+    render(
+      <ReviewPanel
+        reviewId="rev-1"
+        rec="low"
+        query="q"
+        candidates={CANDIDATES}
+        reason={null}
+        contradictions={[]}
+        onResolved={() => {}}
+      />,
+    )
+    expect(screen.queryByText(/why this parked/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/ranked by the adjudicator/i)).not.toBeInTheDocument()
+  })
+
+  it('adjudication unavailable: shows the reason, but no contradictions and no ranked claim', () => {
+    mockBackend({})
+    render(
+      <ReviewPanel
+        reviewId="rev-1"
+        rec="low"
+        query="nines outro"
+        candidates={CANDIDATES}
+        reason="Adjudication unavailable — the identity service didn't answer for this track."
+        contradictions={[]}
+        onResolved={() => {}}
+      />,
+    )
+    expect(screen.getByText(/adjudication unavailable/i)).toBeInTheDocument()
+    // No contradictions were produced, so the list must not claim an adjudicated order.
+    expect(screen.queryByText(/ranked by the adjudicator/i)).not.toBeInTheDocument()
+  })
+
+  it('a note with no recognised sense prefix still renders, as a plain line', () => {
+    mockBackend({})
+    render(
+      <ReviewPanel
+        reviewId="rev-1"
+        rec="low"
+        query="q"
+        candidates={CANDIDATES}
+        reason="Senses disagree."
+        contradictions={['no single sense could confirm the recording']}
+        onResolved={() => {}}
+      />,
+    )
+    expect(
+      screen.getByText(/no single sense could confirm the recording/i),
+    ).toBeInTheDocument()
+    // The whole string is the text — nothing was mis-parsed into a badge.
+    expect(screen.queryByText('fingerprint')).not.toBeInTheDocument()
+  })
+
+  it('does not mistake a hyphenated first word for a sense (colon-only separator)', () => {
+    mockBackend({})
+    render(
+      <ReviewPanel
+        reviewId="rev-1"
+        rec="low"
+        query="q"
+        candidates={CANDIDATES}
+        reason="Senses disagree."
+        contradictions={['youtube-dl: no stream returned']}
+        onResolved={() => {}}
+      />,
+    )
+    // "youtube-dl:" must NOT resolve to a 'youtube' sense badge — the whole note is text.
+    expect(screen.queryByText('youtube')).not.toBeInTheDocument()
+    expect(screen.getByText(/youtube-dl: no stream returned/i)).toBeInTheDocument()
+  })
+
+  it('drops the story once the owner re-searches — it belongs to the original park', async () => {
+    mockBackend({
+      search: () =>
+        jsonResponse({
+          artist: 'Frank Ocean',
+          title: 'Strawberry Swing',
+          candidates: [
+            { candidate_id: 'rec-new', title: 'Strawberry Swing', artist: 'Frank Ocean', score: 0.9 },
+          ],
+        }),
+    })
+    render(
+      <ReviewPanel
+        reviewId="rev-1"
+        rec="low"
+        query="q"
+        candidates={CANDIDATES}
+        reason="Senses disagree."
+        contradictions={['fp: Coldplay']}
+        onResolved={() => {}}
+      />,
+    )
+    expect(screen.getByText(/why this parked/i)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /none of these/i }))
+    fireEvent.click(screen.getByRole('button', { name: /re-search/i }))
+    await waitFor(() => expect(screen.getByText('Strawberry Swing')).toBeInTheDocument())
+    // The park story described the original park, not this fresh MusicBrainz list.
+    expect(screen.queryByText(/why this parked/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/ranked by the adjudicator/i)).not.toBeInTheDocument()
+  })
+})
+
 describe('re-parked after a failed resume (T-029)', () => {
   it('shows the reason the previous pick failed, above the still-usable panel', () => {
     mockBackend({})

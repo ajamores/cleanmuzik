@@ -126,6 +126,15 @@ export interface ReviewRow {
    *  park. Persisted server-side so it survives the reconnect/reload this endpoint
    *  recovers from — the live SSE `message` is gone by then. */
   last_error?: string | null
+  /** The reconcile Verdict's one-line "why it parked" (T-206/T-207). `null` on the
+   *  R1/degrade park (no adjudicator ran) — the card shows no park story then. */
+  reason?: string | null
+  /** The senses that disagreed, one terse note each — `"fp: absent"`,
+   *  `"yt: Frank Ocean ≠ Coldplay"` (T-206). Non-empty ⇒ a Verdict ranked the
+   *  candidates; `[]` on the R1/degrade park or an adjudication that named none. The
+   *  server sends `[]` not null, but the type mirrors `reason`'s nullability and the
+   *  consumers guard for it (`?? []`) so a null can never render as a broken row. */
+  contradictions?: string[] | null
 }
 
 /**
