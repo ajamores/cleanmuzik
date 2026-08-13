@@ -96,9 +96,13 @@ R1's flow (`docs/r1/spec.md §4`) is unchanged except at **identify** (step 3–
      Shazam agree, B **lands the corrected identity** (the Pa Salieu resolve, exp 9).
    - **Senses disagree (no 2 agree), or the agreed identity has no real MBID** → **park**, carrying the
      `reason` + `contradictions` onto the card.
-5. **Review card:** candidates **ranked by the LLM** with a `reason`; a Shazam suggestion appears as a
-   **labelled** hint (accepted via the existing re-search / keep-untagged exits — ADR-020 — not a new landing
-   path). Owner actions unchanged (accept / alternate / reject / re-search / keep-untagged).
+5. **Review card:** candidates **ranked by the LLM** with a `reason` and `contradictions`. A Shazam
+   suggestion surfaces only where it **already** reaches the card — as the ISRC→MB synthetic **candidate**
+   (when the ISRC resolves) and inside the LLM's `contradictions` text — **not** as a standalone hint. The
+   standalone Shazam artist/title hint is **deferred (T-212)**: it reaches no transport today, helps only a
+   narrow slice (Shazam right *and* no ISRC — otherwise it is already a candidate), and can pre-fill a
+   confident-wrong guess (the Strawberry Swing cover). Owner actions unchanged (accept / alternate / reject /
+   re-search / keep-untagged).
 
 Landing, dedup, enrichment (art/genre/lyrics), staging retention, the Jellyfin scan, and the failure rule
 are exactly R1 — only faster and reached via the vote.

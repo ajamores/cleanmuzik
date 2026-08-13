@@ -254,22 +254,25 @@ status line flipped in the closing commit, transcribe corrections to `docs/learn
 - **Agent:** front-end
 - **Design gate (ADR-016) — BEFORE component code.** This changes a user-visible **state** (what the
   review card shows), so it passes the design gate first: flat HTML scenario screens, **one per scenario
-  including failure/edge states** (2-of-3 park with contradictions; Pa-Salieu-style override auto-landed —
-  no card; Shazam-absent park; reconcile-unavailable park; degrade-mode land), published for owner sign-off.
-  Runs *ahead of* the DoD, not inside it (`docs/workflow.md`).
+  including failure/edge states** (weak-match park with `reason` + `contradictions` + ranked candidates;
+  park carrying the ISRC→MB synthetic candidate — how Shazam surfaces, ADR-019, **no standalone hint**;
+  reconcile-unavailable park — `reason:"adjudication unavailable"`, no contradictions; candidate-less park →
+  re-search / keep-untagged; and the two states that show **no card** — override auto-landed and degrade-mode
+  land), published for owner sign-off. Runs *ahead of* the DoD, not inside it (`docs/workflow.md`).
 - **Acceptance is self-contained (no §7 item).** §7 has no review-card *render* checkbox — it covers only
   persistence (T-206). So this ticket's exit criterion is **its own**: the ADR-016 screens signed off, then
   each persisted field observed rendering in a real browser (below). *(If the owner later wants a formal §7
   render item, that's a one-line spec §7 amendment — flagged, not assumed here.)*
-- **What:** The review card renders the persisted (T-206) `reason` and `contradictions`, shows candidates
-  in **LLM-ranked order**, and surfaces any Shazam suggestion as a **labelled hint** — accepted only via
-  the **existing** re-search / keep-untagged exits (ADR-020), **not** a new landing path. Owner actions are
+- **What:** The review card renders the persisted (T-206) `reason` and `contradictions`, and shows
+  candidates in **LLM-ranked order**. A Shazam suggestion surfaces only where it **already** reaches the
+  card — the ISRC→MB synthetic candidate and the `contradictions` text; the **standalone Shazam hint is
+  deferred (T-212)**, so no new payload field and no Shazam-specific control here. Owner actions are
   unchanged (accept / alternate / reject / re-search / keep-untagged). **Do not render LLM confidence** (it
   never reaches the row) and do not print raw scores as a verdict (T-017's lesson — the discriminator stays
   the fingerprint/tag `score`).
 - **Done when:** the design screens are signed off; then a parked card shows its `reason`, contradictions,
-  ranked candidates, and a labelled Shazam hint; accepting routes through the existing exits with no new
-  landing path; verified in a browser. (Spec §4 review card; §6 review-row additions; ADR-016 + ADR-020.)
+  and ranked candidates; accepting routes through the existing exits with no new landing path; verified in a
+  browser. (Spec §4 review card; §6 review-row additions; ADR-016 + ADR-020.)
 
 ---
 

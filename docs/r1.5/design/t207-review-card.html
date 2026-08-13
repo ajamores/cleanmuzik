@@ -1,0 +1,381 @@
+<meta charset="utf-8">
+<title>T-207 review card — reason, contradictions, ranked candidates · design gate</title>
+<style>
+  :root {
+    --bg: #0d1418; --bg-2: #101a1f; --surface: #172329; --surface-2: #1d2b32;
+    --line: #26383f; --line-strong: #33505a;
+    --text: #e8f0f2; --text-2: #a7bcc4; --muted: #7994a0;
+    --accent: #3fb6d8; --accent-dim: #2b7f97;
+    --good: #45c9a0; --warn: #e0a24e; --bad: #e26a60;
+    --good-bg: rgba(69,201,160,0.12); --warn-bg: rgba(224,162,78,0.12); --bad-bg: rgba(226,106,96,0.12);
+    --accent-bg: rgba(63,182,216,0.12);
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --mono: ui-monospace, "SF Mono", "Cascadia Code", "JetBrains Mono", Menlo, monospace;
+    --shadow: 0 10px 34px rgba(0,0,0,0.4);
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #eef3f4; --bg-2: #e7eeef; --surface: #ffffff; --surface-2: #f3f8f9;
+      --line: #d3dee1; --line-strong: #b6c8cd; --text: #10201f; --text-2: #3c565c; --muted: #5f7981;
+      --accent: #147a97; --accent-dim: #1c93b3;
+      --good: #1f9b78; --warn: #b3781f; --bad: #c34d43;
+      --good-bg: rgba(31,155,120,0.12); --warn-bg: rgba(179,120,31,0.12); --bad-bg: rgba(195,77,67,0.12);
+      --accent-bg: rgba(20,122,151,0.12); --shadow: 0 10px 28px rgba(20,40,45,0.10);
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg:#0d1418;--bg-2:#101a1f;--surface:#172329;--surface-2:#1d2b32;--line:#26383f;--line-strong:#33505a;
+    --text:#e8f0f2;--text-2:#a7bcc4;--muted:#7994a0;--accent:#3fb6d8;--accent-dim:#2b7f97;
+    --good:#45c9a0;--warn:#e0a24e;--bad:#e26a60;--good-bg:rgba(69,201,160,0.12);--warn-bg:rgba(224,162,78,0.12);
+    --bad-bg:rgba(226,106,96,0.12);--accent-bg:rgba(63,182,216,0.12);--shadow:0 10px 34px rgba(0,0,0,0.4);
+  }
+  :root[data-theme="light"] {
+    --bg:#eef3f4;--bg-2:#e7eeef;--surface:#ffffff;--surface-2:#f3f8f9;--line:#d3dee1;--line-strong:#b6c8cd;
+    --text:#10201f;--text-2:#3c565c;--muted:#5f7981;--accent:#147a97;--accent-dim:#1c93b3;
+    --good:#1f9b78;--warn:#b3781f;--bad:#c34d43;--good-bg:rgba(31,155,120,0.12);--warn-bg:rgba(179,120,31,0.12);
+    --bad-bg:rgba(195,77,67,0.12);--accent-bg:rgba(20,122,151,0.12);--shadow:0 10px 28px rgba(20,40,45,0.10);
+  }
+
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font-family:var(--sans); line-height:1.55; -webkit-font-smoothing:antialiased; }
+  .wrap { max-width: 1120px; margin:0 auto; padding: clamp(1.4rem,4vw,3.2rem) clamp(1rem,4vw,2.6rem) 5rem; }
+
+  .eyebrow { font-family:var(--mono); font-size:0.72rem; letter-spacing:0.16em; text-transform:uppercase; color:var(--accent); display:flex; gap:0.8rem; flex-wrap:wrap; align-items:center; }
+  .eyebrow .muted { color:var(--muted); }
+  h1 { font-size:clamp(1.8rem,4.4vw,3rem); line-height:1.06; letter-spacing:-0.02em; text-wrap:balance; margin:1rem 0 0.7rem; font-weight:680; }
+  .lede { font-size:clamp(1rem,1.7vw,1.15rem); color:var(--text-2); max-width:66ch; margin:0; }
+  .note-static { margin-top:1.3rem; display:flex; gap:0.7rem; align-items:flex-start; font-size:0.88rem; color:var(--text-2); background:var(--accent-bg); border:1px solid var(--line); border-left:4px solid var(--accent); border-radius:9px; padding:0.75rem 1rem; max-width:74ch; }
+  .note-static b { color:var(--accent); font-family:var(--mono); font-size:0.78rem; letter-spacing:0.05em; }
+
+  .rail { display:flex; flex-wrap:wrap; gap:0.5rem; margin-top:1.8rem; }
+  .rail .pip { font-family:var(--mono); font-size:0.72rem; letter-spacing:0.04em; color:var(--muted); border:1px solid var(--line); border-radius:999px; padding:0.3rem 0.7rem; display:flex; gap:0.45rem; align-items:center; }
+  .rail .pip b { color:var(--accent); }
+
+  .screen { margin-top: clamp(2.6rem,5vw,4rem); }
+  .screen-head { display:flex; align-items:baseline; gap:0.9rem; margin-bottom:1.1rem; flex-wrap:wrap; }
+  .screen-num { font-family:var(--mono); font-weight:600; font-size:0.9rem; color:var(--accent); border:1px solid var(--accent-dim); border-radius:8px; padding:0.2rem 0.55rem; }
+  .screen-head h2 { margin:0; font-size:clamp(1.15rem,2.1vw,1.55rem); font-weight:640; letter-spacing:-0.01em; }
+  .screen-cap { margin:0.2rem 0 1.3rem; color:var(--text-2); font-size:0.98rem; max-width:78ch; }
+  .screen-cap .k { color:var(--accent); font-weight:600; }
+
+  .frame { background:var(--bg-2); border:1px solid var(--line-strong); border-radius:16px; box-shadow:var(--shadow); overflow:hidden; }
+  .appbar { display:flex; align-items:center; gap:0.6rem; padding:0.7rem 1.1rem; background:linear-gradient(180deg,var(--surface),var(--bg-2)); border-bottom:1px solid var(--line); }
+  .appbar .logo { width:9px; height:9px; border-radius:50%; background:var(--accent); box-shadow:0 0 0 3px var(--accent-bg); }
+  .appbar .name { font-family:var(--mono); font-size:0.78rem; letter-spacing:0.08em; color:var(--text-2); }
+  .appbar .crumb { font-family:var(--mono); font-size:0.72rem; color:var(--muted); }
+  .appbar .count { margin-left:auto; font-family:var(--mono); font-size:0.7rem; color:var(--muted); border:1px solid var(--line); border-radius:999px; padding:0.15rem 0.55rem; }
+  .stage { padding: clamp(1.1rem,3vw,1.8rem); }
+
+  .rcard { background:var(--surface); border:1px solid var(--line); border-radius:12px; padding:1.2rem 1.25rem 1.3rem; display:flex; flex-direction:column; gap:1rem; }
+  .rquery { display:flex; gap:0.8rem; align-items:flex-start; }
+  .rquery .art { width:44px; height:44px; border-radius:8px; background:var(--surface-2); border:1px solid var(--line); display:flex; align-items:center; justify-content:center; color:var(--muted); flex:none; }
+  .rquery .art svg { width:22px; height:22px; }
+  .rquery .meta { display:flex; flex-direction:column; gap:0.3rem; min-width:0; }
+  .rquery .title { font-weight:620; font-size:1.02rem; letter-spacing:-0.01em; word-break:break-word; }
+  .rquery .src { font-family:var(--mono); font-size:0.72rem; color:var(--muted); }
+  .tag { align-self:flex-start; font-family:var(--mono); font-size:0.66rem; letter-spacing:0.06em; text-transform:uppercase; padding:0.2rem 0.5rem; border-radius:999px; border:1px solid currentColor; white-space:nowrap; }
+  .tag.weak { color:var(--warn); background:var(--warn-bg); }
+  .tag.strong { color:var(--good); background:var(--good-bg); }
+  .tag.mute { color:var(--muted); background:var(--surface-2); }
+
+  /* NEW in T-207 — the park story: why it parked + which senses disagreed */
+  .why { display:flex; flex-direction:column; gap:0.55rem; background:var(--warn-bg); border:1px solid color-mix(in srgb, var(--warn) 30%, var(--line)); border-left:4px solid var(--warn); border-radius:10px; padding:0.8rem 0.95rem; }
+  .why .why-head { font-family:var(--mono); font-size:0.68rem; letter-spacing:0.09em; text-transform:uppercase; color:var(--warn); }
+  .why .why-text { font-size:0.95rem; color:var(--text); }
+  .contradictions { display:flex; flex-direction:column; gap:0.4rem; margin-top:0.15rem; }
+  .contra { display:grid; grid-template-columns:auto 1fr; gap:0.6rem; align-items:baseline; font-size:0.86rem; color:var(--text-2); }
+  .sense { font-family:var(--mono); font-size:0.62rem; letter-spacing:0.06em; text-transform:uppercase; padding:0.12rem 0.42rem; border-radius:999px; border:1px solid currentColor; white-space:nowrap; align-self:center; }
+  .sense.fp { color:var(--accent); }
+  .sense.sz { color:#b98cff; }
+  .sense.yt { color:var(--bad); }
+  .contra b { color:var(--text); font-weight:600; }
+
+  .cand-list { display:flex; flex-direction:column; gap:0.4rem; }
+  .cand-list .caption { font-family:var(--mono); font-size:0.7rem; letter-spacing:0.08em; text-transform:uppercase; color:var(--muted); margin-bottom:0.15rem; display:flex; gap:0.5rem; align-items:center; }
+  .cand-list .caption .ord { color:var(--text-2); text-transform:none; letter-spacing:0; font-size:0.72rem; }
+  .cand { display:grid; grid-template-columns:20px 1fr auto; gap:0.75rem; align-items:center; padding:0.65rem 0.75rem; border:1px solid var(--line); border-radius:9px; background:var(--surface-2); position:relative; }
+  .cand .rank { position:absolute; left:-9px; top:-9px; width:20px; height:20px; border-radius:50%; background:var(--bg-2); border:1px solid var(--line-strong); font-family:var(--mono); font-size:0.66rem; color:var(--muted); display:flex; align-items:center; justify-content:center; }
+  .cand .dot { width:15px; height:15px; border-radius:50%; border:2px solid var(--line-strong); }
+  .cand.sel { border-color:var(--accent); background:var(--accent-bg); }
+  .cand.sel .dot { border-color:var(--accent); background:radial-gradient(circle at center, var(--accent) 0 4px, transparent 5px); }
+  .cand .c-meta { min-width:0; }
+  .cand .c-title { font-size:0.94rem; font-weight:560; display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap; }
+  .cand .c-artist { font-size:0.82rem; color:var(--text-2); }
+  .src-badge { font-family:var(--mono); font-size:0.58rem; letter-spacing:0.05em; text-transform:uppercase; padding:0.1rem 0.4rem; border-radius:999px; border:1px solid currentColor; color:#b98cff; }
+  .cand .score { display:flex; flex-direction:column; align-items:flex-end; gap:0.28rem; }
+  .cand .meter { width:74px; height:5px; border-radius:3px; background:var(--line); overflow:hidden; }
+  .cand .meter i { display:block; height:100%; border-radius:3px; background:var(--warn); }
+  .cand.hi .meter i { background:var(--good); }
+  .cand .strength { font-family:var(--mono); font-size:0.6rem; letter-spacing:0.04em; text-transform:uppercase; color:var(--muted); }
+
+  .actions { display:flex; gap:0.6rem; align-items:center; flex-wrap:wrap; padding-top:0.2rem; }
+  .actions .spacer { flex:1; }
+  .btn { font-family:var(--sans); font-size:0.86rem; font-weight:560; padding:0.55rem 1rem; border-radius:8px; border:1px solid var(--line-strong); background:var(--surface-2); color:var(--text); cursor:default; }
+  .btn.ghost { background:transparent; color:var(--text-2); }
+  .btn.primary { background:var(--accent); border-color:var(--accent); color:#04222b; font-weight:640; }
+  .btn.danger { background:transparent; border-color:color-mix(in srgb, var(--bad) 55%, var(--line)); color:var(--bad); }
+  .hint { font-size:0.8rem; color:var(--muted); }
+
+  .fixbox { border:1px dashed var(--accent-dim); background:var(--accent-bg); border-radius:10px; padding:1rem 1.05rem 1.1rem; display:flex; flex-direction:column; gap:0.85rem; }
+  .fixbox .fx-head { display:flex; align-items:center; gap:0.5rem; font-family:var(--mono); font-size:0.72rem; letter-spacing:0.06em; text-transform:uppercase; color:var(--accent); }
+  .fields { display:grid; grid-template-columns:1fr 1fr; gap:0.7rem; }
+  @media (max-width:560px){ .fields { grid-template-columns:1fr; } }
+  .field { display:flex; flex-direction:column; gap:0.3rem; }
+  .field label { font-family:var(--mono); font-size:0.66rem; letter-spacing:0.08em; text-transform:uppercase; color:var(--muted); }
+  .input { font-family:var(--sans); font-size:0.92rem; padding:0.55rem 0.7rem; border-radius:8px; border:1px solid var(--line-strong); background:var(--surface); color:var(--text); }
+  .fx-foot { display:flex; align-items:center; gap:0.7rem; flex-wrap:wrap; }
+
+  .empty { text-align:center; padding:1.4rem 1rem; border:1px dashed var(--line-strong); border-radius:10px; color:var(--text-2); background:var(--surface-2); }
+  .empty .big { font-weight:600; color:var(--text); margin-bottom:0.25rem; }
+
+  .landed { display:flex; gap:0.9rem; align-items:center; padding:1.1rem 1.2rem; border:1px solid color-mix(in srgb, var(--good) 40%, var(--line)); background:var(--good-bg); border-radius:11px; }
+  .landed.mute { border-color:var(--line-strong); background:var(--surface-2); }
+  .landed .check { width:34px; height:34px; border-radius:50%; background:var(--good); color:#04231a; display:flex; align-items:center; justify-content:center; flex:none; }
+  .landed.mute .check { background:var(--muted); color:var(--bg-2); }
+  .landed .check svg { width:19px; height:19px; }
+  .landed .l-title { font-weight:620; }
+  .landed .l-sub { font-size:0.86rem; color:var(--text-2); }
+  .degrade-note { display:flex; gap:0.6rem; align-items:flex-start; font-size:0.85rem; color:var(--text-2); background:var(--warn-bg); border:1px solid color-mix(in srgb, var(--warn) 30%, var(--line)); border-left:4px solid var(--warn); border-radius:9px; padding:0.65rem 0.85rem; margin-top:0.9rem; }
+  .degrade-note b { color:var(--warn); font-family:var(--mono); font-size:0.72rem; letter-spacing:0.05em; }
+  .two-up { display:grid; grid-template-columns:1fr; gap:1rem; }
+
+  .callout-noshow { display:flex; gap:0.6rem; align-items:flex-start; font-size:0.85rem; color:var(--text-2); background:var(--surface-2); border:1px solid var(--line); border-radius:9px; padding:0.7rem 0.9rem; margin-top:0.9rem; }
+  .callout-noshow b { color:var(--text); }
+
+  footer { margin-top:3.4rem; padding-top:1.2rem; border-top:1px solid var(--line); font-family:var(--mono); font-size:0.73rem; color:var(--muted); display:flex; justify-content:space-between; gap:1rem; flex-wrap:wrap; }
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow"><span>CleanMuzik</span><span class="muted">/</span><span>R1.5 · T-207 review card</span><span class="muted">/</span><span class="muted">ADR-016 design gate</span></div>
+    <h1>What the review card says, and why</h1>
+    <p class="lede">R1.5 adds a park <b>story</b> to the review card: a one-line <b>reason</b> it stopped, the <b>contradictions</b> between the three senses that couldn't agree, and the candidates in the <b>order the adjudicator ranked them</b>. These screens show that story across every state it lands in — including the two where there's no card at all.</p>
+    <div class="note-static"><span><b>STATIC MOCKS</b> &nbsp;Flat screens, not a working app — one per state, including the edges. Nothing is clickable. Look, then sign off; component code comes after (workflow.md).</span></div>
+    <div class="note-static" style="border-left-color:var(--warn);background:var(--warn-bg)"><span><b>DELIBERATELY ABSENT</b> &nbsp;No match percentage, and no <b>Shazam pre-fill hint</b> — the standalone hint is deferred to T-212. Match strength is an honest bar, never a raw score dressed as a verdict (T-017); the adjudicator's confidence is never shown because it never reaches the card.</span></div>
+    <div class="rail">
+      <span class="pip"><b>1</b> Weak park — the full story</span>
+      <span class="pip"><b>2</b> Shazam via the ISRC candidate</span>
+      <span class="pip"><b>3</b> Adjudication unavailable</span>
+      <span class="pip"><b>4</b> No candidates at all</span>
+      <span class="pip"><b>5</b> No card — landed two ways</span>
+    </div>
+  </header>
+
+  <!-- SCREEN 1 — weak park, full story -->
+  <section class="screen">
+    <div class="screen-head"><span class="screen-num">01</span><h2>The weak park — reason, contradictions, ranked candidates</h2></div>
+    <p class="screen-cap">The everyday R1.5 park. Three senses looked at a Frank Ocean cover of <span class="k">Strawberry Swing</span>: the fingerprint and Shazam both matched Coldplay's <em>original master</em> under the cover, while the YouTube title said Frank Ocean. Fewer than two senses agree on the same recording, so it parks — and the card <span class="k">tells you exactly that</span>. Candidates sit in the adjudicator's ranked order; the bars are match strength, not a verdict.</p>
+    <div class="frame">
+      <div class="appbar"><span class="logo"></span><span class="name">CleanMuzik</span><span class="crumb">/ Needs review</span><span class="count">1 waiting</span></div>
+      <div class="stage">
+        <div class="rcard">
+          <div class="rquery">
+            <div class="art"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg></div>
+            <div class="meta">
+              <span class="title">Frank Ocean - Strawberry Swing</span>
+              <span class="src">from youtube.com · fingerprint + Shazam disagree with the title</span>
+            </div>
+            <span class="tag weak">Parked · senses disagree</span>
+          </div>
+
+          <div class="why">
+            <span class="why-head">Why this parked</span>
+            <span class="why-text">The fingerprint and Shazam both matched Coldplay's original recording — this is Frank Ocean's cover of it, which no sense confirms on its own.</span>
+            <div class="contradictions">
+              <div class="contra"><span class="sense fp">fingerprint</span><span>→ <b>Coldplay — Strawberry Swing</b>; the cover reuses most of the original mix, so it matches the master.</span></div>
+              <div class="contra"><span class="sense sz">shazam</span><span>→ <b>Coldplay</b> (same original) — disagrees with the YouTube title.</span></div>
+              <div class="contra"><span class="sense yt">youtube</span><span>→ <b>Frank Ocean</b> — no other sense agrees.</span></div>
+            </div>
+          </div>
+
+          <div class="cand-list">
+            <span class="caption">Candidates <span class="ord">· ranked by the adjudicator, not by score</span></span>
+            <div class="cand sel"><span class="rank">1</span><span class="dot"></span><div class="c-meta"><div class="c-title">Strawberry Swing</div><div class="c-artist">Coldplay · Viva la Vida</div></div><div class="score"><span class="meter"><i style="width:46%"></i></span><span class="strength">weak</span></div></div>
+            <div class="cand"><span class="rank">2</span><span class="dot"></span><div class="c-meta"><div class="c-title">Strawberry Swing (Live)</div><div class="c-artist">Coldplay</div></div><div class="score"><span class="meter"><i style="width:41%"></i></span><span class="strength">weak</span></div></div>
+            <div class="cand"><span class="rank">3</span><span class="dot"></span><div class="c-meta"><div class="c-title">Strawberry Swing</div><div class="c-artist">Frank Ocean · nostalgia, ULTRA.</div></div><div class="score"><span class="meter"><i style="width:38%"></i></span><span class="strength">weak</span></div></div>
+          </div>
+
+          <div class="actions">
+            <span class="btn ghost">None of these? Search again</span>
+            <span class="spacer"></span>
+            <span class="btn danger">Reject</span>
+            <span class="btn">Keep with my tags</span>
+            <span class="btn primary">Accept selected</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SCREEN 2 — Shazam surfaces as the ISRC candidate -->
+  <section class="screen">
+    <div class="screen-head"><span class="screen-num">02</span><h2>How Shazam actually surfaces — the ISRC candidate</h2></div>
+    <p class="screen-cap">When Shazam returns an official <span class="k">ISRC</span> that resolves to a real MusicBrainz recording, it joins the list as a <span class="k">selectable candidate</span>, badged <span class="k">via Shazam</span> — the Pa Salieu <em>Frontline</em> case. This is the <em>only</em> way Shazam reaches the card (there's no standalone hint — T-212). It parks because the video was uploaded under a <span class="k">channel name</span>, so the YouTube title can't corroborate Shazam and only <em>one</em> sense backs the right match — you accept it through the normal path, and it lands the corrected identity. <em>(If the title had read "Pa Salieu — Frontline", YouTube would agree with Shazam — two senses — and it would auto-land instead, as in screen 5a.)</em></p>
+    <div class="frame">
+      <div class="appbar"><span class="logo"></span><span class="name">CleanMuzik</span><span class="crumb">/ Needs review</span><span class="count">1 waiting</span></div>
+      <div class="stage">
+        <div class="rcard">
+          <div class="rquery">
+            <div class="art"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg></div>
+            <div class="meta">
+              <span class="title">Frontline (Music Video)</span>
+              <span class="src">from youtube.com · uploaded by “UKDrillTV” · fingerprint matched a different pressing</span>
+            </div>
+            <span class="tag weak">Parked · one sense short</span>
+          </div>
+
+          <div class="why">
+            <span class="why-head">Why this parked</span>
+            <span class="why-text">Shazam's ISRC points at the right recording, but the video was uploaded under a channel name — not the artist — so the title can't confirm it, and the fingerprint matched a different pressing. Only one sense backs the correct match, so it needs your nod.</span>
+            <div class="contradictions">
+              <div class="contra"><span class="sense sz">shazam</span><span>→ <b>Pa Salieu — Frontline</b> (ISRC GBAHT1901215) — the appended candidate below.</span></div>
+              <div class="contra"><span class="sense yt">youtube</span><span>→ uploaded as <b>“UKDrillTV — Frontline”</b>; the channel isn't the artist, so it doesn't confirm Pa Salieu.</span></div>
+              <div class="contra"><span class="sense fp">fingerprint</span><span>→ a compilation pressing; doesn't match Shazam's recording.</span></div>
+            </div>
+          </div>
+
+          <div class="cand-list">
+            <span class="caption">Candidates <span class="ord">· ranked by the adjudicator</span></span>
+            <div class="cand sel hi"><span class="rank">1</span><span class="dot"></span><div class="c-meta"><div class="c-title">Frontline <span class="src-badge">via Shazam</span></div><div class="c-artist">Pa Salieu · Send Them to Coventry</div></div><div class="score"><span class="meter"><i style="width:52%"></i></span><span class="strength">from ISRC</span></div></div>
+            <div class="cand"><span class="rank">2</span><span class="dot"></span><div class="c-meta"><div class="c-title">Frontline</div><div class="c-artist">Pa Salieu · Rap Bangers 2020 (compilation)</div></div><div class="score"><span class="meter"><i style="width:44%"></i></span><span class="strength">weak</span></div></div>
+          </div>
+
+          <div class="callout-noshow"><span><b>Note for sign-off:</b> the <b>via Shazam</b> badge marks a candidate's <em>source</em>. Accepting it is the ordinary accept path (it's a real MusicBrainz recording). Shazam <b>never lands on its own</b> — this only appears when its ISRC resolved to a verifiable recording (ADR-019).</span></div>
+
+          <div class="actions">
+            <span class="btn ghost">None of these? Search again</span>
+            <span class="spacer"></span>
+            <span class="btn danger">Reject</span>
+            <span class="btn">Keep with my tags</span>
+            <span class="btn primary">Accept selected</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SCREEN 3 — adjudication unavailable (transient) -->
+  <section class="screen">
+    <div class="screen-head"><span class="screen-num">03</span><h2>Adjudication unavailable — the transient park</h2></div>
+    <p class="screen-cap">The key is valid, but the identity service didn't answer for <em>this</em> track (a timeout or a transient error mid-run). Rather than guess or land blindly, it parks with a plain reason and <span class="k">no contradictions</span> — nothing compared the senses, so there's nothing to contradict. You still get beets' own text candidates to choose from, exactly as R1.</p>
+    <div class="frame">
+      <div class="appbar"><span class="logo"></span><span class="name">CleanMuzik</span><span class="crumb">/ Needs review</span><span class="count">1 waiting</span></div>
+      <div class="stage">
+        <div class="rcard">
+          <div class="rquery">
+            <div class="art"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg></div>
+            <div class="meta">
+              <span class="title">Nines - Outro</span>
+              <span class="src">from youtube.com · identity service didn't answer</span>
+            </div>
+            <span class="tag mute">Parked · not adjudicated</span>
+          </div>
+
+          <div class="why">
+            <span class="why-head">Why this parked</span>
+            <span class="why-text">Adjudication unavailable — the identity service didn't answer for this track. Nothing was auto-landed; pick the right recording or correct the search.</span>
+          </div>
+
+          <div class="cand-list">
+            <span class="caption">Best guesses <span class="ord">· text search (beets)</span></span>
+            <div class="cand sel"><span class="rank">1</span><span class="dot"></span><div class="c-meta"><div class="c-title">Outro</div><div class="c-artist">Nines · Crabs in a Bucket</div></div><div class="score"><span class="meter"><i style="width:45%"></i></span><span class="strength">weak</span></div></div>
+            <div class="cand"><span class="rank">2</span><span class="dot"></span><div class="c-meta"><div class="c-title">Outro</div><div class="c-artist">Nines · One Foot Out</div></div><div class="score"><span class="meter"><i style="width:43%"></i></span><span class="strength">weak</span></div></div>
+          </div>
+
+          <div class="actions">
+            <span class="btn ghost">None of these? Search again</span>
+            <span class="spacer"></span>
+            <span class="btn danger">Reject</span>
+            <span class="btn">Keep with my tags</span>
+            <span class="btn primary">Accept selected</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SCREEN 4 — no candidates at all -->
+  <section class="screen">
+    <div class="screen-head"><span class="screen-num">04</span><h2>No candidates at all — straight to the exits</h2></div>
+    <p class="screen-cap">A mixtape rip nothing recognises: no fingerprint, no Shazam ISRC, and the text search came back empty. There's nothing to rank — so the card leads with the reason and drops you straight into the two honest exits (<span class="k">re-search</span> or <span class="k">keep with my own tags</span>), unchanged from R1.5's escape hatch (ADR-020).</p>
+    <div class="frame">
+      <div class="appbar"><span class="logo"></span><span class="name">CleanMuzik</span><span class="crumb">/ Needs review</span><span class="count">1 waiting</span></div>
+      <div class="stage">
+        <div class="rcard">
+          <div class="rquery">
+            <div class="art"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg></div>
+            <div class="meta">
+              <span class="title">DJ Premier Type Beat 2019 (UNTAGGED)</span>
+              <span class="src">from youtube.com · no fingerprint, no Shazam match</span>
+            </div>
+            <span class="tag weak">Parked · nothing to match</span>
+          </div>
+
+          <div class="why">
+            <span class="why-head">Why this parked</span>
+            <span class="why-text">No sense could identify this recording, and the text search found nothing. Correct the search with your own words, or keep it with the tags you supply.</span>
+          </div>
+
+          <div class="empty">
+            <div class="big">No candidates found</div>
+            Nothing in MusicBrainz matched. Search again with different terms, keep it with your own tags, or reject.
+          </div>
+
+          <div class="fixbox">
+            <div class="fx-head"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg> Correct the search. This is what was looked up.</div>
+            <div class="fields">
+              <div class="field"><label>Artist</label><input class="input" value="DJ Premier Type Beat 2019" readonly></div>
+              <div class="field"><label>Title</label><input class="input" value="UNTAGGED" readonly></div>
+            </div>
+            <div class="fx-foot"><span class="spacer" style="flex:1"></span><span class="btn ghost">Swap ⇄</span><span class="btn primary">Re-search</span></div>
+          </div>
+
+          <div class="actions">
+            <span class="spacer"></span>
+            <span class="btn danger">Reject</span>
+            <span class="btn">Keep with my tags</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SCREEN 5 — no card, two landings -->
+  <section class="screen">
+    <div class="screen-head"><span class="screen-num">05</span><h2>No review card — the two ways a track lands silently</h2></div>
+    <p class="screen-cap">Not every track earns a card. When two of three senses agree, the corrected identity <span class="k">auto-lands</span> and never enters the queue (the Pa Salieu override). And when the adjudicator is switched off entirely — no API key — the pipeline <span class="k">degrades to R1's fingerprint-only gate</span>: a strong fingerprint lands as it always did, with no reason or contradictions because nothing adjudicated it. Both shown here so sign-off covers the absence, not just the presence.</p>
+    <div class="frame">
+      <div class="appbar"><span class="logo"></span><span class="name">CleanMuzik</span><span class="crumb">/ Library</span><span class="count">just landed</span></div>
+      <div class="stage">
+        <div class="two-up">
+          <div>
+            <p class="screen-cap" style="margin:0 0 0.6rem"><b>5a — 2-of-3 agreed → auto-landed.</b> No card ever appeared.</p>
+            <div class="landed">
+              <div class="check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M5 13l4 4L19 7"/></svg></div>
+              <div>
+                <div class="l-title">Pa Salieu — Frontline</div>
+                <div class="l-sub">Fingerprint + Shazam agreed · tagged, art embedded, in your library.</div>
+              </div>
+            </div>
+          </div>
+          <div>
+            <p class="screen-cap" style="margin:0 0 0.6rem"><b>5b — no API key → degrade to the R1 gate.</b> Strong fingerprint, so it lands with no adjudication.</p>
+            <div class="landed mute">
+              <div class="check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M5 13l4 4L19 7"/></svg></div>
+              <div>
+                <div class="l-title">Kendrick Lamar — Money Trees</div>
+                <div class="l-sub">Fingerprint-only match · landed as R1. No reason or contradictions — nothing adjudicated it.</div>
+              </div>
+            </div>
+            <div class="degrade-note"><span><b>DEGRADE MODE</b> &nbsp;With no key, weak fingerprints still park — but as the plain R1 card (candidates only, no park story), since reconcile never ran. An eyes-open operational fallback (spec §6).</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <span>CleanMuzik · T-207 · ADR-016 design gate · reason + contradictions + ranked candidates</span>
+    <span>Static mocks — sign off before component code</span>
+  </footer>
+</div>
