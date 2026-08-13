@@ -13,6 +13,18 @@ Format: `- <date> — what went wrong → the correction / rule now in place`
 
 ---
 
+- 2026-08-12 — **A spike benchmark measured a component in isolation and the number became a spec
+  acceptance target that the integrated system could never hit.** R1.5 §7 required identity-stage median
+  **< 6s**, taken from spike exp 9's ~4.2s. But exp 9 ran the new senses (Shazam + ISRC→MB + Haiku) against
+  a **pre-captured fixture** — the AcoustID→MB fingerprint chain was already snapshotted, not re-run. The
+  built pipeline is **additive**: it still runs that ~12s chain live (fp is a voting sense and the
+  confident-track MBID source), *then* the senses serially on top → T-209 measured **~21s**. The spike's
+  "12× faster" was real for chain-*replacement*; the build did chain-*augmentation*. Rule: **a latency
+  number from a spike that stubs or pre-captures any stage is not a whole-pipeline target — before promoting
+  a spike measurement into a §7/acceptance bar, confirm the built path runs the same stages the spike
+  skipped.** Correctness was unaffected (11/12 §7 passed); only the speed headline. Fix: §7 speed re-scoped
+  to no-regression-vs-R1-total; T-208 opened for intra-track concurrency (ADR-001 bars cross-track
+  parallelism, not within one track).
 - 2026-08-05 — **A ticket's status line lied because the commit that closed it didn't update it —
   and a later planning pass nearly rebuilt shipped, verified code off that lie.** T-102 (lift the
   review lifecycle out of `TrackCard`) was built in `58c0fea` and owner-browser-verified in

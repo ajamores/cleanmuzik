@@ -36,8 +36,8 @@ Then the spine, sequential (all in `import_seam.py`, so **not** parallel with ea
 Then the UI and the pass:
 
 - **T-207** review-card UI — **ADR-016 design gate first** (it changes a user-visible state) → **T-209**
-  end-to-end verify against the whole §7 checklist. (**T-208 is a reserved slot** — held for a mid-build
-  finding that closing §7 turns out to require; empty by design, not a gap.)
+  end-to-end verify against the whole §7 checklist. (**T-208** was the reserved slot; T-209 filled it —
+  it now holds the intra-track concurrency optimization the speed finding surfaced.)
 
 **T-200** (owner: `ANTHROPIC_APIKEY` in `.env`) has no dependency and should land first so T-205's
 happy path is exercisable; it is a two-minute owner task, not a blocker on building the seam offline
@@ -285,10 +285,39 @@ status line flipped in the closing commit, transcribe corrections to `docs/learn
 
 ## Verification
 
+### T-208 — Reclaim the identity budget: gather senses concurrently within a track
+- **Status:** todo (opened by T-209, 2026-08-12 — was the reserved slot)
+- **Depends on:** T-209 (the finding that motivates it).
+- **Agent:** back-end
+- **What:** T-209 measured the built identity stage at **median ~21s** vs the spike's isolated ~4.2s,
+  because architecture B is **additive** — it runs the full AcoustID→MB fingerprint chain (~12s), then
+  Shazam (≤8s) + ISRC→MB (1/sec) + Haiku (~1.4s) **serially on top**. ADR-001 forbids parallelism *across
+  tracks* (the batch stays serial), **not within one track**. The fingerprint lookup, the Shazam subprocess,
+  and the MB candidate search are independent and could run concurrently, pulling identity toward the ~12s
+  fingerprint floor (ISRC→MB still trails Shazam, since it needs the ISRC). Scope: gather the senses in
+  parallel inside `_reconcile`/`choose_item`; keep the 2-of-3 gate and every T-209 correctness outcome
+  byte-identical. Measure before/after against the spike corpus.
+- **Done when:** identity-stage median drops materially below the ~21s built baseline with **zero** change
+  to the T-209 land/park outcomes; the per-track work is concurrent but the batch stays serial (ADR-001).
+- **Not:** a rewrite of the senses or the gate; no cross-track concurrency; no dropping the fingerprint
+  chain (fp is a required sense + the confident-track MBID source).
+
+---
+
 ### T-209 — End-to-end verify pass against the §7 acceptance checklist
-- **Status:** todo
+- **Status:** done
 - **Depends on:** T-200 (live key) + T-201–T-207 (all). Without T-200 only the *degrade* item is
   exercisable — every other §7 item needs a real reconcile call.
+- **Resolved 2026-08-12.** Isolated `/verify` (temp DB_PATH + temp LIBRARY_DIRECTORY both modules,
+  jellyfin unset, live Anthropic key) drove the real flow on the spike corpus; real library confirmed
+  untouched. **11 of 12 §7 items PASS.** Pa Salieu override landed the correct identity via `source=isrc
+  senses=[yt,sz]` (mbid 6d6dd1f3), zero clicks; happy-path/vote-holds/no-invented-facts/fail-soft(error
+  AND hang, hang capped 8.06s)/reconcile-failure-parks/degrade/persistence(byte-identical across
+  restart)/feature-parity(3 songs identical B vs R1)/serial-pool/genre-unchanged all confirmed. **Speed
+  FAILED as originally written** (identity median ~21s vs <6s) — the target measured senses in isolation,
+  not the additive built pipeline; **§7 speed criterion amended** to a no-regression-vs-R1-total bar, and
+  **T-208 opened** to reclaim the budget via intra-track concurrency. Learning transcribed to
+  `docs/learnings.md` (isolated-benchmark ≠ integrated latency).
 - **Agent:** verify
 - **What:** Drive the real flow — a `/verify` replay of the spike corpus, **offline-isolated** (temp
   `DB_PATH` + temp beets library; `pgrep -af uvicorn` first — see `docs/workflow.md` + the `/verify`

@@ -194,6 +194,12 @@ freestyles). (2) ISRC→MB covered only 46%; the confident rest still have the *
 and genuine freestyles (Nines "Franklin") have **no ID in any database** — a property of the song, not the
 design. (3) One IP, one session.
 
+> **T-209 postscript (2026-08-12).** The **4.21s** here is B's senses measured against a **pre-captured**
+> AcoustID/MB fixture — it is *not* the integrated identity latency. The built pipeline runs the live
+> fingerprint chain (~12s) **and** the senses on top, so end-to-end identity measured **~21s median** in
+> T-209. The correctness findings (override, honest parks, fail-soft) all held; only the speed number was
+> isolation-inflated. §7's speed bar was amended and **T-208** opened for intra-track concurrency.
+
 ## Gate summary
 
 | Lock | Result |
