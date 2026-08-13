@@ -13,6 +13,19 @@ Format: `- <date> — what went wrong → the correction / rule now in place`
 
 ---
 
+- 2026-08-13 — **A slow multi-call stage was written off as an unfixable "dependency chain" when its
+  biggest cost was actually fan-out the repo already knew how to collapse.** Diagnosing the R1.5 identity
+  latency, the lead called the ~8–9s beets candidate lookup a serial `fp→candidates→ISRC→winner→year` chain
+  bounded by MusicBrainz's 1/sec limit, and concluded "fewer calls is blocked by the dependency." A design
+  council corrected it: the ~5s core is **fan-out** — up to 5 *independent* `track_for_id` hydrations, one
+  per candidate, serialized only by the rate limit, with no data dependency between them. And **the repo had
+  already solved the identical waste** on the re-search route (`mb_search.py` finding #4: 27s → ~1s by
+  building `TrackInfo` from the search response instead of per-id hydration) — the acquire path just never
+  got the fix. Rule: **before declaring a slow stage irreducible, separate the genuine dependency chain from
+  fan-out (independent calls in a loop), and `grep` the repo for a sibling path that already optimized the
+  same call — an external rate limit makes *cutting call count* more valuable, not less.** The 1/sec limit
+  was the reason to reduce calls, not the reason it was impossible. (A cheap council pass caught what one
+  head, too close to its own measurement, had already concluded.)
 - 2026-08-12 — **A spike benchmark measured a component in isolation and the number became a spec
   acceptance target that the integrated system could never hit.** R1.5 §7 required identity-stage median
   **< 6s**, taken from spike exp 9's ~4.2s. But exp 9 ran the new senses (Shazam + ISRC→MB + Haiku) against

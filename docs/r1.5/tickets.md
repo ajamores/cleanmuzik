@@ -285,22 +285,52 @@ status line flipped in the closing commit, transcribe corrections to `docs/learn
 
 ## Verification
 
-### T-208 — Reclaim the identity budget: gather senses concurrently within a track
-- **Status:** todo (opened by T-209, 2026-08-12 — was the reserved slot)
-- **Depends on:** T-209 (the finding that motivates it).
+### T-208 — Reclaim the identity budget (per-song speed)
+- **Status:** deferred to R2 (opened by T-209 2026-08-12; scoped by a design council 2026-08-13; deferred
+  by owner the same day — 5s/song is a vanity metric on a one-at-a-time background add, but multiplies to
+  ~15–20 min across R2's bulk-migrate, so it graduates there).
+- **Depends on:** T-209 (the finding). Graduates with R2 (migrate/clean).
 - **Agent:** back-end
-- **What:** T-209 measured the built identity stage at **median ~21s** vs the spike's isolated ~4.2s,
-  because architecture B is **additive** — it runs the full AcoustID→MB fingerprint chain (~12s), then
-  Shazam (≤8s) + ISRC→MB (1/sec) + Haiku (~1.4s) **serially on top**. ADR-001 forbids parallelism *across
-  tracks* (the batch stays serial), **not within one track**. The fingerprint lookup, the Shazam subprocess,
-  and the MB candidate search are independent and could run concurrently, pulling identity toward the ~12s
-  fingerprint floor (ISRC→MB still trails Shazam, since it needs the ISRC). Scope: gather the senses in
-  parallel inside `_reconcile`/`choose_item`; keep the 2-of-3 gate and every T-209 correctness outcome
-  byte-identical. Measure before/after against the spike corpus.
-- **Done when:** identity-stage median drops materially below the ~21s built baseline with **zero** change
-  to the T-209 land/park outcomes; the per-track work is concurrent but the batch stays serial (ADR-001).
-- **Not:** a rewrite of the senses or the gate; no cross-track concurrency; no dropping the fingerprint
-  chain (fp is a required sense + the confident-track MBID source).
+- **The real attribution (T-209 timing probe, corrected by the council).** The gate is ~16–20s. The
+  reconcile *senses* are cheap (dominance 0.6s AcoustID · Shazam 1.4s subprocess · ISRC→MB 0.4–3.4s ·
+  Haiku 2–4s); enrichment is ~1–2s. The fat is the **~8–9s beets candidate lookup**, and it is **not** a
+  dependency chain — it is **fan-out**: up to 5 *independent* MusicBrainz `track_for_id` hydrations, one per
+  fingerprint candidate, serialized only by MB's global 1/sec limit. The 1/sec makes cutting the *call
+  count* the whole game (threads can't beat an external rate limit). **The repo already fixed this exact
+  waste on the re-search route** (`mb_search.py` finding #4: 27s → ~1s by building `TrackInfo` from the
+  search response instead of hydrating each id) — the **acquire path never got it**.
+- **The three pieces (build at R2, in this order):**
+  1. **Remeasure first** — clean single-uvicorn `/verify` (`pgrep -af uvicorn`), >2 songs, to confirm the
+     ~8–9s isn't inflated by two MB clients self-colliding (their 1/sec gates don't share state, `isrc.py`).
+  2. **T-208a (low risk, correctness-neutral):** hoist `shazam_sense.recognize(mp3)` to run *during* the
+     beets candidate lookup — submit it in `run_pipeline` right after transcode, pass `shazam_fn` as a
+     cache-read of the running future. Nets ~1.4–2s **and** moves the ≤8s Shazam-timeout tail off the
+     critical path. Rides the existing `shazam_fn` seam → record byte-identical. Reap/kill the future on
+     every exit path (park/error/scan-fail) in a `finally`.
+  3. **T-208b (the ~4–5s lever, gated on the §7 corpus):** give the musicbrainz plugin a thin
+     `item_candidates` that reads `track_id/title/artist/length` off the search response, and defer the one
+     full `get_recording` to the recording that actually **lands** (extend `match_for_recording` to hydrate
+     the accepted candidate for full tags — load-bearing). Plus fpcalc dedup vs chroma's cached fingerprint,
+     and `cache_control` on the reconcile system prompt. Must prove byte-identical auto-land outcomes.
+- **Not:** cross-track concurrency (ADR-001); dropping the fp sense or the fingerprint MBID; the "skip
+  Shazam/Haiku when fp is dominant" shortcut (fp is dominant on the *wrong* recording in the Pa Salieu
+  case — it detonates the marquee win). Local MB mirror = R3 (removes the limit; absurd on the laptop).
+
+---
+
+### T-214 — Narrate the identity stage (perceived speed)
+- **Status:** backlog (small UI follow-on; the council's near-zero-risk lever)
+- **Depends on:** none (independent of T-208's actual-speed work).
+- **Agent:** front-end + back-end
+- **What:** The 16–19s "Identifying" window (`jobs.py` 341→406) is one unbroken freeze. Thread a
+  try-wrapped progress callback through `import_song`/`choose_item` and emit sub-stage SSE at boundaries
+  that **already exist serially** — Fingerprinting → Matching MusicBrainz → Cross-checking Shazam →
+  Reconciling — and show them under the existing `Identifying` stage in `TrackCard` (STAGE model + rail
+  already there). Pure notification: the callback must never throw into the hot path; pipeline order,
+  ADR-001 seriality, and every land/park outcome stay byte-identical.
+- **Done when:** the identify freeze reads as four steps that visibly move; no outcome or ordering change.
+- **Why it's worth more than the seconds:** it's the biggest lever on what the owner *feels* while a song
+  lands, at zero correctness risk — independent of whether T-208's actual-speed work is ever built.
 
 ---
 
