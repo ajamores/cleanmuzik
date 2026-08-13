@@ -21,41 +21,38 @@ CleanMuzik — personal YouTube → Jellyfin music tool. Purpose, stack, constra
 
 ## Current State (2026-08-12)
 
-- **On `main`, clean tree, pushed to origin.** Suite **524 passed** (no code changed since T-206).
+- **On `main`, clean tree, pushed to origin** (`101f9fb`). Client suite **71 passed**; server **524**
+  (no server code changed this session).
 - **R1 + R1.1 shipped.** **R1.5** (engine rethink, architecture **B** — multi-sense reconciliation) in
-  build. **Phase A + T-204/T-205/T-206 landed.** Now in **Phase C (UI)**.
-- **T-207 design gate PASSED (owner sign-off).** Five flat scenario screens at
-  `docs/r1.5/design/t207-review-card.html`. Component code is the remaining half — **not yet built**.
-- **Scope decision at the gate:** standalone Shazam artist/title hint (spec §4) **DEFERRED →
-  `docs/backlog/T-212`** (reaches no transport; narrow value; can pre-fill a confident-wrong guess).
-  Shazam surfaces only via the ISRC→MB candidate + contradictions text. Spec §4 + T-207 amended.
+  build. Phase A + T-204/205/206 landed. **Phase C: T-207 now DONE.**
+- **T-207 (review-card park story) landed.** Card renders the persisted `reason` + `contradictions`
+  (sense badges) + candidates in adjudicator-ranked order. Per-candidate "via Shazam" badge **dropped by
+  owner decision** — candidate row is `{id,title,artist,score}` (ADR-010), no source field; Shazam
+  surfaces via its ISRC candidate + contradictions text (spec §5). No new payload field.
 
-## ⟹ NEXT — T-207 component code (design gate cleared)
+## ⟹ NEXT — fix T-200 (blocks T-209)
 
-Build `ReviewPanel`'s render of the persisted (T-206) `reason` + `contradictions` + candidates in
-**LLM-ranked order**, matching the signed-off screens. **No new payload field / no Shazam control**
-(T-212); badge the ISRC candidate's *source* only. **Don't** render LLM confidence or raw scores as a
-verdict (T-017 — `ScoreBar` already keeps strength an honest bar). Acceptance self-contained: screens
-signed off ✓, then each field observed in a browser. Then **T-209 verify** — needs **T-200** = owner
-sets `ANTHROPIC_API_KEY` in `.env`. T-208 reserved.
+Owner put a key in `.env`, but **reconcile is still silently in degrade mode**: wrong env var name +
+missing `config.py` field + no boot log. Three exact fixes now filed in **T-200's ticket** ("NOT done —
+gaps found 2026-08-12"). Do them, restart uvicorn, confirm the boot log reports the key **set**, flip
+**T-200 → done**, *then* run **T-209** (§7 end-to-end verify — isolated `DB_PATH` + temp beets lib,
+`pgrep -af uvicorn` first). T-209 is where T-207's fields get their real browser observation.
+**T-208 reserved.**
 
-## Watch at T-209 (filed, not open work)
+## Watch at T-209 (filed in `docs/backlog/`, not open work)
 
-- **`docs/backlog/T-210`** — isrc.py's 1/sec gate independent of beets' MB limiter; back-to-back calls
-  can breach MB's floor. Low real risk.
-- **`docs/backlog/T-211`** — `loose_match` containment false-matches short names (`Sia`⊂`Asia`);
-  correlated yt+sz errors could auto-land wrong. Owner-ratified containment stands; very low risk.
-- **`docs/backlog/T-212`** — deferred standalone Shazam hint; graduate if contradictions text proves an
-  inadequate substitute after living with T-207.
+- **T-210** — isrc.py's 1/sec gate independent of beets' MB limiter; low real risk.
+- **T-211** — `loose_match` containment false-matches short names (`Sia`⊂`Asia`); very low risk.
+- **T-212** — deferred standalone Shazam hint; graduate only if contradictions text proves inadequate.
 
 ## Recent sessions (rolling — last 2–3)
 
-- **2026-08-12 (this session)** — **T-207 design gate passed.** 5 scenario screens, owner signed off.
-  Fixed a mock bug (Shazam-ISRC screen was really an auto-land; retitled to a channel-name upload → true
-  one-vote park). Deferred standalone Shazam hint (→ T-212); amended spec §4 + T-207. `aeee532`, pushed.
+- **2026-08-12 (this session)** — Built + landed **T-207** review-card park story (client-only; +6 park-
+  story tests, suite 71). Code-review: 5 findings all addressed. **Discovered T-200 is incomplete** —
+  reconcile has never run live (wrong env name + missing config field + no boot log). `101f9fb`, pushed.
+- **2026-08-12 (earlier)** — T-207 design gate passed; standalone Shazam hint deferred → T-212. `aeee532`.
 - **2026-08-11** — Built + landed **T-206** (park-story persistence): `reason` + `contradictions_json`
-  columns; one ranked augmented list drives both row and SSE event. +9 tests, suite 524. Merged, pushed.
-- **2026-08-11 (earlier)** — Built + landed **T-205** (2-of-3 accept gate + degrade). Filed T-211.
+  columns; one ranked list drives both row and SSE event. +9 tests.
 
 ## Where the rest of the context lives
 
