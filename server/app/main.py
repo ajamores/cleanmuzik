@@ -27,11 +27,14 @@ async def lifespan(app: FastAPI):
     # boot-time receipt that the `.env` was found and parsed (T-001 done-when).
     s = get_settings()
     logger.info(
-        "config loaded: jellyfin_url=%s jellyfin_api_key=%s lastfm_apikey=%s acoustid_apikey=%s",
+        "config loaded: jellyfin_url=%s jellyfin_api_key=%s lastfm_apikey=%s "
+        "acoustid_apikey=%s anthropic_apikey=%s",
         s.jellyfin_url,
         "set" if s.jellyfin_api_key else "unset",
         "set" if s.lastfm_apikey else "unset",
         "set" if s.acoustid_apikey else "unset",
+        # T-200: reconcile is live iff this is set — otherwise the R1 fingerprint gate.
+        "set" if s.anthropic_apikey else "unset",
     )
     # Idempotent — creates the SQLite tables (and data dir) if absent so parked
     # reviews outlive a restart (spec §7, T-002). No-op on an existing DB.

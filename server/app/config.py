@@ -46,6 +46,14 @@ class Settings(BaseSettings):
     # (proven in the spike); set only to raise rate limits.
     acoustid_apikey: str = ""
 
+    # Anthropic key for the R1.5 reconcile adjudicator (T-200, spec §6). Field name
+    # mirrors `lastfm_apikey`/`acoustid_apikey`, so pydantic binds it to env var
+    # ANTHROPIC_APIKEY — deliberately NOT the SDK default ANTHROPIC_API_KEY, which is
+    # read explicitly here (reconcile.make_reconcile_fn). Missing → reconcile disabled,
+    # pipeline degrades to the R1 fingerprint-only gate (T-205): an eyes-open fallback,
+    # not a failure (spec §6 degrade row).
+    anthropic_apikey: str = ""
+
     # On-disk SQLite store (T-002). Must live on disk, not in-memory, so parked
     # reviews survive a restart (spec §7). Overridable via `.env` (e.g. a test
     # DB); the parent dir is created at startup by Store.init_schema().
