@@ -63,6 +63,13 @@ status line flipped in the closing commit, transcribe corrections to `docs/learn
   logged, eyes-open fallback (spec §6 degrade row).
 - **Done when:** `ANTHROPIC_APIKEY` is set and readable in-process (a boot log line reports `set/unset`,
   like the existing `config loaded:` line at `main.py:30`); `.env.example` documents it. (Spec §6 secrets.)
+- **NOT done — gaps found 2026-08-12 (T-207 session).** A key was placed in `.env`, but reconcile is still
+  silently in degrade mode. Three fixes needed: (1) `.env` uses the SDK-default `ANTHROPIC_API_KEY` — the
+  app reads **`ANTHROPIC_APIKEY`** (no underscore); rename it. (2) `config.py` has **no `anthropic_apikey`
+  field**, so `reconcile.make_reconcile_fn`'s `getattr(settings, "anthropic_apikey", "")` is always `""`;
+  add the field (the code half of this ticket, never done). (3) `main.py:30` `config loaded:` omits
+  anthropic; add it so set/unset is visible. Restart uvicorn (`--reload` won't reload `.env`), confirm the
+  boot log reports **set**, then flip to done. **Blocks T-209.**
 
 ---
 
