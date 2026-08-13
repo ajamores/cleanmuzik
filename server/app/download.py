@@ -15,13 +15,28 @@ The first stage of the pipeline (spec §4). Two jobs:
 Staging cleanup on failure is T-012's job; this module only creates the dir.
 """
 
+import logging
 import tempfile
+import time
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from yt_dlp import YoutubeDL
+from yt_dlp.utils import YoutubeDLError
 
 from app.source_signals import SourceSignals
+
+logger = logging.getLogger("cleanmuzik")
+
+# A 403 at the media-fetch step is almost always transient (T-213): YouTube handed
+# back a stale/throttled stream URL baked into THIS extraction's player response, and
+# yt-dlp's own HTTP retries reuse that same poisoned response — so only a *fresh*
+# `extract_info` (a new player response, new stream URLs) recovers it. Seen twice in
+# one single-user session; both self-healed on a manual re-paste, which is exactly the
+# fresh extraction this now does automatically. Scoped to 403 so a genuine dead link
+# (private/removed/geo) still fails fast per the one-failure rule (ADR-002).
+_MAX_403_RETRIES = 2  # up to 3 attempts total
+_403_BACKOFF_S = 1.5
 
 # The classifier below keys off URL *shape* (path + query). Host matters in
 # exactly one place: `youtu.be/<id>` carries the video id in the **path**, where
@@ -250,6 +265,34 @@ def _make_staging_dir() -> Path:
     return Path(tempfile.mkdtemp(prefix="cleanmuzik-"))
 
 
+def _is_transient_403(exc: BaseException) -> bool:
+    """True when a yt-dlp error is the retryable HTTP-403 (T-213).
+
+    yt-dlp gives no typed 403 — the status only reaches us inside the wrapped error
+    string (`"unable to download video data: HTTP Error 403: Forbidden"`), so we match on
+    it. Match the **HTTP-403 signature**, not a bare `"403"`: an 11-char YouTube id can
+    contain those digits (`ERROR: [youtube] aB403cdEfGh: Video unavailable`), and matching
+    that would retry a genuinely dead link — the opposite of the fail-fast a private /
+    removed / geo-blocked video must get (ADR-002)."""
+    low = str(exc).lower()
+    return "http error 403" in low or "403: forbidden" in low or "403 forbidden" in low
+
+
+def _clear_dir(directory: Path) -> None:
+    """Remove leftover files in a staging dir before a re-download (T-213).
+
+    A 403'd attempt can leave a `.part` (or a stale file); yt-dlp would otherwise resume
+    or skip against it on the retry, defeating the fresh re-extraction. The dir holds only
+    this one job's download (per-job staging), so clearing it flat is safe. Best-effort —
+    a file we can't unlink is not worth failing an otherwise-recoverable download over."""
+    for path in directory.glob("*"):
+        try:
+            if path.is_file():
+                path.unlink()
+        except OSError as exc:  # noqa: PERF203 — a rare, per-file best-effort cleanup
+            logger.debug("could not clear %s before retry (%s)", path, exc)
+
+
 def download_song(
     url: str, staging_dir: Path | None = None
 ) -> tuple[Path, SourceSignals]:
@@ -304,8 +347,39 @@ def download_song(
         "no_warnings": True,
     }
 
-    with YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(url, download=True)
+    # A fresh YoutubeDL per attempt: retrying `extract_info` on the *same* client would
+    # replay the poisoned player response, so each retry re-extracts from scratch (T-213).
+    # `ydl` is used after the loop for `prepare_filename`, so it must outlive the `with` —
+    # the successful attempt's client stays bound, as the original code already relied on.
+    # We catch the base `YoutubeDLError` (a 403 can surface as `DownloadError` at media
+    # fetch OR `ExtractorError` during extraction) but retry ONLY a transient 403; every
+    # other error — a real dead/private/geo link — propagates on the first hit (ADR-002).
+    info = None
+    for attempt in range(_MAX_403_RETRIES + 1):
+        # On a retry make the re-extraction genuinely fresh: bypass yt-dlp's on-disk
+        # cache (stale extraction state) and clear any partial file the failed attempt
+        # left, so the new player response's stream isn't resumed against an old `.part`.
+        attempt_opts = ydl_opts
+        if attempt > 0:
+            attempt_opts = {**ydl_opts, "cachedir": False}
+            _clear_dir(staging_dir)
+        with YoutubeDL(attempt_opts) as ydl:
+            try:
+                info = ydl.extract_info(url, download=True)
+                break
+            except YoutubeDLError as exc:
+                if attempt < _MAX_403_RETRIES and _is_transient_403(exc):
+                    logger.warning(
+                        "download 403 for %s (attempt %d/%d) — re-extracting after %.1fs: %s",
+                        url,
+                        attempt + 1,
+                        _MAX_403_RETRIES + 1,
+                        _403_BACKOFF_S,
+                        exc,
+                    )
+                    time.sleep(_403_BACKOFF_S)
+                    continue
+                raise
 
     # Belt-and-braces: a URL that resolves to a *collection* comes back
     # playlist-shaped — `_type` "playlist"/"multi_video", or a non-empty `entries` —

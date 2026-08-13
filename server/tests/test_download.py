@@ -341,3 +341,134 @@ def test_normalized_url_reaches_a_youtube_extractor(raw: str) -> None:
 
     claimed = _claiming_extractors(normalize_url(raw))
     assert any(ie.lower().startswith("youtube") for ie in claimed), claimed
+
+
+# --- T-213: transient-403 re-extract retry -----------------------------------
+# A 403 at the media-fetch step is a stale stream URL; retrying the SAME client
+# replays it, so download_song re-extracts from a fresh YoutubeDL. Each attempt
+# constructs a new client (matching the real fresh-extraction fix), so the fakes
+# below count calls in a shared dict, not on the instance. `time.sleep` is stubbed
+# so the backoff never actually delays the suite.
+from yt_dlp.utils import DownloadError, ExtractorError  # noqa: E402 — beside their tests
+
+
+def _counting_ydl(behaviour):
+    """A YoutubeDL stand-in whose `extract_info` calls `behaviour(n)` on the nth
+    (1-based) call across ALL instances — so a fresh client per retry is observable."""
+    calls = {"n": 0}
+
+    class _YDL:
+        def __init__(self, opts):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def extract_info(self, url, download):
+            calls["n"] += 1
+            return behaviour(calls["n"])
+
+        def prepare_filename(self, info):
+            return f"{info.get('id', 'NA')}.NA"
+
+    return _YDL, calls
+
+
+def _ok_info(dest: Path) -> dict:
+    return {
+        "_type": "video",
+        "id": "vid",
+        "title": "Pa Salieu - Frontline",
+        "requested_downloads": [{"filepath": str(dest)}],
+    }
+
+
+def test_download_song_retries_a_transient_403_then_succeeds(tmp_path, monkeypatch) -> None:
+    # The T-213 case seen live twice: first extraction 403s, a fresh one succeeds.
+    dest = tmp_path / "vid.webm"
+    ok = _ok_info(dest)
+
+    def behaviour(n):
+        if n == 1:
+            raise DownloadError("unable to download video data: HTTP Error 403: Forbidden")
+        return ok
+
+    ydl, calls = _counting_ydl(behaviour)
+    monkeypatch.setattr("app.download.YoutubeDL", ydl)
+    monkeypatch.setattr("app.download.time.sleep", lambda _s: None)  # no real backoff
+
+    out, signals = download_song("https://youtu.be/IaQjlagBnG0", tmp_path)
+    assert out == Path(dest)
+    assert calls["n"] == 2  # failed once, re-extracted once, then succeeded
+    assert signals.video_id == "vid"
+
+
+def test_download_song_does_not_retry_a_non_403_error(tmp_path, monkeypatch) -> None:
+    # A private/removed/geo link raises its own message — it must fail FAST, not spend
+    # the retry budget re-extracting a link that will never resolve (ADR-002).
+    def behaviour(_n):
+        raise DownloadError("ERROR: Private video. Sign in if you've been granted access")
+
+    ydl, calls = _counting_ydl(behaviour)
+    monkeypatch.setattr("app.download.YoutubeDL", ydl)
+    slept: list[float] = []
+    monkeypatch.setattr("app.download.time.sleep", lambda s: slept.append(s))
+
+    with pytest.raises(DownloadError):
+        download_song("https://youtu.be/private1234", tmp_path)
+    assert calls["n"] == 1  # one attempt, no retry
+    assert slept == []  # never backed off
+
+
+def test_download_song_gives_up_after_max_403_retries(tmp_path, monkeypatch) -> None:
+    # A 403 that never clears must terminate — bounded retries, then propagate.
+    def behaviour(_n):
+        raise DownloadError("HTTP Error 403: Forbidden")
+
+    ydl, calls = _counting_ydl(behaviour)
+    monkeypatch.setattr("app.download.YoutubeDL", ydl)
+    monkeypatch.setattr("app.download.time.sleep", lambda _s: None)
+
+    with pytest.raises(DownloadError):
+        download_song("https://youtu.be/flaky123456", tmp_path)
+    assert calls["n"] == 3  # 1 initial + _MAX_403_RETRIES (2)
+
+
+def test_download_song_does_not_retry_on_a_403_shaped_video_id(tmp_path, monkeypatch) -> None:
+    # Match the HTTP-403 SIGNATURE, not a bare "403": an 11-char id can carry those
+    # digits, and a dead-link message that merely contains them must still fail fast.
+    def behaviour(_n):
+        raise DownloadError("ERROR: [youtube] aB403cdEfGh: Video unavailable")
+
+    ydl, calls = _counting_ydl(behaviour)
+    monkeypatch.setattr("app.download.YoutubeDL", ydl)
+    slept: list[float] = []
+    monkeypatch.setattr("app.download.time.sleep", lambda s: slept.append(s))
+
+    with pytest.raises(DownloadError):
+        download_song("https://youtu.be/aB403cdEfGh", tmp_path)
+    assert calls["n"] == 1  # not retried — the id's "403" is not an HTTP 403
+    assert slept == []
+
+
+def test_download_song_retries_a_403_raised_as_extractor_error(tmp_path, monkeypatch) -> None:
+    # A 403 during EXTRACTION surfaces as ExtractorError, not DownloadError — both are
+    # YoutubeDLError, and both must be recovered (T-213 review, finding #2).
+    dest = tmp_path / "vid.webm"
+    ok = _ok_info(dest)
+
+    def behaviour(n):
+        if n == 1:
+            raise ExtractorError("unable to extract player response: HTTP Error 403: Forbidden")
+        return ok
+
+    ydl, calls = _counting_ydl(behaviour)
+    monkeypatch.setattr("app.download.YoutubeDL", ydl)
+    monkeypatch.setattr("app.download.time.sleep", lambda _s: None)
+
+    out, _signals = download_song("https://youtu.be/IaQjlagBnG0", tmp_path)
+    assert out == Path(dest)
+    assert calls["n"] == 2  # ExtractorError 403 was retried, then succeeded
