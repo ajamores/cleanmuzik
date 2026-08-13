@@ -21,22 +21,24 @@ CleanMuzik — personal YouTube → Jellyfin music tool. Purpose, stack, constra
 
 ## Current State (2026-08-12)
 
-- **On `main`, clean tree, pushed to origin** (`101f9fb`). Client suite **71 passed**; server **524**
-  (no server code changed this session).
+- **On `main`, clean tree, pushed to origin** (`5e88c67`). Client suite **71 passed**; server **524**.
 - **R1 + R1.1 shipped.** **R1.5** (engine rethink, architecture **B** — multi-sense reconciliation) in
-  build. Phase A + T-204/205/206 landed. **Phase C: T-207 now DONE.**
+  build. Phase A + T-204/205/206 landed. **Phase C: T-207 DONE. T-200 DONE.**
 - **T-207 (review-card park story) landed.** Card renders the persisted `reason` + `contradictions`
   (sense badges) + candidates in adjudicator-ranked order. Per-candidate "via Shazam" badge **dropped by
   owner decision** — candidate row is `{id,title,artist,score}` (ADR-010), no source field; Shazam
   surfaces via its ISRC candidate + contradictions text (spec §5). No new payload field.
+- **T-200 (reconcile key) landed.** Its code half was never built — reconcile was silently degraded. Added
+  the `anthropic_apikey` field + boot log + `.env.example`; owner fixed the `.env` var name. Verified `set`
+  in-process. **Reconcile is now live** once the owner restarts uvicorn to reload `.env`.
 
-## ⟹ NEXT — fix T-200 (blocks T-209)
+## ⟹ NEXT — T-209 end-to-end verify (unblocked)
 
-Owner put a key in `.env`, but **reconcile is still silently in degrade mode**: wrong env var name +
-missing `config.py` field + no boot log. Three exact fixes now filed in **T-200's ticket** ("NOT done —
-gaps found 2026-08-12"). Do them, restart uvicorn, confirm the boot log reports the key **set**, flip
-**T-200 → done**, *then* run **T-209** (§7 end-to-end verify — isolated `DB_PATH` + temp beets lib,
-`pgrep -af uvicorn` first). T-209 is where T-207's fields get their real browser observation.
+Reconcile is wired and the key reads `set`. **First: owner restarts uvicorn** (`--reload` won't reload
+`.env`) and confirms the boot log reads `anthropic_apikey=set`. Then run **T-209** — the §7 end-to-end
+verify: isolated `DB_PATH` + temp beets lib, `pgrep -af uvicorn` first (`docs/workflow.md` + `/verify`).
+Drive a real park and observe the whole §7 checklist — including T-207's `reason`/`contradictions`
+rendering for real (their first live browser observation) and the Pa Salieu override landing.
 **T-208 reserved.**
 
 ## Watch at T-209 (filed in `docs/backlog/`, not open work)
@@ -47,9 +49,9 @@ gaps found 2026-08-12"). Do them, restart uvicorn, confirm the boot log reports 
 
 ## Recent sessions (rolling — last 2–3)
 
-- **2026-08-12 (this session)** — Built + landed **T-207** review-card park story (client-only; +6 park-
-  story tests, suite 71). Code-review: 5 findings all addressed. **Discovered T-200 is incomplete** —
-  reconcile has never run live (wrong env name + missing config field + no boot log). `101f9fb`, pushed.
+- **2026-08-12 (this session)** — Landed **T-207** review-card park story (client-only; +6 tests, suite 71;
+  code-review 5 findings all addressed). Discovered **T-200 was silently incomplete** (reconcile never ran
+  live) and **landed it too** — config field + boot log + `.env.example`. `101f9fb`/`5252302`/`5e88c67`.
 - **2026-08-12 (earlier)** — T-207 design gate passed; standalone Shazam hint deferred → T-212. `aeee532`.
 - **2026-08-11** — Built + landed **T-206** (park-story persistence): `reason` + `contradictions_json`
   columns; one ranked list drives both row and SSE event. +9 tests.
