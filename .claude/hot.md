@@ -55,8 +55,6 @@ rendering for real (their first live browser observation) and the Pa Salieu over
   (auto-retry transient download 403s; +5 tests, server 529) after the owner hit two 403s live; added
   `scripts/check-ytdlp.py`. Commits thru `a455386`.
 - **2026-08-12 (earlier)** — T-207 design gate passed; standalone Shazam hint deferred → T-212. `aeee532`.
-- **2026-08-11** — Built + landed **T-206** (park-story persistence): `reason` + `contradictions_json`
-  columns; one ranked list drives both row and SSE event. +9 tests.
 
 ## Where the rest of the context lives
 
