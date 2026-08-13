@@ -21,7 +21,7 @@ CleanMuzik — personal YouTube → Jellyfin music tool. Purpose, stack, constra
 
 ## Current State (2026-08-12)
 
-- **On `main`, clean tree, pushed to origin** (`5e88c67`). Client suite **71 passed**; server **524**.
+- **On `main`, clean tree, pushed to origin** (`a455386`). Client suite **71 passed**; server **529**.
 - **R1 + R1.1 shipped.** **R1.5** (engine rethink, architecture **B** — multi-sense reconciliation) in
   build. Phase A + T-204/205/206 landed. **Phase C: T-207 DONE. T-200 DONE.**
 - **T-207 (review-card park story) landed.** Card renders the persisted `reason` + `contradictions`
@@ -49,9 +49,11 @@ rendering for real (their first live browser observation) and the Pa Salieu over
 
 ## Recent sessions (rolling — last 2–3)
 
-- **2026-08-12 (this session)** — Landed **T-207** review-card park story (client-only; +6 tests, suite 71;
-  code-review 5 findings all addressed). Discovered **T-200 was silently incomplete** (reconcile never ran
-  live) and **landed it too** — config field + boot log + `.env.example`. `101f9fb`/`5252302`/`5e88c67`.
+- **2026-08-12–13 (this session)** — Landed **T-207** review-card park story (client; +6 tests). Found &
+  fixed **T-200** (reconcile was silently degraded — config field + boot log + `.env.example`); owner set
+  the key, boot log confirms `set`, reconcile now runs live (2-of-3 vote seen in the log). Landed **T-213**
+  (auto-retry transient download 403s; +5 tests, server 529) after the owner hit two 403s live; added
+  `scripts/check-ytdlp.py`. Commits thru `a455386`.
 - **2026-08-12 (earlier)** — T-207 design gate passed; standalone Shazam hint deferred → T-212. `aeee532`.
 - **2026-08-11** — Built + landed **T-206** (park-story persistence): `reason` + `contradictions_json`
   columns; one ranked list drives both row and SSE event. +9 tests.
