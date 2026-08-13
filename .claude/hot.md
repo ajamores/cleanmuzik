@@ -11,7 +11,7 @@ status: evergreen
 
 > This repo's own working-memory board — session continuity, loaded at session start via `/hot`.
 > A cache, not a journal: rewritten each save, never appended. Durable knowledge lives in this repo's
-> stores (`docs/r1/adr.md` · `docs/learnings.md` · `docs/research/` · `docs/backlog/` · git); business
+> stores (`docs/r1/adr.md` · `docs/learnings.md` · `docs/research/` · `docs/r1.5/` · git); business
 > learnings go to the garden via `/graft`.
 
 ## What this repo is
@@ -21,43 +21,38 @@ CleanMuzik — personal YouTube → Jellyfin music tool. Purpose, stack, constra
 
 ## Current State (2026-08-12)
 
-- **On `main`, clean tree, pushed to origin** (`a455386`). Client suite **71 passed**; server **529**.
-- **R1 + R1.1 shipped.** **R1.5** (engine rethink, architecture **B** — multi-sense reconciliation) in
-  build. Phase A + T-204/205/206 landed. **Phase C: T-207 DONE. T-200 DONE.**
-- **T-207 (review-card park story) landed.** Card renders the persisted `reason` + `contradictions`
-  (sense badges) + candidates in adjudicator-ranked order. Per-candidate "via Shazam" badge **dropped by
-  owner decision** — candidate row is `{id,title,artist,score}` (ADR-010), no source field; Shazam
-  surfaces via its ISRC candidate + contradictions text (spec §5). No new payload field.
-- **T-200 (reconcile key) landed.** Its code half was never built — reconcile was silently degraded. Added
-  the `anthropic_apikey` field + boot log + `.env.example`; owner fixed the `.env` var name. Verified `set`
-  in-process. **Reconcile is now live** once the owner restarts uvicorn to reload `.env`.
+- **On `main`, clean tree** (`4c98623`). Client **71** / server **529** — unchanged; T-209 was docs-only.
+- **R1 + R1.1 shipped.** **R1.5** (architecture B — multi-sense reconciliation): T-200–T-207 all landed;
+  **T-209 verify DONE.**
+- **T-209 closed — §7 verified end-to-end, 11 of 12 pass.** Isolated `/verify` on the spike corpus with
+  live reconcile (real Shazam/MusicBrainz/Haiku); **real library confirmed untouched.** Pa Salieu override
+  landed the correct identity via `source=isrc senses=[yt,sz]` (mbid 6d6dd1f3), zero clicks. Happy-path,
+  vote-holds, no-invented-facts, fail-soft (error+hang, hang capped 8.06s), reconcile-fail-parks, degrade,
+  persistence (byte-identical across restart), feature-parity (3 songs identical B vs R1), serial pool=1,
+  genre-unchanged — all ✅.
+- **The 1 fail was speed** — identity median **~21s** vs the <6s §7 target. The target came from spike
+  exp 9's 4.2s, which measured the senses against a **pre-captured** fixture; the built pipeline is
+  **additive** (live fingerprint chain ~12s THEN senses serially). Per owner: **§7 speed amended** to
+  no-regression-vs-R1-total, **T-208 opened**, learning + spike postscript filed.
 
-## ⟹ NEXT — T-209 end-to-end verify (unblocked)
+## ⟹ NEXT — T-208, or ship R1.5?
 
-Reconcile is wired and the key reads `set`. **First: owner restarts uvicorn** (`--reload` won't reload
-`.env`) and confirms the boot log reads `anthropic_apikey=set`. Then run **T-209** — the §7 end-to-end
-verify: isolated `DB_PATH` + temp beets lib, `pgrep -af uvicorn` first (`docs/workflow.md` + `/verify`).
-Drive a real park and observe the whole §7 checklist — including T-207's `reason`/`contradictions`
-rendering for real (their first live browser observation) and the Pa Salieu override landing.
-**T-208 reserved.**
-
-## Watch at T-209 (filed in `docs/backlog/`, not open work)
-
-- **T-210** — isrc.py's 1/sec gate independent of beets' MB limiter; low real risk.
-- **T-211** — `loose_match` containment false-matches short names (`Sia`⊂`Asia`); very low risk.
-- **T-212** — deferred standalone Shazam hint; graduate only if contradictions text proves inadequate.
+- **T-208** (opened by T-209, was the reserved slot): gather senses **concurrently within a track**
+  (ADR-001 bars cross-track parallelism, **not** intra-track) → pull identity from ~21s toward the ~12s
+  fingerprint floor, with **zero** change to T-209's land/park outcomes. Spec in `docs/r1.5/tickets.md`.
+- **Owner call:** T-208 is an *optimization, not a correctness blocker* — §7 now passes against the amended
+  bar. Decide whether R1.5 **ships now** (T-208 as a post-ship follow-on) or T-208 lands first.
 
 ## Recent sessions (rolling — last 2–3)
 
-- **2026-08-12–13 (this session)** — Landed **T-207** review-card park story (client; +6 tests). Found &
-  fixed **T-200** (reconcile was silently degraded — config field + boot log + `.env.example`); owner set
-  the key, boot log confirms `set`, reconcile now runs live (2-of-3 vote seen in the log). Landed **T-213**
-  (auto-retry transient download 403s; +5 tests, server 529) after the owner hit two 403s live; added
-  `scripts/check-ytdlp.py`. Commits thru `a455386`.
-- **2026-08-12 (earlier)** — T-207 design gate passed; standalone Shazam hint deferred → T-212. `aeee532`.
+- **2026-08-12 (this session)** — Ran **T-209**: isolated `/verify`, 11/12 §7 pass, real library untouched.
+  Speed failed → §7 amended + **T-208** opened; learning transcribed. Commit `4c98623`. (Verify harness +
+  RESULTS in the session scratchpad.)
+- **2026-08-12–13 (prev)** — T-207 review-card park story + T-200 reconcile-key fix (reconcile went live) +
+  T-213 (auto-retry transient 403s). thru `a455386`.
 
 ## Where the rest of the context lives
 
-`docs/r1.5/spec.md` (v3) · `docs/r1.5/tickets.md` · `docs/r1.5/design/t207-review-card.html` ·
-`docs/research/engine-rethink-spike.md` · `docs/roadmap.md` · `docs/r1/adr.md` (thru ADR-025) ·
-`docs/learnings.md` · `docs/backlog/`. Business/vault → `/graft`.
+`docs/r1.5/spec.md` (§7 amended) · `docs/r1.5/tickets.md` (T-208 open, T-209 done) ·
+`docs/research/engine-rethink-spike.md` · `docs/roadmap.md` · `docs/r1/adr.md` · `docs/learnings.md` ·
+`docs/backlog/` (T-210/211/212). Business/vault → `/graft`.
