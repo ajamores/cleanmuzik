@@ -39,8 +39,10 @@ R1.6 (or pull R2 forward) by flipping its status when work begins.
 
 **R1.6** (LLM-authored genre/mood, gated on exp 4) is next in sequence; **R2** (playlists + migrate/clean)
 follows — the engine R1.5 landed is what R2's batch multiplies over. `docs/r2/spec.md` already
-`ready-for-agent`. **T-208 (per-song speed) is parked against R2**: 5s/song is a vanity metric on a
-one-at-a-time background add, but multiplies to ~15–20 min across a bulk-migrate, so it graduates there.
+`ready-for-agent`. **The speed follow-ons live in `docs/backlog/`, split by risk:** T-215 (Shazam hoist)
+and T-214 (narrate the identify freeze) are safe, non-engine, buildable anytime; **T-208** (candidate
+de-hydration) is the only piece that touches the tagging engine, so it's deferred + conditional and clears
+its own §7 gate — deliberately **not** bolted to R2's scope.
 
 ### R1.5 (shipped) — closeout
 - [x] All tickets T-200–T-207 built + integrated on `main` (prior sessions); T-209 verify **done** (`4c98623`)
