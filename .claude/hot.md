@@ -1,7 +1,7 @@
 ---
 type: meta
 title: "Hot — cleanmuzik"
-updated: 2026-08-13
+updated: 2026-08-14
 tags:
   - meta
   - hot-cache
@@ -19,44 +19,47 @@ status: evergreen
 CleanMuzik — personal YouTube → Jellyfin music tool. Purpose, stack, constraints, read-order in
 `CLAUDE.md`; scope in `cleanmuzik-prd.md`. Not restated here.
 
-## Current State (2026-08-13)
+## Current State (2026-08-14)
 
-- **On `main`, pushed to origin.** Client **71** / server **529** green (R1.5 close was docs-only).
-- **R1 + R1.1 + R1.5 all SHIPPED.** No release is `in-build` right now — **R1.6** (LLM genre, gated on
-  exp 4) is next in sequence; R2 (playlists + migrate/clean) follows. Flip a status to start one.
-- **R1.5 shipped 2026-08-13** — architecture B (multi-sense reconciliation). T-209 verified §7 end-to-end
-  (11/12 on real audio, real library untouched); marquee **Pa Salieu override** lands the correct identity
-  via a real ISRC MBID where R1 could only mistag/park.
-- **The one non-pass was speed** — the spike's ~8.6× / <6s was **fixture-measured, not integrated**; §7
-  amended to no-regression-vs-R1 (B is 22–26s vs R1's ~36s auto-land, so faster, just not the fantasy).
+- **On `main`.** Client 71 / server 529 green. **Uncommitted:** doc-only edits from today's R1.5 retro +
+  roadmap resequence (`learnings.md`, `adr.md`, `workflow.md`, `roadmap.md`) — not yet committed.
+- **R1 + R1.1 + R1.5 all SHIPPED.** No release is `in-build`. **R2 (Playlists) is next.**
+- **R1.5 retro done (this session).** Root cause of the speed miss: the spike benchmarked the new senses
+  *in isolation* against a fixture, ignoring work the real pipeline already does — an apples-to-oranges
+  number that became a §7 criterion and broke at verify. Filed: learning (`learnings.md` 2026-08-14) +
+  **ADR-026** (a spike's numbers pass a council review before entering a spec) + `workflow.md` rationale.
 
-## The speed story (settled — filed to `docs/backlog/`, split by risk)
+## Build order — RESEQUENCED (owner call 2026-08-14)
 
-- A design council corrected the lead's analysis: the ~8–9s fat is **fan-out** (5 independent MB
-  `track_for_id` hydrations behind the 1/sec limit), **not** an unfixable dependency chain — the repo
-  already fixed the identical waste on re-search (`mb_search.py` finding #4, 27s→~1s).
-- **Split by risk, owner-approved** — two safe non-engine pieces buildable anytime, one risky engine change
-  deferred:
-  - [`backlog/T-215`](../../docs/backlog/T-215.md) — Shazam hoist (safe, ~2s + kills the hang tail)
-  - [`backlog/T-214`](../../docs/backlog/T-214.md) — narrate the identify freeze (safe, biggest *felt* win)
-  - [`backlog/T-208`](../../docs/backlog/T-208.md) — candidate de-hydration (~4–5s, **engine change** →
-    deferred, conditional, clears its own §7 gate — **not** bolted to R2)
+North-star = the owner's music playable **in the car**. Sequence is **not** numeric:
+
+**R2 Playlists → R2.5 Migrate/clean → R3 Tailscale/host → R1.6 genre.**
+
+- **R2 = Playlists ONLY** (paste a YouTube playlist, walk away). Spec `docs/r2/spec.md` signed off,
+  `ready-for-agent`. Migrate/clean **split out to R2.5** — the roadmap table used to conflate them (fixed).
+- **R2.5 = Migrate + clean** — the one the owner actually wants; fills the library worth streaming.
+- **R3 = Tailscale + always-on host** (2010 MacBook on Mint) — the reachability that unlocks the car.
+- **R1.6 = LLM genre — DEFERRED** behind all three (polish, off the car path).
+
+Speed follow-ons unchanged in `docs/backlog/`: T-215 (Shazam hoist) + T-214 (narrate freeze) safe;
+T-208 (de-hydration) the conditional engine change — **now graduates at R2.5**, not R2.
 
 ## ⟹ NEXT
 
-- Nothing is mid-flight. Start **R1.6** (or pull **R2** forward) by flipping its roadmap status when work
-  begins. R1.6 opens with **exp 4** (the never-run confident-wrong-rate test for LLM genre).
+- Nothing mid-flight. **Commit today's doc edits**, then **start R2** by flipping its roadmap status to
+  `in-build`. R2's spec is signed off; the batch model + `playlists` entity are specced in `docs/r2/spec.md`.
 
 ## Recent sessions (rolling — last 2–3)
 
-- **2026-08-13 (this session)** — Closed **T-209** (§7 11/12); **shipped R1.5**. Ran a design council on
-  the speed finding → corrected the fan-out blind spot; filed the speed follow-ons to backlog split by
-  risk (T-215/T-214 safe, T-208 the conditional engine change). Roadmap flipped R1.5 → shipped; learning filed.
-- **2026-08-12 (prev)** — T-207 review-card + T-200 reconcile-key fix (reconcile went live) + T-213
-  (403 retry). thru `a455386`.
+- **2026-08-14 (this session)** — Ran the **R1.5 retro**: filed the spike-benchmark lesson + **ADR-026**
+  (spike-number council gate) + `workflow.md` rationale. **Resequenced the roadmap** for the car north-star
+  (R2 → R2.5 → R3 → R1.6); fixed the stale "R2 = playlists + migrate" line (migrate is R2.5). Doc edits
+  uncommitted.
+- **2026-08-13 (prev)** — Closed **T-209** (§7 11/12); **shipped R1.5**. Design council corrected the
+  fan-out blind spot; filed speed follow-ons to backlog split by risk (T-215/T-214 safe, T-208 conditional).
 
 ## Where the rest of the context lives
 
-`docs/roadmap.md` (R1.5 shipped) · `docs/r1.5/spec.md` (§7 amended) · `docs/r1.5/tickets.md` (T-209 done) ·
-`docs/research/engine-rethink-spike.md` · `docs/r1/adr.md` · `docs/learnings.md` ·
-`docs/backlog/` (speed: T-208/T-214/T-215; also T-210/211/212). Business/vault → `/graft`.
+`docs/roadmap.md` (resequenced) · `docs/r2/spec.md` (Playlists, `ready-for-agent`) · `docs/r1/adr.md`
+(ADR-026 new) · `docs/learnings.md` · `docs/workflow.md` (spike-number gate) · `docs/backlog/`
+(T-208/214/215). Business/vault → `/graft`.

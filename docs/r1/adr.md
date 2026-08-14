@@ -709,3 +709,15 @@ Format: `ADR-NNN — decision. Rationale. [date]`
   never author an MBID (spec §5; the spike's free-text `{artist,title,mbid}` schema is the forbidden
   shape). Confidence is **structurally absent** from the `Verdict` dataclass, so it cannot travel past
   the seam (spec §5, confidence never load-bearing). (Filed on building T-204.) [2026-08-10]
+- **ADR-026 — A spike's numbers pass a council review before they enter a spec.** Before any figure
+  produced by a research spike (speed, accuracy, confident-wrong rate, …) is promoted into a spec — as
+  an acceptance criterion *or* as justification to take on / defer scope — it passes a design-council
+  pass whose sole job is to confirm the spike **ran earnestly**: that it measured the same end-to-end
+  work the integrated pipeline actually does, on comparable live inputs, and not a flattering isolated
+  slice. Rationale — R1.5's ~8.6× / <6s speed claim measured the new senses alone against a fixture,
+  ignored the work the real pipeline already does on the track, and rode into §7 as an acceptance
+  criterion; it was caught only at T-209 verify, forcing a mid-verification amendment (`docs/learnings.md`
+  2026-08-13). The same design council that later corrected the fan-out analysis would have caught the
+  inflated number at the source. **Scope:** spike-produced numbers headed *for a spec* — not every
+  benchmark, and not numbers that stay in the research doc. Binds alongside **ADR-016** (design gate) as
+  a standing process gate; rationale + placement in `docs/workflow.md`. [2026-08-13]

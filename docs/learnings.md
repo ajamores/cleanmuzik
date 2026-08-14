@@ -13,6 +13,16 @@ Format: `- <date> — what went wrong → the correction / rule now in place`
 
 ---
 
+- 2026-08-13 — (R1.5 retro, learning) **A spike that benchmarks the new engine's senses *in isolation*
+  against a fixture — without accounting for the work the integrated pipeline already does on the track —
+  produces a non-comparable number, not a metric.** R1.5's ~8.6× / <6s measured only the new senses and
+  made *that* the result, then rode into §7 as a speed **acceptance criterion**. At T-209 verify the
+  integrated pipeline came in at 22–26s — still faster than R1's ~36s auto-land, but nowhere near the
+  claim, and §7 had to be amended mid-verification. **Rule:** a spike number is a hypothesis until it
+  measures the *same end-to-end work the real pipeline does, on live inputs*. An isolated slice never
+  enters a spec as an acceptance criterion — the correction always lands at the worst possible time
+  (verify). Hardened into a standing gate: **ADR-026** (a spike's numbers pass a council review before
+  they enter a spec).
 - 2026-08-13 — **A slow multi-call stage was written off as an unfixable "dependency chain" when its
   biggest cost was actually fan-out the repo already knew how to collapse.** Diagnosing the R1.5 identity
   latency, the lead called the ~8–9s beets candidate lookup a serial `fp→candidates→ISRC→winner→year` chain

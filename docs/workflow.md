@@ -72,6 +72,24 @@ doesn't remove it. Full rationale + the T-020 evidence: **ADR-016**.
 
 ---
 
+## Spike-number gate — the rationale
+
+The rule (in `CLAUDE.md`'s ADR set, **ADR-026**): before any number produced by a research spike —
+speed, accuracy, confident-wrong rate — is promoted into a spec, as an acceptance criterion *or* as
+justification to take on / defer scope, it passes a **design-council pass** that confirms the spike
+**ran earnestly**: it measured the same end-to-end work the integrated pipeline actually does, on
+comparable live inputs, not a flattering isolated slice.
+
+The detail: scope is spike numbers headed *for a spec* — not every benchmark, and not numbers that
+stay in the research doc. The cost of skipping it is asymmetric and back-loaded: R1.5's ~8.6× speed
+claim measured the new senses alone against a fixture, became a §7 acceptance criterion, and was
+caught only at T-209 **verify** — the most expensive moment to discover it, forcing a mid-verification
+amendment (`docs/learnings.md` 2026-08-13). A council pass at promotion time is minutes; the correction
+at verify time cost a re-scoped spec. Sibling to the design gate: both run *ahead of* the Definition of
+Done, both are owner/council sign-offs on a claim before it calcifies into code or scope.
+
+---
+
 ## Parallel build (fan-out) — the mechanics that work
 
 Proven on T-002/03/04 and again on T-013 ∥ T-015. Reuse this shape; don't improvise a new one.
