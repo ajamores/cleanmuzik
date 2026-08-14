@@ -1,0 +1,799 @@
+<title>R2 Playlists</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root {
+    --paper: #f6f7f8;
+    --surface: #ffffff;
+    --surface-2: #eef0f2;
+    --ink: #15181b;
+    --ink-2: #3c454b;
+    --muted: #697178;
+    --line: #dde1e4;
+    --line-2: #cfd4d8;
+
+    --signal: #0e9a8c;      /* teal — the app's Signal Path accent */
+    --signal-soft: #d5efec;
+    --journal: #b9761a;     /* amber — journal warmth / "needs you" */
+    --journal-soft: #f6e7cf;
+
+    --landed: #2f9155;
+    --review: #b9761a;
+    --gone: #b34a41;
+    --skipped: #6b757d;
+    --queued: #3a76ad;
+
+    --landed-soft: #d9ecdf;
+    --review-soft: #f6e7cf;
+    --gone-soft: #f2dcd9;
+    --skipped-soft: #e2e6e9;
+    --queued-soft: #d9e6f1;
+
+    --shadow: 0 1px 2px rgba(20,24,28,.05), 0 8px 24px -12px rgba(20,24,28,.18);
+
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --mono: "SF Mono", "JetBrains Mono", "Fira Code", ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
+
+    --maxw: 62rem;
+  }
+
+  :root:not([data-theme="light"]) {
+    @media (prefers-color-scheme: dark) {
+      --paper: #101315;
+      --surface: #171b1e;
+      --surface-2: #1e2427;
+      --ink: #eef1f3;
+      --ink-2: #c2cacf;
+      --muted: #8b959b;
+      --line: #2a3135;
+      --line-2: #363f44;
+
+      --signal: #35c3b3;
+      --signal-soft: #123834;
+      --journal: #e0a03f;
+      --journal-soft: #3a2c12;
+
+      --landed: #4bb877;
+      --review: #e0a03f;
+      --gone: #d9776d;
+      --skipped: #8b959b;
+      --queued: #5f9dd4;
+
+      --landed-soft: #16311f;
+      --review-soft: #3a2c12;
+      --gone-soft: #3a1f1b;
+      --skipped-soft: #262d31;
+      --queued-soft: #142633;
+
+      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 10px 30px -14px rgba(0,0,0,.6);
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --paper: #101315;
+    --surface: #171b1e;
+    --surface-2: #1e2427;
+    --ink: #eef1f3;
+    --ink-2: #c2cacf;
+    --muted: #8b959b;
+    --line: #2a3135;
+    --line-2: #363f44;
+
+    --signal: #35c3b3;
+    --signal-soft: #123834;
+    --journal: #e0a03f;
+    --journal-soft: #3a2c12;
+
+    --landed: #4bb877;
+    --review: #e0a03f;
+    --gone: #d9776d;
+    --skipped: #8b959b;
+    --queued: #5f9dd4;
+
+    --landed-soft: #16311f;
+    --review-soft: #3a2c12;
+    --gone-soft: #3a1f1b;
+    --skipped-soft: #262d31;
+    --queued-soft: #142633;
+
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 10px 30px -14px rgba(0,0,0,.6);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  .wrap { max-width: var(--maxw); margin: 0 auto; padding: 0 1.5rem; }
+
+  a { color: var(--signal); }
+
+  code, .mono { font-family: var(--mono); font-size: .86em; }
+  code {
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    padding: .05em .38em;
+    border-radius: 4px;
+    color: var(--ink-2);
+    white-space: nowrap;
+  }
+
+  /* ---------- Masthead ---------- */
+  header.mast {
+    border-bottom: 1px solid var(--line);
+    background:
+      radial-gradient(120% 140% at 88% -20%, var(--signal-soft) 0%, transparent 55%),
+      var(--surface);
+  }
+  .mast-inner { padding: 2.75rem 1.5rem 2.25rem; max-width: var(--maxw); margin: 0 auto; }
+  .eyebrow {
+    display: flex; align-items: center; gap: .75rem; flex-wrap: wrap;
+    font-family: var(--mono);
+    font-size: .74rem;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 1rem;
+  }
+  .pill {
+    font-family: var(--mono);
+    font-size: .68rem;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    padding: .28em .7em;
+    border-radius: 999px;
+    border: 1px solid transparent;
+    white-space: nowrap;
+  }
+  .pill.status { background: var(--signal-soft); color: var(--signal); border-color: color-mix(in srgb, var(--signal) 35%, transparent); }
+  .pill.ghost  { background: transparent; color: var(--muted); border-color: var(--line-2); }
+
+  h1.title {
+    font-size: clamp(2.4rem, 6vw, 3.6rem);
+    line-height: 1.02;
+    letter-spacing: -0.03em;
+    font-weight: 800;
+    margin: 0 0 .6rem;
+    text-wrap: balance;
+  }
+  h1.title .accent { color: var(--signal); }
+  .thesis {
+    font-size: clamp(1.05rem, 2.4vw, 1.3rem);
+    color: var(--ink-2);
+    max-width: 44ch;
+    margin: 0 0 1.75rem;
+    line-height: 1.5;
+  }
+  .thesis strong { color: var(--ink); font-weight: 650; }
+
+  .meta-row {
+    display: flex; flex-wrap: wrap; gap: 1.5rem 2.5rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--line);
+  }
+  .meta-item { display: flex; flex-direction: column; gap: .15rem; }
+  .meta-item .k { font-family: var(--mono); font-size: .68rem; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+  .meta-item .v { font-size: .95rem; color: var(--ink); font-weight: 550; }
+
+  /* ---------- Section scaffold ---------- */
+  main { padding: 3.5rem 0 5rem; }
+  section { margin-bottom: 3.75rem; }
+  .sec-head { margin-bottom: 1.5rem; }
+  .sec-num {
+    font-family: var(--mono);
+    font-size: .74rem;
+    letter-spacing: .14em;
+    color: var(--signal);
+    display: block;
+    margin-bottom: .4rem;
+  }
+  h2 {
+    font-size: clamp(1.5rem, 3.4vw, 2rem);
+    letter-spacing: -0.02em;
+    line-height: 1.1;
+    margin: 0;
+    font-weight: 750;
+    text-wrap: balance;
+  }
+  .sec-sub { color: var(--muted); margin: .55rem 0 0; max-width: 60ch; }
+
+  p { margin: 0 0 1rem; }
+  .lede { color: var(--ink-2); }
+
+  /* ---------- Flow steps ---------- */
+  .flow { display: grid; gap: 1rem; grid-template-columns: repeat(2, 1fr); }
+  @media (max-width: 640px) { .flow { grid-template-columns: 1fr; } }
+  .step {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 1.25rem 1.35rem;
+    box-shadow: var(--shadow);
+    position: relative;
+    overflow: hidden;
+  }
+  .step::before {
+    content: "";
+    position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+    background: var(--signal);
+  }
+  .step .n {
+    font-family: var(--mono);
+    font-size: 1.6rem;
+    font-weight: 700;
+    color: color-mix(in srgb, var(--signal) 60%, var(--muted));
+    line-height: 1;
+    margin-bottom: .6rem;
+    font-variant-numeric: tabular-nums;
+  }
+  .step h3 { margin: 0 0 .35rem; font-size: 1.02rem; letter-spacing: -0.01em; }
+  .step p { margin: 0; color: var(--ink-2); font-size: .92rem; line-height: 1.5; }
+
+  /* ---------- Cards / panels ---------- */
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 1.5rem;
+    box-shadow: var(--shadow);
+  }
+  .grid-2 { display: grid; gap: 1.25rem; grid-template-columns: 1fr 1fr; }
+  @media (max-width: 720px) { .grid-2 { grid-template-columns: 1fr; } }
+
+  .panel h3 { margin: 0 0 .9rem; font-size: 1.08rem; letter-spacing: -0.01em; display: flex; align-items: center; gap: .5rem; }
+  .tag {
+    font-family: var(--mono); font-size: .64rem; letter-spacing: .1em; text-transform: uppercase;
+    padding: .2em .55em; border-radius: 5px; background: var(--surface-2); color: var(--muted);
+    border: 1px solid var(--line);
+  }
+  .tag.new { background: var(--signal-soft); color: var(--signal); border-color: transparent; }
+
+  /* entity field list */
+  .fields { list-style: none; padding: 0; margin: 0; display: grid; gap: .1rem; }
+  .fields li {
+    display: flex; gap: .75rem; align-items: baseline;
+    padding: .5rem 0; border-bottom: 1px dashed var(--line);
+    font-size: .9rem;
+  }
+  .fields li:last-child { border-bottom: 0; }
+  .fields .fname { font-family: var(--mono); font-size: .82rem; color: var(--ink); min-width: 10.5rem; }
+  .fields .fdesc { color: var(--muted); }
+  .fields .fnote { color: var(--signal); font-family: var(--mono); font-size: .7rem; letter-spacing: .05em; }
+
+  /* ---------- Buckets (batch card mock) ---------- */
+  .buckets { display: flex; flex-wrap: wrap; gap: .6rem; margin-top: 1.1rem; }
+  .bucket {
+    display: flex; align-items: center; gap: .55rem;
+    padding: .5rem .8rem .5rem .6rem;
+    border-radius: 9px;
+    border: 1px solid var(--line);
+    background: var(--surface);
+    font-size: .86rem;
+  }
+  .bucket .dot { width: .7rem; height: .7rem; border-radius: 50%; flex: none; }
+  .bucket .count { font-family: var(--mono); font-weight: 700; font-variant-numeric: tabular-nums; }
+  .bucket .lbl { color: var(--muted); }
+  .b-landed  .dot { background: var(--landed); }
+  .b-review  .dot { background: var(--review); }
+  .b-gone    .dot { background: var(--gone); }
+  .b-skipped .dot { background: var(--skipped); }
+  .b-queued  .dot { background: var(--queued); }
+
+  .cardmock {
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 1.35rem 1.4rem;
+  }
+  .cardmock .cm-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; flex-wrap: wrap; }
+  .cardmock .cm-title { font-weight: 700; font-size: 1.1rem; letter-spacing: -0.01em; }
+  .cardmock .cm-title span { color: var(--muted); font-weight: 500; font-size: .85rem; display: block; margin-top: .1rem; font-family: var(--mono); }
+  .cm-state {
+    font-family: var(--mono); font-size: .68rem; letter-spacing: .08em; text-transform: uppercase;
+    color: var(--journal); background: var(--journal-soft);
+    padding: .3em .7em; border-radius: 999px; white-space: nowrap;
+  }
+  .meter { height: 10px; border-radius: 999px; background: var(--surface); border: 1px solid var(--line); overflow: hidden; display: flex; margin: 1.1rem 0 .3rem; }
+  .meter > i { display: block; height: 100%; }
+  .meter .m-landed  { background: var(--landed); }
+  .meter .m-review  { background: var(--review); }
+  .meter .m-gone    { background: var(--gone); }
+  .meter .m-skipped { background: var(--skipped); }
+  .meter .m-queued  { background: var(--surface-2); }
+  .cm-now { display: flex; align-items: center; gap: .6rem; margin-top: 1rem; font-size: .9rem; color: var(--ink-2); }
+  .cm-now .live {
+    width: .55rem; height: .55rem; border-radius: 50%; background: var(--signal);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--signal) 60%, transparent);
+    animation: pulse 2s infinite;
+  }
+  @keyframes pulse {
+    0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--signal) 55%, transparent); }
+    70% { box-shadow: 0 0 0 8px transparent; }
+    100% { box-shadow: 0 0 0 0 transparent; }
+  }
+  @media (prefers-reduced-motion: reduce) { .cm-now .live { animation: none; } }
+  .caption { font-size: .78rem; color: var(--muted); margin-top: .9rem; font-style: italic; }
+
+  /* ---------- Callouts ---------- */
+  .note {
+    border-left: 3px solid var(--journal);
+    background: var(--journal-soft);
+    padding: .95rem 1.15rem;
+    border-radius: 0 10px 10px 0;
+    font-size: .92rem;
+    color: var(--ink-2);
+    margin: 1.1rem 0;
+  }
+  .note strong { color: var(--ink); }
+  .note.signal { border-left-color: var(--signal); background: var(--signal-soft); }
+
+  /* chain */
+  .chain { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; font-family: var(--mono); font-size: .82rem; margin: .3rem 0 1rem; }
+  .chain .node { background: var(--surface-2); border: 1px solid var(--line-2); border-radius: 7px; padding: .35em .7em; color: var(--ink); }
+  .chain .arrow { color: var(--signal); font-weight: 700; }
+
+  /* ---------- Events table ---------- */
+  .tbl-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); }
+  table { border-collapse: collapse; width: 100%; min-width: 34rem; background: var(--surface); }
+  th, td { text-align: left; padding: .8rem 1rem; border-bottom: 1px solid var(--line); vertical-align: top; font-size: .9rem; }
+  thead th {
+    font-family: var(--mono); font-size: .68rem; letter-spacing: .1em; text-transform: uppercase;
+    color: var(--muted); background: var(--surface-2); font-weight: 600;
+    position: sticky; top: 0;
+  }
+  tbody tr:last-child td { border-bottom: 0; }
+  td .evt { font-family: var(--mono); font-size: .82rem; color: var(--signal); white-space: nowrap; }
+  td.desc { color: var(--ink-2); }
+  .req { display: inline-block; font-family: var(--mono); font-size: .62rem; letter-spacing: .08em; text-transform: uppercase; color: var(--journal); border: 1px solid color-mix(in srgb, var(--journal) 40%, transparent); border-radius: 5px; padding: .1em .45em; margin-top: .35rem; }
+
+  /* ---------- Stories ---------- */
+  .story-group { margin-bottom: 1.5rem; }
+  .story-group > h3 {
+    font-size: .82rem; font-family: var(--mono); text-transform: uppercase; letter-spacing: .1em;
+    color: var(--signal); margin: 0 0 .75rem; display: flex; align-items: center; gap: .6rem;
+  }
+  .story-group > h3::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+  .stories { list-style: none; margin: 0; padding: 0; display: grid; gap: .55rem; }
+  .stories li {
+    display: grid; grid-template-columns: 2.1rem 1fr; gap: .6rem; align-items: start;
+    background: var(--surface); border: 1px solid var(--line); border-radius: 9px;
+    padding: .7rem .85rem; font-size: .9rem; color: var(--ink-2); line-height: 1.45;
+  }
+  .stories li .sid { font-family: var(--mono); font-size: .78rem; font-weight: 700; color: var(--signal); font-variant-numeric: tabular-nums; }
+
+  /* ---------- Scope in/out ---------- */
+  .scope { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; }
+  @media (max-width: 720px) { .scope { grid-template-columns: 1fr; } }
+  .scope-col { border-radius: 12px; padding: 1.4rem 1.5rem; border: 1px solid var(--line); }
+  .scope-col.in  { background: var(--signal-soft); border-color: color-mix(in srgb, var(--signal) 30%, transparent); }
+  .scope-col.out { background: var(--surface); }
+  .scope-col h3 { margin: 0 0 .9rem; font-size: 1rem; letter-spacing: -0.01em; display: flex; align-items: center; gap: .5rem; }
+  .scope-col ul { list-style: none; margin: 0; padding: 0; display: grid; gap: .6rem; }
+  .scope-col li { display: flex; gap: .6rem; align-items: baseline; font-size: .9rem; color: var(--ink-2); }
+  .scope-col li .mk { font-family: var(--mono); font-weight: 700; flex: none; }
+  .scope-col.in li .mk { color: var(--signal); }
+  .scope-col.out li .mk { color: var(--muted); }
+  .scope-col li b { color: var(--ink); font-weight: 600; }
+
+  /* ---------- Checklist ---------- */
+  .check { list-style: none; margin: 0; padding: 0; display: grid; gap: .5rem; }
+  .check li {
+    display: grid; grid-template-columns: 1.5rem 1fr; gap: .7rem; align-items: start;
+    font-size: .92rem; color: var(--ink-2); padding: .6rem .3rem; border-bottom: 1px solid var(--line);
+  }
+  .check li:last-child { border-bottom: 0; }
+  .check .box {
+    width: 1.15rem; height: 1.15rem; border-radius: 5px; border: 1.5px solid var(--line-2);
+    margin-top: .1rem; flex: none;
+  }
+
+  /* ---------- Prereq ---------- */
+  .prereqs { display: grid; gap: 1rem; grid-template-columns: repeat(3, 1fr); }
+  @media (max-width: 720px) { .prereqs { grid-template-columns: 1fr; } }
+  .prereq { background: var(--surface); border: 1px solid var(--line); border-radius: 11px; padding: 1.2rem 1.3rem; box-shadow: var(--shadow); }
+  .prereq .badge { font-family: var(--mono); font-size: .68rem; letter-spacing: .08em; color: var(--journal); text-transform: uppercase; }
+  .prereq h4 { margin: .4rem 0 .5rem; font-size: 1rem; letter-spacing: -0.01em; }
+  .prereq p { margin: 0; font-size: .86rem; color: var(--ink-2); line-height: 1.5; }
+
+  /* ---------- Footer ---------- */
+  footer {
+    border-top: 1px solid var(--line);
+    padding: 2.25rem 0 3rem;
+    color: var(--muted);
+    font-size: .84rem;
+  }
+  footer .wrap { display: flex; flex-wrap: wrap; gap: .5rem 1.5rem; justify-content: space-between; align-items: baseline; }
+  footer .mono { font-family: var(--mono); font-size: .78rem; }
+
+  hr.rule { border: 0; border-top: 1px solid var(--line); margin: 0; }
+</style>
+
+<header class="mast">
+  <div class="mast-inner">
+    <div class="eyebrow">
+      <span>CleanMuzik · Release Spec</span>
+      <span class="pill status">ready-for-agent</span>
+      <span class="pill ghost">specing → build</span>
+    </div>
+    <h1 class="title">R2 · <span class="accent">Playlists</span></h1>
+    <p class="thesis">Paste one YouTube <strong>playlist</strong> URL and walk away. A month of music enters the library in a single action — and survives into Jellyfin as a playable <strong>journal</strong>.</p>
+    <div class="meta-row">
+      <div class="meta-item"><span class="k">Second everyday job</span><span class="v">after R1 single-song acquire</span></div>
+      <div class="meta-item"><span class="k">Also fixes</span><span class="v">T-037 · artist-credit mangle</span></div>
+      <div class="meta-item"><span class="k">New ADRs required</span><span class="v">2 · before the design gate</span></div>
+      <div class="meta-item"><span class="k">Scope truth</span><span class="v">cleanmuzik-prd.md</span></div>
+    </div>
+  </div>
+</header>
+
+<main>
+  <div class="wrap">
+
+    <!-- ONE-LINER FLOW -->
+    <section>
+      <div class="sec-head">
+        <span class="sec-num">01 · The flow</span>
+        <h2>Paste, and walk away</h2>
+        <p class="sec-sub">The same R1 pipeline turned on a whole playlist — one track at a time (ADR-001, sequential), one card, one stream.</p>
+      </div>
+      <div class="flow">
+        <div class="step">
+          <div class="n">1</div>
+          <h3>Expand</h3>
+          <p>The playlist URL that R1 rejected with a <code>422</code> is now accepted. yt-dlp expands it into N tracks; each becomes its own <code>jobs</code> row and runs the existing download → transcode → identify → tag → land pipeline.</p>
+        </div>
+        <div class="step">
+          <div class="n">2</div>
+          <h3>Mirror to Jellyfin</h3>
+          <p>A Jellyfin playlist named after the YouTube title is created and filled as tracks land. Each file still lands canonically under <code>Artist/Album</code> — one copy on disk; the playlist holds pointers.</p>
+        </div>
+        <div class="step">
+          <div class="n">3</div>
+          <h3>Park the messy ones</h3>
+          <p>Low-confidence tracks go to the <em>same</em> R1.1 review inbox — no second place to look. The batch reports <b>"waiting on you,"</b> not "done," while any track is still parked.</p>
+        </div>
+        <div class="step">
+          <div class="n">4</div>
+          <h3>Backfill &amp; re-run</h3>
+          <p>Resolve a parked track days later and it appends to its playlist automatically. Re-paste a grown playlist and it updates the <em>same</em> Jellyfin playlist, silently skipping videos already owned.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- PROBLEM -->
+    <section>
+      <div class="sec-head">
+        <span class="sec-num">02 · Problem</span>
+        <h2>A 50-song month is 50 pastes — and the month is lost anyway</h2>
+      </div>
+      <div class="grid-2">
+        <div class="panel">
+          <h3>The manual grind</h3>
+          <p class="lede">The owner curates music by month — a YouTube playlist per month, a personal "music journal." Today that music enters the clean library <b>one song at a time</b>. A 50-song month is 50 manual pastes.</p>
+          <p class="lede" style="margin:0">Worse: nothing in Jellyfin preserves the month. The grouping that is the whole point of the journal vanishes the moment songs land under <code>Artist/Album</code>.</p>
+        </div>
+        <div class="panel">
+          <h3>T-037, multiplied <span class="tag">latent defect</span></h3>
+          <p class="lede">The shared tagging path writes some artist credits mangled — a <code>JAY-Z</code> → <code>JAŸ-Z</code> encoding fault — splitting one artist across multiple library folders.</p>
+          <p class="lede" style="margin:0">On single-song acquire it bites rarely. A 50-song batch multiplies every occurrence, so R2 fixes it in the write path.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- DATA MODEL -->
+    <section>
+      <div class="sec-head">
+        <span class="sec-num">03 · Data model</span>
+        <h2>One playlist, many track-jobs, one stream</h2>
+        <p class="sec-sub">The batch reuses the per-song job unchanged — so the entire R1/R1.1 pipeline <em>and</em> the review lifecycle are reused. A single nullable column is the switch that keeps R1 byte-for-byte untouched.</p>
+      </div>
+      <div class="grid-2">
+        <div class="panel">
+          <h3><code>playlists</code> <span class="tag new">new entity</span></h3>
+          <ul class="fields">
+            <li><span class="fname">id</span><span class="fdesc">primary key</span></li>
+            <li><span class="fname">youtube_playlist_id</span><span class="fdesc">the key</span><span class="fnote">unique</span></li>
+            <li><span class="fname">title</span><span class="fdesc">derived from YouTube, not entered</span></li>
+            <li><span class="fname">jellyfin_playlist_id</span><span class="fdesc">the created playlist</span><span class="fnote">nullable</span></li>
+            <li><span class="fname">created_at</span><span class="fdesc">timestamp</span></li>
+          </ul>
+        </div>
+        <div class="panel">
+          <h3><code>jobs</code> <span class="tag new">3 fields added</span></h3>
+          <ul class="fields">
+            <li><span class="fname">playlist_id</span><span class="fdesc">null = single paste (R1 path)</span><span class="fnote">nullable FK</span></li>
+            <li><span class="fname">position</span><span class="fdesc">index in the expanded playlist</span></li>
+            <li><span class="fname">youtube_video_id</span><span class="fdesc">source video — durably recorded for dedup</span></li>
+          </ul>
+          <div class="note signal" style="margin-bottom:0"><strong>Null <code>playlist_id</code> = R1 unchanged.</strong> Non-null = a batch member. This is the whole switch.</div>
+        </div>
+      </div>
+      <div class="note"><strong>One SSE stream per batch, never per track.</strong> Browsers cap ~6 <code>EventSource</code>s per origin, so 50 cards would leave 44 streams dead. The batch opens <em>one</em> playlist-scoped stream; the server fans each track's events onto it, every event stamped with the track's <code>position</code>/job id.</div>
+    </section>
+
+    <!-- BATCH CARD MOCK -->
+    <section>
+      <div class="sec-head">
+        <span class="sec-num">04 · The batch view</span>
+        <h2>One card that reads like a journal filling in</h2>
+        <p class="sec-sub">"Hybrid" — triage bones, journal warmth. Not 50 cards; not a systems dashboard. Parked and failed tracks read as "still filling in" and "gone," never as error-red. Exact screens go through the design gate (ADR-016) before component code.</p>
+      </div>
+      <div class="cardmock">
+        <div class="cm-top">
+          <div class="cm-title">August 2025 <span>youtube.com/playlist · 50 tracks</span></div>
+          <div class="cm-state">Waiting on you</div>
+        </div>
+        <div class="meter" role="img" aria-label="41 landed, 3 in review, 1 gone, 4 skipped, 1 queued">
+          <i class="m-landed"  style="width:82%"></i>
+          <i class="m-review"  style="width:6%"></i>
+          <i class="m-gone"    style="width:2%"></i>
+          <i class="m-skipped" style="width:8%"></i>
+          <i class="m-queued"  style="width:2%"></i>
+        </div>
+        <div class="buckets">
+          <div class="bucket b-review"><span class="dot"></span><span class="count">3</span><span class="lbl">needs you</span></div>
+          <div class="bucket b-landed"><span class="dot"></span><span class="count">41</span><span class="lbl">landed</span></div>
+          <div class="bucket b-skipped"><span class="dot"></span><span class="count">4</span><span class="lbl">already had</span></div>
+          <div class="bucket b-gone"><span class="dot"></span><span class="count">1</span><span class="lbl">gone</span></div>
+          <div class="bucket b-queued"><span class="dot"></span><span class="count">1</span><span class="lbl">queued</span></div>
+        </div>
+        <div class="cm-now"><span class="live"></span> Now identifying · <b style="color:var(--ink)">track 46 of 50</b></div>
+        <p class="caption">Illustrative composition — the "needs you" bucket hoists to the top; album art rides each track row; a finished grind with parked tracks stays "waiting on you," not "done."</p>
+      </div>
+    </section>
+
+    <!-- KEY DECISIONS -->
+    <section>
+      <div class="sec-head">
+        <span class="sec-num">05 · Key decisions</span>
+        <h2>The three seams that carry the risk</h2>
+      </div>
+
+      <div class="panel" style="margin-bottom:1.25rem">
+        <h3>De-duplication — exact video only, never fuzzy</h3>
+        <p class="lede">On expansion, each entry's video ID is matched against the library's record of landed videos:</p>
+        <div class="grid-2" style="margin-top:.5rem">
+          <div class="note signal" style="margin:0"><strong>Hit</strong> → skip download/identify/tag entirely; add the existing canonical file to the playlist; emit <code>track.skipped</code>. Silent — <em>not</em> the ADR-009 duplicate-park path.</div>
+          <div class="note" style="margin:0; border-left-color:var(--muted); background:var(--surface-2)"><strong>Miss</strong> → normal pipeline. A genuinely different upload of an owned song is treated as new — an accepted duplicate-file risk, so no wanted song is ever silently swapped out.</div>
+        </div>
+      </div>
+
+      <div class="grid-2">
+        <div class="panel">
+          <h3>Jellyfin output <span class="tag new">new seam</span></h3>
+          <p class="lede"><code>jellyfin.py</code> gains create-playlist, resolve landed-file → item ID, and append-item — extending the single existing seam, no second integration point.</p>
+          <p class="lede" style="margin:0"><b>Timing seam:</b> an item ID exists only <em>after</em> Jellyfin's async scan. The append must wait for/resolve the item post-scan — specified in the ADR. App-side membership is the source of truth, read three ways: idempotent re-paste, counters, backfill.</p>
+        </div>
+        <div class="panel">
+          <h3>Backfill — review → playlist</h3>
+          <p class="lede" style="margin-bottom:.6rem">The locked chain, walked when a parked track resolves and lands:</p>
+          <div class="chain">
+            <span class="node">review</span><span class="arrow">→</span>
+            <span class="node">job</span><span class="arrow">→</span>
+            <span class="node">playlist</span><span class="arrow">→</span>
+            <span class="node">jellyfin_id</span>
+          </div>
+          <p class="lede" style="margin:0"><b>Append to end — position not preserved.</b> Original <code>position</code> is recorded so the list isn't actively scrambled, but no effort is spent re-inserting (owner decision).</p>
+        </div>
+      </div>
+
+      <div class="panel" style="margin-top:1.25rem">
+        <h3>T-037 — artist-credit normalisation <span class="tag new">in scope · new ADR</span></h3>
+        <div class="grid-2">
+          <div>
+            <p class="lede" style="margin-bottom:.4rem"><b>Defect 1 — the split.</b> Diagnosed: MusicBrainz's canonical credit uses a Unicode hyphen (U+2010) and the <code>Y</code> is mangled to <code>Ÿ</code> (U+0178) in the write path. R2 adds a canonical normalisation step in the path-format path so no fresh download re-introduces a mangled folder.</p>
+          </div>
+          <div>
+            <p class="lede" style="margin:0"><b>Defect 2 — missing genre.</b> Mostly closed: the plugin/key theories were already refuted; a bare genre is real Last.fm coverage, not a bug. The one genuine fix: <code>Outcome.tags</code> snapshots before <code>lastgenre</code> writes, so the card claims "no genre" on a file that has one. Fix the snapshot so <code>track.done</code> carries the genre actually written.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SSE EVENTS -->
+    <section>
+      <div class="sec-head">
+        <span class="sec-num">06 · SSE events</span>
+        <h2>New names on the batch-scoped stream</h2>
+        <p class="sec-sub">Stable names; each stamped with the track's <code>position</code>/job id. Existing <code>track.*</code> events ride the same stream unchanged, plus the stamp.</p>
+      </div>
+      <div class="tbl-wrap">
+        <table>
+          <thead>
+            <tr><th>Event</th><th>Fires when</th><th style="min-width:9rem">Carries</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><span class="evt">batch.queued</span></td>
+              <td class="desc">The batch started.</td>
+              <td class="desc">Playlist title, total track count.</td>
+            </tr>
+            <tr>
+              <td><span class="evt">track.skipped</span><div class="req">required for re-paste view</div></td>
+              <td class="desc">An entry was already in the library (exact video match).</td>
+              <td class="desc">The track added to the playlist without re-processing.</td>
+            </tr>
+            <tr>
+              <td><span class="evt">batch.progress</span></td>
+              <td class="desc">Aggregate tally changes.</td>
+              <td class="desc">landed / review / failed / skipped / queued.</td>
+            </tr>
+            <tr>
+              <td><span class="evt">track.*</span></td>
+              <td class="desc"><code>downloading</code> · <code>identifying</code> · <code>review_required</code> · <code>done</code> · <code>error</code> — unchanged from R1.</td>
+              <td class="desc">Existing payload <b>+</b> the <code>position</code>/job-id stamp.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- USER STORIES -->
+    <section>
+      <div class="sec-head">
+        <span class="sec-num">07 · User stories</span>
+        <h2>27 stories, six threads</h2>
+        <p class="sec-sub">All from the owner's chair. Grouped by the job they serve; numbers match the spec.</p>
+      </div>
+
+      <div class="story-group">
+        <h3>Acquire the month</h3>
+        <ul class="stories">
+          <li><span class="sid">1</span><span>Paste a playlist URL → every track downloaded, one action instead of 50 pastes.</span></li>
+          <li><span class="sid">2</span><span>The app accepts a playlist URL R1 used to reject.</span></li>
+          <li><span class="sid">3</span><span>Each landed track organised canonically under <code>Artist/Album</code>.</span></li>
+          <li><span class="sid">14</span><span>Playlist named automatically from the YouTube title — zero typing.</span></li>
+        </ul>
+      </div>
+
+      <div class="story-group">
+        <h3>The journal survives into Jellyfin</h3>
+        <ul class="stories">
+          <li><span class="sid">4</span><span>A Jellyfin playlist named after the YouTube playlist — playable.</span></li>
+          <li><span class="sid">5</span><span>Playlist holds pointers to the one canonical file — a song in three months isn't stored thrice.</span></li>
+        </ul>
+      </div>
+
+      <div class="story-group">
+        <h3>Review &amp; backfill</h3>
+        <ul class="stories">
+          <li><span class="sid">6</span><span>Low-confidence tracks go to the existing inbox — batching invents no second place to look.</span></li>
+          <li><span class="sid">7</span><span>A track resolved days later joins its original playlist automatically.</span></li>
+          <li><span class="sid">8</span><span>Fine with a backfilled track being appended, not restored to its exact position.</span></li>
+        </ul>
+      </div>
+
+      <div class="story-group">
+        <h3>Re-paste &amp; de-dup</h3>
+        <ul class="stories">
+          <li><span class="sid">9</span><span>Re-pasting the same playlist updates the <em>same</em> Jellyfin playlist.</span></li>
+          <li><span class="sid">10</span><span>A song already owned (exact video) is skipped, not re-downloaded.</span></li>
+          <li><span class="sid">11</span><span>An already-have song is still added to the new playlist.</span></li>
+          <li><span class="sid">12</span><span>"Already have" detected only on exact video-ID match — never a silent swap.</span></li>
+          <li><span class="sid">13</span><span>A different upload of an owned song may land as a duplicate rather than lose a wanted song.</span></li>
+        </ul>
+      </div>
+
+      <div class="story-group">
+        <h3>Watch it fill in</h3>
+        <ul class="stories">
+          <li><span class="sid">15</span><span>Watch a 50-song batch through one card, not a wall of 50.</span></li>
+          <li><span class="sid">16</span><span>The card shows how far along and what needs attention, at a glance.</span></li>
+          <li><span class="sid">17</span><span>The one song currently processing shown live.</span></li>
+          <li><span class="sid">18</span><span>Messy songs read "still filling in," failures "gone" — not alarms.</span></li>
+          <li><span class="sid">20</span><span>The batch view survives a page reload.</span></li>
+          <li><span class="sid">21</span><span>A mostly-landed re-paste reads "45 already here, 3 added, nothing wrong."</span></li>
+          <li><span class="sid">22</span><span>A finished batch with parked songs reads "waiting on you," not "done."</span></li>
+          <li><span class="sid">23</span><span>Album art on the tracks — it feels like <em>my</em> month.</span></li>
+        </ul>
+      </div>
+
+      <div class="story-group">
+        <h3>Robustness &amp; non-regression</h3>
+        <ul class="stories">
+          <li><span class="sid">19</span><span>A failed video doesn't stop the batch (ADR-002).</span></li>
+          <li><span class="sid">24</span><span>An artist lands under a single canonical folder — one Jellyfin artist page (T-037).</span></li>
+          <li><span class="sid">25</span><span>A fresh download never re-introduces a mangled artist folder (T-037 defect 1).</span></li>
+          <li><span class="sid">26</span><span>The card reports the genre it actually wrote (T-037 defect 2).</span></li>
+          <li><span class="sid">27</span><span>Single-song acquire (R1) behaves exactly as before.</span></li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- SCOPE -->
+    <section>
+      <div class="sec-head">
+        <span class="sec-num">08 · Scope</span>
+        <h2>What R2 is — and pointedly isn't</h2>
+      </div>
+      <div class="scope">
+        <div class="scope-col in">
+          <h3>In scope</h3>
+          <ul>
+            <li><span class="mk">+</span><span><b>Playlist acquire</b> — expand, process sequentially, mirror to a Jellyfin playlist.</span></li>
+            <li><span class="mk">+</span><span><b>Exact-video de-dup</b> + idempotent re-paste.</span></li>
+            <li><span class="mk">+</span><span><b>Backfill</b> from the review inbox on resolve.</span></li>
+            <li><span class="mk">+</span><span><b>One aggregate batch card</b> (design gate first).</span></li>
+            <li><span class="mk">+</span><span><b>T-037</b> artist-credit normalisation + genre-report fix.</span></li>
+          </ul>
+        </div>
+        <div class="scope-col out">
+          <h3>Out of scope</h3>
+          <ul>
+            <li><span class="mk">→</span><span><b>Migrate / clean the existing library</b> — split to <b>R2.5</b>. R2 is acquisition only.</span></li>
+            <li><span class="mk">→</span><span><b>Loose multi-URL paste</b> — lighter feature, deferred.</span></li>
+            <li><span class="mk">→</span><span><b>"Recently Added" rolling playlist</b> — needs a recomputed mechanism.</span></li>
+            <li><span class="mk">→</span><span><b>User-named playlists</b> — rejected; the name is derived to keep friction zero.</span></li>
+            <li><span class="mk">→</span><span><b>Preserving exact backfill position</b> — append-only.</span></li>
+            <li><span class="mk">→</span><span><b>Parked backlog</b> — T-034/035/042/023/030/031/032/039/041 each ride their own release.</span></li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- PREREQS -->
+    <section>
+      <div class="sec-head">
+        <span class="sec-num">09 · Prerequisites</span>
+        <h2>Two ADRs and a gate — before component code</h2>
+        <p class="sec-sub">The mockups encode these decisions; writing them after the gate means re-mocking. Retrofitting the association into live job data later is unrecoverable.</p>
+      </div>
+      <div class="prereqs">
+        <div class="prereq">
+          <span class="badge">ADR · new</span>
+          <h4>Batch / backfill data model</h4>
+          <p><code>playlists</code> + <code>job.playlist_id</code> + the review→playlist append + the Jellyfin item-ID timing seam. Settled before the design gate.</p>
+        </div>
+        <div class="prereq">
+          <span class="badge">ADR · new</span>
+          <h4>T-037 credit normalisation</h4>
+          <p>Binds every path the app writes — the <code>Ÿ→Y</code> fold and the hyphen decision recorded there.</p>
+        </div>
+        <div class="prereq">
+          <span class="badge">ADR-016 · applies</span>
+          <h4>Design gate</h4>
+          <p>Changes a user-visible flow/state → flat HTML scenario screens, <em>including</em> the ugly states, published for owner sign-off first.</p>
+        </div>
+      </div>
+      <div class="note" style="margin-top:1.5rem"><strong>Hard constraints hold (ADR-001–005):</strong> sequential processing (a batch is a queue, one live track), MP3 320 output, one-failure-continues-the-batch, single-user / no-auth, beets-not-hand-rolled.</div>
+    </section>
+
+    <!-- ACCEPTANCE -->
+    <section>
+      <div class="sec-head">
+        <span class="sec-num">10 · Acceptance</span>
+        <h2>R2 is "done" when…</h2>
+        <p class="sec-sub">To expand into <code>docs/r2/tickets.md</code>. The observable artifact (DoD step 3): a <code>/verify</code> run pastes a small real playlist end-to-end and confirms the real side effects.</p>
+      </div>
+      <ul class="check">
+        <li><span class="box"></span><span>Pasting a playlist URL expands it and processes every track sequentially over one SSE stream.</span></li>
+        <li><span class="box"></span><span>A Jellyfin playlist named after the YouTube title is created and populated as tracks land.</span></li>
+        <li><span class="box"></span><span>Each file lands canonically under <code>Artist/Album</code>; one copy on disk, playlist holds pointers.</span></li>
+        <li><span class="box"></span><span>A parked track resolved later appends to its playlist automatically.</span></li>
+        <li><span class="box"></span><span>Re-pasting the same grown playlist updates the same playlist, skips already-have videos silently, adds only new entries.</span></li>
+        <li><span class="box"></span><span>An exact-video duplicate is skipped and added to the playlist; no fuzzy matching occurs.</span></li>
+        <li><span class="box"></span><span>A failed track doesn't stop the batch; the batch reads "waiting on you" while parked &gt; 0.</span></li>
+        <li><span class="box"></span><span>The batch view is one aggregate card (design-gate screens signed off first).</span></li>
+        <li><span class="box"></span><span>A fresh download of a T-037-class artist lands under the single canonical folder.</span></li>
+        <li><span class="box"></span><span><code>track.done</code> reports the genre actually written to disk.</span></li>
+        <li><span class="box"></span><span>Single-song acquire (R1) is unchanged.</span></li>
+        <li><span class="box"></span><span>Suites green on <code>main</code>; a <code>/verify</code> run shows the real playlist created and backfilled.</span></li>
+      </ul>
+    </section>
+
+  </div>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>CleanMuzik · R2 Playlists spec — rendered from <span class="mono">docs/r2/spec.md</span></span>
+    <span class="mono">status: ready-for-agent · scope truth: cleanmuzik-prd.md</span>
+  </div>
+</footer>
