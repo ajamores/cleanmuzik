@@ -69,7 +69,7 @@ integrate onto `main` with the status line flipped in the closing commit, transc
 ## Phase A — decisions + data model
 
 ### T-300 — Batch/backfill data model: `playlists` entity, `jobs` columns, membership store (+ ADR-027)
-- **Status:** todo
+- **Status:** done
 - **Depends on:** none
 - **Agent:** back-end
 - **What:** Record **ADR-027** and implement the schema it binds — the association every later ticket reads.

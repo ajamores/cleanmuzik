@@ -67,6 +67,37 @@ CREATE TABLE IF NOT EXISTS reviews (
     reason                TEXT,
     contradictions_json   TEXT
 );
+
+-- R2 (T-300 / ADR-027). A batch = one `playlists` row + N `jobs` rows sharing its
+-- `playlist_id`. Both tables are genuinely NEW, so they live in `_SCHEMA` with an
+-- `IF NOT EXISTS` guard (creates them on the owner's live DB, no-ops thereafter) —
+-- NOT in `_ADDED_COLUMNS`, because SQLite's `ALTER TABLE … ADD COLUMN` cannot add a
+-- UNIQUE column and both tables need one (ADR-027; the T-206 lesson forbids smuggling
+-- a new *column* into an existing table's CREATE, not creating a new table this way).
+CREATE TABLE IF NOT EXISTS playlists (
+    id                   TEXT PRIMARY KEY,
+    youtube_playlist_id  TEXT NOT NULL UNIQUE,   -- the create-or-reuse key (ADR-027 seam 6)
+    title                TEXT NOT NULL,          -- derived from the YouTube title (no user naming)
+    jellyfin_playlist_id TEXT,                   -- NULL until the Jellyfin playlist is created (T-304)
+    created_at           TEXT NOT NULL
+);
+
+-- App-side playlist↔track membership: the source of truth read three ways (re-paste
+-- skip-check, aggregate counters, backfill — ADR-027). Keyed by the track's YouTube
+-- video id so a re-paste's membership-check needs no round-trip to Jellyfin, and
+-- UNIQUE(playlist_id, youtube_video_id) makes a double-add structurally impossible
+-- (ADR-027 seam 4). `jellyfin_item_id` is NULL while the append is PENDING — the
+-- durable home for ADR-027 seam 1's "write membership now, defer the Jellyfin append
+-- the next scan reconciles" (never a silent drop).
+CREATE TABLE IF NOT EXISTS playlist_members (
+    id                TEXT PRIMARY KEY,
+    playlist_id       TEXT NOT NULL REFERENCES playlists(id),
+    youtube_video_id  TEXT NOT NULL,
+    position          INTEGER NOT NULL,
+    jellyfin_item_id  TEXT,                      -- NULL = pending append (ADR-027 seam 1)
+    created_at        TEXT NOT NULL,
+    UNIQUE(playlist_id, youtube_video_id)
+);
 """
 
 # Columns added after the first release, as (table, column, DDL type). Applied by
@@ -85,6 +116,24 @@ _ADDED_COLUMNS = [
     # degrade/fingerprint path, which has no Verdict.
     ("reviews", "reason", "TEXT"),
     ("reviews", "contradictions_json", "TEXT"),
+    # R2 (T-300 / ADR-027). Three columns on the existing `jobs` table — added via
+    # ALTER, not `_SCHEMA`, because `jobs` already exists on the owner's live DB (the
+    # T-206 lesson). All three are nullable-with-no-default, which is why the ALTER is
+    # legal (SQLite forbids ALTER-ADD of a non-null-defaulted or UNIQUE column) and why
+    # an old R1 row reads as "unknown", i.e. a single-song paste.
+    #   playlist_id — nullable association → playlists.id. **NULL = single-song paste =
+    #     the R1 path, byte-for-byte unchanged** (acceptance item 11); non-null = a batch
+    #     member. NOT a DB-enforced FK: SQLite's ALTER ADD COLUMN cannot attach a
+    #     REFERENCES clause, so despite `PRAGMA foreign_keys = ON` this link is enforced
+    #     by app discipline only (T-302 only ever sets it to a just-upserted playlist id).
+    #     The reverse link IS enforced — `playlist_members.playlist_id` carries a real
+    #     inline FK, because that table is created whole in `_SCHEMA`.
+    #   position — the track's index in the expanded playlist (stable, journal order).
+    #   youtube_video_id — the source video, recorded at enqueue so exact-video dedup
+    #     (T-303) can answer "do I already have this?" without guessing.
+    ("jobs", "playlist_id", "TEXT"),
+    ("jobs", "position", "INTEGER"),
+    ("jobs", "youtube_video_id", "TEXT"),
 ]
 
 # Sentinel default for `release_review(last_error=...)`. It distinguishes "the caller
@@ -94,6 +143,20 @@ _ADDED_COLUMNS = [
 # persisted re-park reason with NULL — T-029, finding #2. Clearing a reason is now the
 # job of `claim_review` / `reset_resolving_reviews` (finding #3), not of a bare release.
 _KEEP_LAST_ERROR: str | None = object()  # type: ignore[assignment]
+
+
+# Indexes for the two hot read paths ADR-027 locks in, both over the ever-growing
+# `jobs` table (one row per song ever downloaded). Created AFTER `_migrate`, not in
+# `_SCHEMA`, because they reference columns that `_migrate` adds — on first migration
+# of a live DB the columns don't exist when `_SCHEMA` runs. `IF NOT EXISTS` so it's a
+# no-op thereafter.
+#   youtube_video_id — the exact-video dedup `EXISTS(job WHERE youtube_video_id=? AND
+#     status='done')` on every re-pasted entry (ADR-027 seam 2 / T-303).
+#   playlist_id — the batch-tally derivation, jobs grouped by playlist (seam 5 / T-312).
+_INDEXES = [
+    "CREATE INDEX IF NOT EXISTS idx_jobs_youtube_video_id ON jobs(youtube_video_id)",
+    "CREATE INDEX IF NOT EXISTS idx_jobs_playlist_id ON jobs(playlist_id)",
+]
 
 
 def _migrate(conn: sqlite3.Connection) -> None:
@@ -118,6 +181,46 @@ class Job:
     url: str
     status: str  # e.g. "queued" | "running" | "review" | "done" | "error"
     created_at: str  # ISO-8601 UTC
+    # R2 batch association (T-300 / ADR-027). All three NULL on an R1 single-song paste
+    # and on any row written before this migration — `playlist_id IS NULL` is the switch
+    # that keeps the R1 path unchanged (acceptance item 11).
+    playlist_id: str | None = None  # → playlists.id (app-enforced); NULL = single-song (R1)
+    position: int | None = None  # index in the expanded playlist
+    youtube_video_id: str | None = None  # source video, recorded at enqueue (T-303 dedup)
+
+
+@dataclass(frozen=True)
+class Playlist:
+    """A row of `playlists` — one batch, keyed by its YouTube playlist id (T-300).
+
+    `jellyfin_playlist_id` is NULL until the Jellyfin playlist is created (T-304); the
+    create-or-reuse key is `youtube_playlist_id`, which is UNIQUE so a re-paste reuses
+    the same row (idempotent re-paste, T-307) via the atomic upsert in `upsert_playlist`.
+    """
+
+    id: str
+    youtube_playlist_id: str
+    title: str
+    created_at: str  # ISO-8601 UTC
+    jellyfin_playlist_id: str | None = None
+
+
+@dataclass(frozen=True)
+class PlaylistMember:
+    """A row of `playlist_members` — one track's membership in a playlist (T-300).
+
+    The app-side source of truth read three ways (ADR-027): the re-paste skip-check,
+    the aggregate counters, and backfill. `jellyfin_item_id` is NULL while the append
+    is *pending* — the durable home for the deferred-append the next scan reconciles
+    (ADR-027 seam 1), never a silent drop.
+    """
+
+    id: str
+    playlist_id: str
+    youtube_video_id: str
+    position: int
+    created_at: str  # ISO-8601 UTC
+    jellyfin_item_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -230,15 +333,46 @@ class Store:
             conn.execute("PRAGMA journal_mode = WAL")
             conn.executescript(_SCHEMA)
             _migrate(conn)
+            for stmt in _INDEXES:  # after _migrate — they index columns it adds
+                conn.execute(stmt)
 
     # --- jobs -------------------------------------------------------------
 
-    def create_job(self, url: str, status: str = "queued") -> Job:
-        job = Job(id=uuid.uuid4().hex, url=url, status=status, created_at=_now())
+    def create_job(
+        self,
+        url: str,
+        status: str = "queued",
+        *,
+        playlist_id: str | None = None,
+        position: int | None = None,
+        youtube_video_id: str | None = None,
+    ) -> Job:
+        # The batch columns are keyword-only and default None so every R1 caller
+        # (`routes/jobs.py`) stays a single-song paste — `playlist_id IS NULL` — with no
+        # change; a batch member (T-302) passes all three (ADR-027).
+        job = Job(
+            id=uuid.uuid4().hex,
+            url=url,
+            status=status,
+            created_at=_now(),
+            playlist_id=playlist_id,
+            position=position,
+            youtube_video_id=youtube_video_id,
+        )
         with self._connect() as conn:
             conn.execute(
-                "INSERT INTO jobs (id, url, status, created_at) VALUES (?, ?, ?, ?)",
-                (job.id, job.url, job.status, job.created_at),
+                "INSERT INTO jobs "
+                "(id, url, status, created_at, playlist_id, position, youtube_video_id) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (
+                    job.id,
+                    job.url,
+                    job.status,
+                    job.created_at,
+                    job.playlist_id,
+                    job.position,
+                    job.youtube_video_id,
+                ),
             )
         return job
 
@@ -436,6 +570,112 @@ class Store:
             )
             return cur.rowcount
 
+    # --- playlists + membership (R2, T-300 / ADR-027) ---------------------
+
+    def upsert_playlist(self, youtube_playlist_id: str, title: str) -> Playlist:
+        """Create the `playlists` row for this YouTube playlist, or return the existing one.
+
+        An **atomic** create-or-reuse (ADR-027 seam 6): `INSERT … ON CONFLICT DO NOTHING`
+        then SELECT, in one connection/transaction — NOT SELECT-then-INSERT, which races a
+        concurrent double-paste into an `IntegrityError` on the UNIQUE key. On a re-paste
+        the INSERT no-ops and the SELECT returns the original row (same `id`, same
+        `jellyfin_playlist_id`), which is what makes the re-paste idempotent (T-307).
+
+        The title is only written on first insert; a re-paste keeps the original derived
+        title (ON CONFLICT DO NOTHING) rather than clobbering it.
+        """
+        new_id = uuid.uuid4().hex
+        with self._connect() as conn:
+            conn.execute(
+                "INSERT INTO playlists (id, youtube_playlist_id, title, created_at) "
+                "VALUES (?, ?, ?, ?) ON CONFLICT(youtube_playlist_id) DO NOTHING",
+                (new_id, youtube_playlist_id, title, _now()),
+            )
+            row = conn.execute(
+                "SELECT * FROM playlists WHERE youtube_playlist_id = ?",
+                (youtube_playlist_id,),
+            ).fetchone()
+        return _playlist_from_row(row)
+
+    def get_playlist(self, playlist_id: str) -> Playlist | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM playlists WHERE id = ?", (playlist_id,)
+            ).fetchone()
+        return _playlist_from_row(row) if row else None
+
+    def get_playlist_by_youtube_id(self, youtube_playlist_id: str) -> Playlist | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM playlists WHERE youtube_playlist_id = ?",
+                (youtube_playlist_id,),
+            ).fetchone()
+        return _playlist_from_row(row) if row else None
+
+    def set_jellyfin_playlist_id(
+        self, playlist_id: str, jellyfin_playlist_id: str
+    ) -> None:
+        """Record the Jellyfin playlist id once it's created (T-304, at `batch.queued`)."""
+        with self._connect() as conn:
+            cur = conn.execute(
+                "UPDATE playlists SET jellyfin_playlist_id = ? WHERE id = ?",
+                (jellyfin_playlist_id, playlist_id),
+            )
+            # Same guard as update_job_status: an unknown id must raise, not silently
+            # succeed and leave the batch without a playlist to append to.
+            if cur.rowcount == 0:
+                raise KeyError(f"no playlist with id {playlist_id!r}")
+
+    def add_member(
+        self,
+        playlist_id: str,
+        youtube_video_id: str,
+        position: int,
+        jellyfin_item_id: str | None = None,
+    ) -> bool:
+        """Record a track's membership in a playlist. A **no-op when it already exists**.
+
+        Returns True if a row was written, False if the (playlist, video) pair was already
+        a member — the append is idempotent by construction (ADR-027 seam 4:
+        `UNIQUE(playlist_id, youtube_video_id)`, so a re-paste of an already-in-playlist
+        video cannot double-add). `jellyfin_item_id` is None for a *pending* append (the
+        file hasn't been resolved to its Jellyfin item yet — ADR-027 seam 1); T-304
+        reconciles it later.
+        """
+        with self._connect() as conn:
+            cur = conn.execute(
+                "INSERT INTO playlist_members "
+                "(id, playlist_id, youtube_video_id, position, jellyfin_item_id, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT(playlist_id, youtube_video_id) DO NOTHING",
+                (
+                    uuid.uuid4().hex,
+                    playlist_id,
+                    youtube_video_id,
+                    position,
+                    jellyfin_item_id,
+                    _now(),
+                ),
+            )
+            return cur.rowcount > 0
+
+    def list_members(self, playlist_id: str) -> list[PlaylistMember]:
+        """Every membership row for a playlist, in playlist order (T-306/T-312 read this).
+
+        `ORDER BY position, rowid` — the rowid tie-break makes order deterministic even
+        if two members share a `position` (nothing enforces position-uniqueness; a
+        dedup-skip re-adds at the entry's own index, which can collide). Without it
+        SQLite's order among equal positions is rowid-dependent and can vary, silently
+        reshuffling a backfilled playlist across reads.
+        """
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM playlist_members WHERE playlist_id = ? "
+                "ORDER BY position, rowid",
+                (playlist_id,),
+            ).fetchall()
+        return [_member_from_row(row) for row in rows]
+
     # --- boot reconciliation ----------------------------------------------
 
     def reconcile_orphans_on_boot(self) -> tuple[int, int, int]:
@@ -495,6 +735,32 @@ def _job_from_row(row: sqlite3.Row) -> Job:
         id=row["id"],
         url=row["url"],
         status=row["status"],
+        created_at=row["created_at"],
+        # NULL on an R1 single-song paste and on any row written before the T-300
+        # migration — which is exactly a single-song paste, so the R1 read is unchanged.
+        playlist_id=row["playlist_id"],
+        position=row["position"],
+        youtube_video_id=row["youtube_video_id"],
+    )
+
+
+def _playlist_from_row(row: sqlite3.Row) -> Playlist:
+    return Playlist(
+        id=row["id"],
+        youtube_playlist_id=row["youtube_playlist_id"],
+        title=row["title"],
+        jellyfin_playlist_id=row["jellyfin_playlist_id"],
+        created_at=row["created_at"],
+    )
+
+
+def _member_from_row(row: sqlite3.Row) -> PlaylistMember:
+    return PlaylistMember(
+        id=row["id"],
+        playlist_id=row["playlist_id"],
+        youtube_video_id=row["youtube_video_id"],
+        position=row["position"],
+        jellyfin_item_id=row["jellyfin_item_id"],
         created_at=row["created_at"],
     )
 

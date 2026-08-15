@@ -721,3 +721,78 @@ Format: `ADR-NNN — decision. Rationale. [date]`
   inflated number at the source. **Scope:** spike-produced numbers headed *for a spec* — not every
   benchmark, and not numbers that stay in the research doc. Binds alongside **ADR-016** (design gate) as
   a standing process gate; rationale + placement in `docs/workflow.md`. [2026-08-13]
+- **ADR-027 — The R2 batch/backfill data model: one `playlists` row + N member `jobs`, joined by a
+  nullable `jobs.playlist_id`, with an app-side membership store as the source of truth.** The
+  association every R2 ticket reads (T-302/304/305/306/307/312 all import this shape). A batch reuses
+  the per-song `jobs` row and the whole R1/R1.1 pipeline + review lifecycle unchanged; the only new
+  spine is the join. **Entity shape** (in `db.py`): `playlists(id, youtube_playlist_id UNIQUE, title,
+  jellyfin_playlist_id NULLABLE, created_at)`; `jobs` gains three nullable columns `playlist_id` (FK →
+  `playlists.id`), `position`, `youtube_video_id`; a `playlist_members(playlist_id FK, youtube_video_id,
+  position, jellyfin_item_id NULLABLE, UNIQUE(playlist_id, youtube_video_id))` membership store.
+  **`jobs.playlist_id` is an app-enforced association, not a DB FK** — SQLite's ALTER ADD COLUMN cannot
+  attach a REFERENCES clause, so despite `PRAGMA foreign_keys = ON` the link is upheld by discipline
+  (T-302 only ever sets it to a just-upserted playlist id); the *reverse* link
+  `playlist_members.playlist_id` IS a real enforced FK (that table is created whole in `_SCHEMA`).
+  **Membership and the member `jobs` row are deliberately not 1:1**: a dedup-skip (T-303) adds a
+  membership row with **no new job** (it reuses an existing landed job elsewhere), so there is no
+  member→job FK and seam 5 reconciles the two stores as *complementary* views (jobs-by-status for
+  processed tracks, membership for skipped/added), not redundant ones. Membership `position` carries no
+  uniqueness constraint (a skip re-adds at the entry's own index, which can collide), so `list_members`
+  orders `position, rowid` for a deterministic tie-break. Both hot read paths (dedup `EXISTS` on
+  `youtube_video_id`, tally group-by `playlist_id`) are indexed on `jobs` at migration time.
+  **`jobs.playlist_id IS NULL` is the R1 switch** — a single-song paste writes a null-`playlist_id` job
+  and runs R1 byte-for-byte (acceptance item 11); a regression there is a build failure, not a
+  trade-off. **Schema vs. migration are two different mechanisms and must not be conflated** (this was a
+  cold-review BLOCKER): the two new tables go in `_SCHEMA` as `CREATE TABLE IF NOT EXISTS` (they don't
+  exist on the live DB; the guard creates-then-no-ops) — required because SQLite's `ALTER TABLE … ADD
+  COLUMN` cannot add a `UNIQUE` column, and both need one; the three `jobs` columns go in
+  `_ADDED_COLUMNS` (ALTER ADD COLUMN, legal because each is nullable-with-no-default). The T-206 lesson
+  forbids smuggling a new *column* into an existing table's CREATE — it does not forbid `CREATE TABLE IF
+  NOT EXISTS` for a genuinely new table. **The membership store is read three ways:** re-paste skip-check
+  (T-307), aggregate counters (T-305/T-312), and backfill (T-306). **The backfill chain is locked:**
+  `review → job → playlist → jellyfin_playlist_id`. **Six seams the schema alone doesn't settle** (all
+  surfaced by cold-review; the timing/durability/idempotency decisions the mockups and downstream
+  tickets depend on):
+  1. **Jellyfin item-ID post-scan resolve (T-304).** Jellyfin's scan is async, so a landed file's item
+     id exists only after it indexes. Resolve by polling Items-by-path on a **bounded interval with a
+     hard timeout**, and it **must not block the sequential worker** (a blocking wait per track serializes
+     a 50-track batch into minutes of dead `/Library/Refresh` waits). **On timeout: write the app-side
+     membership now with `jellyfin_item_id = NULL` (a *pending append*) and defer the Jellyfin append for
+     the next scan to reconcile — never a silent drop.** **Owner-settled [2026-08-15]:** poll
+     every **2s up to a 10s hard cap** (30s was judged too long a stall for the sequential worker), then
+     defer; the reconcile pass retries pending appends on the next batch's scan. The `playlist_members`
+     row with `jellyfin_item_id IS NULL` is that pending append's durable home. **Push (webhook/SSE) is a
+     live candidate to weigh at T-304, not a dismissed one [owner steer, 2026-08-15]:** Jellyfin's
+     Webhook plugin is push and, per the owner, likely low-effort to install and configure — so evaluate
+     it against polling when the resolve is actually built. The **cost to weigh against that ease** is
+     architectural, not effort: push means a **second Jellyfin integration point** (a plugin on the
+     server + an inbound endpoint on this app), which the spec's one-seam rule deliberately resists.
+     Polling Items-by-path keeps the single seam with no server-side setup; ship polling for R2, and
+     switch to push at T-304 only if the plugin proves as cheap as expected AND the second seam is judged
+     worth it (or polling proves too slow).
+  2. **Landed-video dedup store + predicate (T-303).** One store — the `jobs` row's `youtube_video_id`,
+     written at **enqueue** (T-302) — and the exact, status-filtered test
+     **`EXISTS(job WHERE youtube_video_id = ? AND status = 'done')`**. The `status='done'` filter is
+     load-bearing: without it a **parked or failed** never-landed entry reads as "already owned" and a
+     re-paste skips it forever. Never fuzzy; a genuinely different upload is treated as new (US13).
+  3. **Jellyfin playlist create timing.** Create the Jellyfin playlist at **`batch.queued`** (expansion,
+     T-302), **not** on first land — else an all-parked batch never gets a `jellyfin_playlist_id` and its
+     later backfill (T-306) has nowhere to append. **Owner-settled [2026-08-15]: create-at-queued.**
+     The alternative (backfill creates-if-missing) is kept only as a **guard** in T-306 for the
+     should-not-happen null case, not as the primary path.
+  4. **Membership uniqueness + per-entry order.** `UNIQUE(playlist_id, youtube_video_id)`; append is a
+     **no-op when membership exists** (`ON CONFLICT DO NOTHING`, returns "already a member"). Per entry
+     the fixed order is **membership-check → library video-dedup → process**, so a re-paste of an
+     already-in-playlist owned video cannot double-add.
+  5. **Durable batch state (T-312).** The batch tally + terminal state must be **derivable from
+     `jobs.playlist_id` (grouped by status) + the membership store**, not only accumulated in the
+     in-memory event bus — so "walk away and come back" survives a **restart**, not just an in-process
+     reload. `batch.progress` is computed from this durable state.
+  6. **`playlists` create-or-reuse is an atomic upsert.** `INSERT … ON CONFLICT(youtube_playlist_id) DO
+     NOTHING` then SELECT (one transaction) — not SELECT-then-INSERT, which races a double-paste into an
+     `IntegrityError` on the UNIQUE key. A re-paste reuses the original row (same id, same title, same
+     `jellyfin_playlist_id`), which is what makes T-307 idempotent.
+
+  Recorded before the design gate (T-310) because retrofitting the association into live job data later
+  is unrecoverable (spec §Implementation "Batch model" + §Further Notes). Implemented in T-300 (schema +
+  DAO); the two flagged owner decisions carry recommended defaults above. [2026-08-15]
