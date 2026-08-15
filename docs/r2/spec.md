@@ -195,8 +195,8 @@ in," never as red errors.
   queued); the single currently-processing track shown live; the rest bucketed by outcome with the
   **"needs you"** bucket hoisted to the top; **album art** on track rows; parked/failed rendered as
   "still filling in" / "gone", not error-red.
-- Reuses the shipped visual language (Signal Path, ADR-018) and the existing review-inbox resolve
-  seam. Single-song R1 acquire keeps its existing card.
+- Reuses the shipped visual language (the console skin, ADR-018 — "Signal Path" is its superseded
+  predecessor) and the existing review-inbox resolve seam. Single-song R1 acquire keeps its existing card.
 
 ### New SSE events
 
