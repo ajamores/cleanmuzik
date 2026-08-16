@@ -877,3 +877,53 @@ Format: `ADR-NNN — decision. Rationale. [date]`
     Verify: `JAŸ‐Z` → `JAY-Z`; `Beyoncé` / `Sigur Rós` pass byte-for-byte unchanged; decomposed
     `Beyonce`+U+0301 → precomposed `Beyoncé`; a log line fires only on the folding cases. (Owner-settled
     reach 2026-08-15: layered + observable.) [2026-08-15]
+
+- **ADR-029 — Acquire intent is EXPLICIT (a payload field the backend honours), never silently inferred
+  from URL shape; the control is a round detented selector — Single (default) / Playlist / Multi.** The
+  R1/R2 accept path decides everything from the pasted URL's *shape* (`routes/jobs.py:63-77`,
+  `download.is_playlist_url`/`names_one_song`): a `watch?v=X&list=PL…` — the address-bar copy of a song
+  opened *inside* a playlist, the most common playlist-ish paste — falls through as **one song** and the
+  playlist is **silently stripped** (`noplaylist=True`). The owner cannot say what they mean, and the app
+  guesses "one song" on exactly the paste most likely to mean "the playlist." **Authored via a 5-agent
+  design council (2026-08-16): 4 lenses — interaction/UX, industrial/visual, frontend+a11y, product/scope —
+  + chair.**
+  - **The load-bearing fix is the contract, not the control.** Acquire intent becomes an **optional
+    `intent` enum on `POST /api/jobs`** (`single | playlist`; `multi` reserved, not wired). Present → the
+    backend **honours the resolved choice** and stops re-deriving from shape for the ambiguous case; **absent
+    → today's shape inference is the fallback, so R1 is byte-for-byte unchanged** and a single song stays
+    `playlist_id = null`. Intent lives **only at the accept/expand front door — it must NOT leak into the
+    pipeline**, or it breaks the single nullable-column switch that guarantees R1 non-regression (ADR-027).
+    Without this field the control is cosmetic and the silent-strip survives behind prettier UI.
+  - **The control (owner-picked form, 2026-08-16): a round detented SELECTOR, not a spin-pot.** A
+    potentiometer is the idiom for a *continuous* sweep (gain/tone); intent is three *discrete, non-ordinal*
+    states, which real gear selects with a detented one-of-N switch. So a click-stepped round dial (an **ARIA
+    radiogroup**, arrow-key steppable — never `role=slider`, never arc-drag), rendered in the console skin
+    (ADR-018): hard corners, cyan pip on the active stop, 1px seat-press. Owner explicitly wanted "a really
+    cool dial to design"; the council honoured the instinct and steered only the spin→detent mechanism (a
+    smooth knob for 3 named modes reads as hardware cosplay and has no clean keyboard/SR/touch path).
+  - **Behaviour.** (1) **Single is the resting default every load** — *reset on load, never persisted across
+    sessions* — so the walk-away flow is untouched; a bare `watch?v=` fires zero prompts. (2) An unambiguous
+    paste may **inference-seed** the stop, but mode **never silently overrides unambiguous shape**. (3) **The
+    dial IS the intent — there is NO inline confirm** (owner-decided 2026-08-16, superseding the council's
+    proposed prompt). A `watch?v=X&list=PL…` paste on **Single** lands **just the song, no prompt**; a **quiet,
+    non-blocking note** points to Playlist for discoverability ("Playlist attached — taking just this song;
+    want all N? Turn the dial to Playlist"). To take the whole list the owner turns the dial to **Playlist**.
+    Rationale: the visible mode already answers "which did you mean?", so asking again is redundant chrome, and
+    the old silent-strip is no longer *silent* — the dial shows Single on screen. **Trade recorded:** a
+    playlist-intended link pasted while the dial sits on Single yields one song; the remedy is the visible dial,
+    and the note teaches it. (4) **Playlist** mode expands with no prompt; a bare single URL under Playlist
+    lands as **one song** with the same quiet note, not a hard error (so a left-on Playlist can't over-expand a
+    single paste). (5) **Multi ships present-but-inert** ("soon") now, reserving the geometry; its build
+    (hand-assembled set → one ADR-027 batch, `youtube_playlist_id` null) is **backlog** (T-046).
+  - **Dissent/safeguard preserved.** *Product-scope* warned any standing pre-commit control taxes the 99% flow
+    and a left-on Playlist mode would silently expand the next single paste. Resolved: the selector is
+    persistent (owner's control + Multi's only discoverability) **but** resets to Single each load and is
+    inference-seeded; and each mode's single-URL behaviour is *land one song* (Single obviously; Playlist per
+    (4)), so **neither footgun can fire** — the Single-strip is visible-not-silent, and Playlist can't
+    over-expand a single. (The council proposed an inline confirm to neutralise these; the owner removed it as
+    redundant given the visible dial — behaviour (3)/(4) carry the same guarantee without the prompt.) Runner-up
+    shape (pure detect-and-confirm, no standing control) was rejected only because it strands Multi's discoverability.
+  - **Scope.** **T-302** gains the `intent` field + one accept-path branch (small; kill the shape re-guess
+    for the explicit case only). **T-310** grows by the dial screens (D1–D4: three resting stops, the
+    song+list-on-Single quiet note, the Multi "soon" state — batch card untouched); design-gate screens signed
+    off first (ADR-016). The full **Multi** input build is a separate backlog ticket (**T-046**). [2026-08-16]

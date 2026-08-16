@@ -1,0 +1,812 @@
+<meta charset="utf-8">
+<title>Batch View Design Gate</title>
+<style>
+  /* ===== document chrome (matches the R1/R1.5 design-gate convention) ===== */
+  :root{ --doc-bg:#0b0e11; --doc-panel:#0d1114; --doc-ink:#e9eef1; --doc-muted:#8b97a1; --doc-line:#262e36; --doc-accent:#3fb6d8;
+         --sans:'IBM Plex Sans',system-ui,'Segoe UI',Roboto,sans-serif; --mono:'IBM Plex Mono',ui-monospace,'Cascadia Mono',Consolas,monospace; }
+  @media (prefers-color-scheme: light){ :root:not([data-theme='dark']){ --doc-bg:#e7eaec; --doc-panel:#eef1f2; --doc-ink:#161d22; --doc-muted:#5b6870; --doc-line:#c5cdd2; --doc-accent:#0e7d9c; } }
+  :root[data-theme='light']{ --doc-bg:#e7eaec; --doc-panel:#eef1f2; --doc-ink:#161d22; --doc-muted:#5b6870; --doc-line:#c5cdd2; --doc-accent:#0e7d9c; }
+  :root[data-theme='dark']{ --doc-bg:#0b0e11; --doc-panel:#0d1114; --doc-ink:#e9eef1; --doc-muted:#8b97a1; --doc-line:#262e36; --doc-accent:#3fb6d8; }
+
+  *{ box-sizing:border-box; }
+  body{ margin:0; background:var(--doc-bg); color:var(--doc-ink); font:16px/1.5 var(--sans); -webkit-font-smoothing:antialiased; -moz-osx-font-smoothing:grayscale; }
+  .wrap{ max-width:1160px; margin:0 auto; padding:52px 24px 96px; }
+  .eyebrow{ font:600 12px/1 var(--mono); letter-spacing:.14em; text-transform:uppercase; color:var(--doc-accent); margin:0 0 14px; }
+  h1{ font-size:clamp(28px,5vw,44px); font-weight:700; letter-spacing:-.02em; line-height:1.05; margin:0 0 16px; text-wrap:balance; }
+  .lede{ max-width:70ch; font-size:16px; color:var(--doc-muted); margin:0 0 8px; }
+  .lede b{ color:var(--doc-ink); font-weight:600; }
+  .meta{ font:12px/1.6 var(--mono); color:var(--doc-muted); margin:22px 0 0; }
+  .meta b{ color:var(--doc-ink); }
+
+  .rules{ margin:34px 0 0; padding:18px 20px; background:var(--doc-panel); border:1px solid var(--doc-line); border-left:3px solid var(--doc-accent); }
+  .rules h2{ font-size:13px; font-weight:700; letter-spacing:.04em; text-transform:uppercase; margin:0 0 10px; color:var(--doc-ink); }
+  .rules ul{ margin:0; padding-left:18px; }
+  .rules li{ font-size:14px; color:var(--doc-muted); margin:6px 0; }
+  .rules li b{ color:var(--doc-ink); }
+
+  .caprow{ display:flex; align-items:baseline; gap:14px; margin:64px 0 16px; }
+  .capnum{ font:700 13px/1 var(--mono); color:#0a1418; background:var(--doc-accent); padding:7px 9px; }
+  .captxt{ font-size:18px; color:var(--doc-ink); font-weight:650; }
+  .captxt small{ display:block; font-weight:400; font-size:13.5px; color:var(--doc-muted); margin-top:3px; max-width:78ch; }
+
+  .frame{ border:1px solid var(--doc-line); overflow:hidden; box-shadow:rgba(0,0,0,.4) 0 18px 48px -20px; }
+  .fbar{ display:flex; align-items:center; gap:7px; padding:11px 14px; background:#0d1216; border-bottom:1px solid #1c242b; }
+  .fbar i{ width:11px; height:11px; border-radius:50%; background:#1c242b; }
+  .fbar .u{ margin-left:10px; font:12px/1 var(--mono); color:#6d7a83; }
+  .scr--light-host .fbar{ background:#dbe0e3; border-bottom-color:#c5cdd2; }
+  .scr--light-host .fbar i{ background:#c2cace; }
+  .scr--light-host .fbar .u{ color:#5b6870; }
+
+  .foot{ margin-top:64px; padding:18px 20px; background:var(--doc-panel); border:1px solid var(--doc-line); border-left:3px solid var(--doc-accent); font-size:14px; color:var(--doc-muted); max-width:80ch; }
+  .foot b{ color:var(--doc-ink); }
+  .signoff{ margin-top:20px; display:flex; gap:10px; flex-wrap:wrap; }
+  .signoff span{ font:600 11px/1 var(--mono); letter-spacing:.06em; text-transform:uppercase; color:var(--doc-muted); border:1px dashed var(--doc-line); padding:9px 13px; }
+
+  /* ============================================================
+     THE SHIPPED CONSOLE-SKIN WORLD (tokens verbatim from client/src/index.css,
+     ADR-018; canonical = shipped code 11b6302 + 819f22c, NOT signal-path-tweaked.html).
+     Sharp corners, IBM Plex, LED-tick meters, dark-native cyan. Every value below is
+     the real token — a component built off this file inherits these unchanged.
+     ============================================================ */
+  .scr{
+    --text:#8b97a1; --text-h:#e9eef1;
+    --bg:#0b0e11; --panel:#0d1114; --card-bg:#14191e; --field:#0e1216; --border:#262e36;
+    --accent:#3fb6d8; --accent-fg:#0a1418; --accent-bg:rgba(63,182,216,.14);
+    --warn:#e0a33d; --warn-bg:rgba(224,163,61,.14); --ok:#46b878; --ok-bg:rgba(70,184,120,.14);
+    --danger:#e06060; --danger-bg:rgba(224,96,96,.14);
+    --glow:63,182,216;
+    --sans:'IBM Plex Sans',system-ui,'Segoe UI',Roboto,sans-serif;
+    --mono:'IBM Plex Mono',ui-monospace,'Cascadia Mono',Consolas,monospace;
+    display:grid; grid-template-columns:240px minmax(0,1fr); min-height:520px;
+    background:var(--bg); color:var(--text); font:16px/1.5 var(--sans);
+  }
+  .scr--light{
+    --text:#5b6870; --text-h:#161d22;
+    --bg:#e7eaec; --panel:#eef1f2; --card-bg:#f7f9fa; --field:#ffffff; --border:#c5cdd2;
+    --accent:#0e7d9c; --accent-fg:#f4fafc; --accent-bg:rgba(14,125,156,.12);
+    --warn:#a3690a; --warn-bg:rgba(163,105,10,.12); --ok:#1e7d4c; --ok-bg:rgba(30,125,76,.12);
+    --danger:#b03434; --danger-bg:rgba(176,52,52,.10);
+    --glow:14,125,156;
+  }
+
+  /* ---- console rail (the shipped .console, compacted for the mock) ---- */
+  .rail{ border-right:1px solid var(--border); background:
+      repeating-linear-gradient(0deg, rgba(var(--glow),.022) 0 1px, transparent 1px 5px), var(--panel);
+      padding:26px 22px; display:flex; flex-direction:column; }
+  .rail__brand{ display:flex; flex-direction:column; align-items:center; text-align:center; margin-bottom:22px; }
+  .rail__seal{ width:38px; height:38px; border:1px solid var(--accent); position:relative; }
+  .rail__seal::before{ content:''; position:absolute; inset:9px; border:1px solid var(--accent); opacity:.6; }
+  .rail__seal::after{ content:''; position:absolute; left:50%; top:50%; width:5px; height:5px; transform:translate(-50%,-50%); background:var(--accent); }
+  .rail__wm{ margin:12px 0 0; font-size:20px; font-weight:700; letter-spacing:-.025em; color:var(--text-h); }
+  .rail__tag{ margin:8px 0 0; font-size:12px; line-height:1.5; color:var(--text); }
+  .rail__form{ display:flex; flex-direction:column; gap:9px; }
+  .rail__in{ font:13px var(--mono); color:var(--text); background:var(--field); border:1px solid var(--border); padding:11px 12px; opacity:.85; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .rail__go{ font:700 14px var(--sans); letter-spacing:.02em; color:var(--accent-fg); background:var(--accent); border:0; padding:11px 20px; text-align:center; }
+  .rail__path{ margin-top:auto; padding-top:28px; display:flex; flex-direction:column; }
+  .rail__stage{ position:relative; font:11px var(--mono); letter-spacing:.08em; text-transform:uppercase; color:var(--text); padding:6px 0 6px 20px; }
+  .rail__stage::before{ content:''; position:absolute; left:2px; top:50%; width:7px; height:7px; transform:translateY(-50%); background:var(--panel); border:1px solid var(--text); opacity:.75; }
+  .rail__stage:not(:last-child)::after{ content:''; position:absolute; left:6px; top:calc(50% + 6px); bottom:-8px; width:1px; background:var(--border); }
+  .rail__stage:last-child::before{ background:var(--accent); border-color:var(--accent); opacity:1; }
+
+  /* ---- working deck ---- */
+  .deck{ min-width:0; padding:30px clamp(20px,3vw,40px) 40px; }
+  .deck__head{ display:flex; align-items:center; gap:12px; margin:0 0 18px; }
+  .deck__title{ font-size:19px; font-weight:700; letter-spacing:-.015em; color:var(--text-h); margin:0; white-space:nowrap; }
+  .deck__count{ font:600 12px var(--mono); color:var(--accent); border:1px solid var(--border); padding:2px 9px; }
+  .deck__head::after{ content:''; flex:1; height:1px; background:var(--border); }
+
+  /* ================= THE ONE AGGREGATE BATCH CARD ================= */
+  .batch{ border:1px solid var(--border); background:var(--card-bg); box-shadow:inset 0 1px 0 rgba(255,255,255,.04); }
+  .scr--light .batch{ box-shadow:inset 0 1px 0 rgba(255,255,255,.6); }
+
+  /* header: title + terminal status pill */
+  .batch__top{ display:flex; align-items:flex-start; gap:14px; padding:20px 22px 16px; }
+  .batch__id{ min-width:0; flex:1; }
+  .batch__title{ margin:0; font-size:23px; font-weight:700; letter-spacing:-.02em; color:var(--text-h); line-height:1.15; }
+  .batch__src{ margin:6px 0 0; font:12px var(--mono); color:var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .pill{ flex:none; font:600 11px var(--mono); letter-spacing:.07em; text-transform:uppercase; padding:6px 11px; white-space:nowrap; }
+  .pill--live{ color:var(--accent); background:var(--accent-bg); }
+  .pill--wait{ color:var(--warn); background:var(--warn-bg); }
+  .pill--done{ color:var(--ok); background:var(--ok-bg); }
+
+  /* aggregate progress meter — wide LED-tick bar, the console's own texture */
+  .agg{ padding:0 22px 18px; }
+  .agg__bar{ height:14px; border:1px solid var(--border); background:var(--field); position:relative; overflow:hidden; }
+  .agg__fill{ position:absolute; inset:0 auto 0 0; background:
+      repeating-linear-gradient(90deg, var(--accent) 0 6px, transparent 6px 10px); }
+  .agg__fill--wait{ background:repeating-linear-gradient(90deg, var(--warn) 0 6px, transparent 6px 10px); }
+  .agg__fill--done{ background:repeating-linear-gradient(90deg, var(--ok) 0 6px, transparent 6px 10px); }
+  .agg__meta{ display:flex; justify-content:space-between; align-items:baseline; margin-top:8px; }
+  .agg__count{ font:600 12px var(--mono); color:var(--text-h); }
+  .agg__pct{ font:600 12px var(--mono); color:var(--text); }
+
+  /* outcome tally — five stat cells */
+  .tally{ display:grid; grid-template-columns:repeat(5,1fr); border-top:1px solid var(--border); border-bottom:1px solid var(--border); }
+  .tally__cell{ padding:13px 14px; border-right:1px solid var(--border); }
+  .tally__cell:last-child{ border-right:0; }
+  .tally__n{ font:700 22px var(--mono); line-height:1; color:var(--text-h); letter-spacing:-.02em; }
+  .tally__k{ display:block; margin-top:6px; font:600 10px var(--mono); letter-spacing:.06em; text-transform:uppercase; color:var(--text); }
+  .tally__cell--landed .tally__n{ color:var(--ok); }
+  .tally__cell--review .tally__n{ color:var(--warn); }
+  .tally__cell--review .tally__k{ color:var(--warn); }
+  /* failed + skipped are QUIET, not alarms — muted ink, no red, no tint */
+  .tally__cell--failed .tally__n,
+  .tally__cell--skipped .tally__n{ color:var(--text); opacity:.9; }
+  .tally__cell--zero .tally__n{ opacity:.35; }
+
+  /* live strip — the one track processing right now */
+  .live{ padding:16px 22px; border-bottom:1px solid var(--border); background:
+      linear-gradient(0deg, rgba(var(--glow),.03), rgba(var(--glow),.03)); }
+  .live__lab{ font:600 10px var(--mono); letter-spacing:.1em; text-transform:uppercase; color:var(--accent); margin:0 0 10px; display:flex; align-items:center; gap:8px; }
+  .live__dot{ width:7px; height:7px; background:var(--accent); border-radius:50%; animation:blink 1.4s ease-in-out infinite; }
+  .live__now{ font-size:15px; font-weight:600; color:var(--text-h); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .live__sub{ font:12px var(--mono); color:var(--text); margin-top:2px; }
+  .meter{ display:flex; gap:7px; margin-top:12px; }
+  .seg{ flex:1; height:11px; color:var(--border); background:repeating-linear-gradient(90deg, currentColor 0 5px, transparent 5px 9px); }
+  .seg[data-s='complete']{ color:var(--accent); }
+  .seg[data-s='active']{ color:var(--accent); animation:pulse 1.6s ease-in-out infinite; }
+  .seg[data-s='pending']{ opacity:.55; }
+  .mlabels{ display:flex; gap:7px; margin-top:6px; }
+  .mlabels span{ flex:1; font:10px var(--mono); letter-spacing:.05em; text-transform:uppercase; color:var(--text); }
+  .mlabels span[data-s='complete'],.mlabels span[data-s='active']{ color:var(--text-h); }
+  .mlabels span[data-s='pending']{ opacity:.4; }
+
+  /* outcome buckets */
+  .bucket{ padding:16px 22px; border-bottom:1px solid var(--border); }
+  .bucket:last-child{ border-bottom:0; }
+  .bucket__head{ display:flex; align-items:center; gap:10px; margin-bottom:12px; }
+  .bucket__name{ font:700 11px var(--mono); letter-spacing:.07em; text-transform:uppercase; color:var(--text-h); margin:0; }
+  .bucket__n{ font:600 11px var(--mono); padding:1px 8px; border:1px solid var(--border); color:var(--text); }
+  .bucket--needs .bucket__name{ color:var(--warn); }
+  .bucket--needs .bucket__n{ color:var(--warn); border-color:var(--warn); }
+
+  .rows{ display:flex; flex-direction:column; gap:9px; }
+  .row{ display:flex; align-items:center; gap:13px; border:1px solid var(--border); background:var(--bg); padding:11px 13px; }
+  .scr--light .row{ background:var(--field); }
+  /* needs-you rows carry the amber left edge — the review-inbox language */
+  .row--needs{ border-left:3px solid var(--warn); }
+  .row--gone{ opacity:.72; }
+  /* album art ONLY on landed rows (ADR-010/018) */
+  .cover{ width:44px; height:44px; flex:none; overflow:hidden; box-shadow:0 1px 5px rgba(0,0,0,.4); }
+  .cover svg{ display:block; width:100%; height:100%; }
+  .noart{ width:44px; height:44px; flex:none; border:1px dashed var(--border); display:grid; place-items:center; }
+  .noart span{ font:9px var(--mono); letter-spacing:.04em; text-transform:uppercase; color:var(--text); opacity:.5; }
+  .row__body{ min-width:0; flex:1; }
+  .row__t{ font-size:14px; font-weight:600; color:var(--text-h); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .row__m{ font:11px var(--mono); color:var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; margin-top:2px; }
+  .row__state{ flex:none; font:600 10px var(--mono); letter-spacing:.05em; text-transform:uppercase; }
+  .row__state--fill{ color:var(--warn); }
+  .row__state--gone{ color:var(--text); opacity:.8; }
+  .resolve{ flex:none; font:700 12px var(--sans); color:var(--accent-fg); background:var(--accent); border:0; padding:8px 14px; }
+
+  /* collapsed "already here" summary — the quiet re-paste case */
+  .already{ display:flex; align-items:center; gap:12px; padding:13px; border:1px solid var(--border); background:var(--bg); }
+  .scr--light .already{ background:var(--field); }
+  .already__n{ font:700 18px var(--mono); color:var(--text); }
+  .already__t{ font-size:13px; color:var(--text); }
+  .already__t b{ color:var(--text-h); font-weight:600; }
+
+  .foot-note{ padding:14px 22px; font-size:12.5px; color:var(--text); background:var(--panel); border-top:1px solid var(--border); }
+  .foot-note b{ color:var(--text-h); font-weight:600; }
+
+  /* ================= THE ACQUIRE DIAL (round detented selector) =================
+     The one round object in a sharp-cornered instrument — a hero control, deliberately.
+     Click-stepped between three stops (SINGLE / PLAYLIST / MULTI), never spun: it's an
+     ARIA radiogroup, not a slider. Cyan pip lights the active stop; the pointer seats
+     with a 1px press. Single is the resting default every load. */
+  .rail__dial{ display:flex; flex-direction:column; align-items:center; margin:2px 0 18px; }
+  .dial{ position:relative; width:168px; height:118px; }
+  .dial__knob{ position:absolute; left:50%; top:6px; transform:translateX(-50%); width:86px; height:86px;
+    border-radius:50%; background:radial-gradient(circle at 50% 34%, #202832, #0c1014 72%);
+    border:1px solid var(--border); box-shadow:inset 0 2px 8px rgba(0,0,0,.7), inset 0 -1px 0 rgba(255,255,255,.05), 0 1px 2px rgba(0,0,0,.5);
+    display:grid; place-items:center; transition:transform .1s ease; }
+  .dial__knob::before{ content:''; position:absolute; inset:5px; border-radius:50%;
+    background:repeating-conic-gradient(from 0deg, var(--border) 0 1.5deg, transparent 1.5deg 15deg); opacity:.45; }
+  .dial__pointer{ position:absolute; left:50%; top:50%; width:3px; height:33px; background:var(--accent);
+    transform-origin:50% 100%; transform:translate(-50%,-100%) rotate(var(--ang,-125deg));
+    box-shadow:0 0 9px rgba(var(--glow),.75); transition:transform .16s cubic-bezier(.2,.9,.3,1.2); }
+  .dial__cap{ position:relative; width:15px; height:15px; border-radius:50%; background:#0c1014; border:1px solid var(--border); z-index:2; }
+  .dial[data-mode='single']   { --ang:-125deg; }
+  .dial[data-mode='playlist'] { --ang:0deg; }
+  .dial[data-mode='multi']    { --ang:125deg; }
+  .dial__lab{ position:absolute; font:600 10px var(--mono); letter-spacing:.05em; text-transform:uppercase; color:var(--text); white-space:nowrap; }
+  .dial__lab i{ font-style:normal; opacity:.55; }
+  .dial__lab::before{ content:''; display:inline-block; width:6px; height:6px; margin-right:5px; vertical-align:middle;
+    background:var(--field); border:1px solid var(--text); border-radius:50%; }
+  .dial__lab[data-on='true']{ color:var(--text-h); }
+  .dial__lab[data-on='true']::before{ background:var(--accent); border-color:var(--accent); box-shadow:0 0 7px rgba(var(--glow),.85); }
+  .dial__lab--single  { left:0;    bottom:2px; }
+  .dial__lab--playlist{ left:50%;  top:-4px; transform:translateX(-50%); }
+  .dial__lab--multi   { right:0;   bottom:2px; opacity:.55; }
+
+  /* quiet, non-blocking note — song+list on Single, or a bare single under Playlist.
+     A line that informs and points at the dial; never a prompt, never buttons. */
+  .note-line{ margin-top:10px; font:11px var(--mono); line-height:1.5; color:var(--text); }
+  .note-line b{ color:var(--text-h); font-weight:600; }
+
+  /* MULTI — present but inert ("soon"), reserving the geometry */
+  .soon{ margin-top:11px; border:1px dashed var(--border); padding:13px; text-align:center; }
+  .soon__k{ font:600 10px var(--mono); letter-spacing:.12em; text-transform:uppercase; color:var(--accent); }
+  .soon__t{ font-size:12px; line-height:1.5; color:var(--text); margin:6px 0 0; }
+  .ghost-rows{ margin-top:11px; opacity:.38; display:flex; flex-direction:column; gap:6px; }
+  .ghost-row{ border:1px solid var(--border); padding:9px 10px; font:11px var(--mono); color:var(--text); text-align:left; }
+  .ghost-row--add{ border-style:dashed; border-color:var(--accent); color:var(--accent); }
+
+  /* deck "ready / nothing running" panel for the input screens */
+  .ready{ border:1px dashed var(--border); background:var(--bg); padding:26px 22px; }
+  .ready__t{ margin:0; font-size:15px; font-weight:600; color:var(--text-h); }
+  .ready__s{ margin:5px 0 0; font-size:13px; color:var(--text); }
+
+  @keyframes pulse{ 0%,100%{opacity:1} 50%{opacity:.45} }
+  @keyframes blink{ 0%,100%{opacity:1} 50%{opacity:.3} }
+  @media (prefers-reduced-motion: reduce){ .seg[data-s='active'],.live__dot{ animation:none; } .dial__pointer,.dial__knob{ transition:none; } }
+
+  @media (max-width:720px){ .scr{ grid-template-columns:1fr; } .rail__path{ display:none; } .rail{ padding:18px; } }
+</style>
+
+<div class="wrap">
+  <p class="eyebrow">T-310 · R2 Playlists · Design Gate (ADR-016)</p>
+  <h1>The batch view: one aggregate card</h1>
+  <p class="lede">
+    Paste a 50-song playlist and walk away. The owner watches it through <b>one card</b>, not fifty —
+    a music journal filling in, not a systems dashboard. These are the flat scenario screens, <b>the
+    ugly states included</b>, for sign-off <b>before</b> any component code (ADR-016). They run in the
+    <b>shipped console skin</b> (ADR-018) — every colour, corner and meter below is the real token from
+    <span style="font-family:var(--mono);font-size:.9em">client/src/index.css</span>, not a fresh look.
+  </p>
+  <p class="meta">
+    Stories: <b>US15–US23</b> · Acceptance items <b>7, 8</b> · Encodes <b>ADR-027</b> (batch/backfill data
+    model) &amp; <b>ADR-028</b> (artist-credit normalisation) · Reuses the review-inbox resolve seam.
+  </p>
+
+  <div class="rules">
+    <h2>The discipline these screens are proving</h2>
+    <ul>
+      <li><b>One card, not fifty.</b> A browser caps ~6 SSE connections per origin; 50 cards would leave 44 streams dead. One card is correctness, not just taste.</li>
+      <li><b>Warmth over alarms.</b> Parked songs read <b>“still filling in”</b>; failures read <b>“gone / unavailable”</b> — muted, never error-red. The red <span style="font-family:var(--mono)">--danger</span> token appears <b>nowhere</b> on this card.</li>
+      <li><b>Album art on landed rows only.</b> Parked / gone / queued rows carry <b>no</b> art placeholder — they’d be asserting a cover that doesn’t exist yet (819f22c removed a swatch for exactly this reason).</li>
+      <li><b>“Needs you” hoisted to the top.</b> The bucket that wants a decision leads; landed / gone / already-here sit below.</li>
+      <li><b>Parked &gt; 0 ⇒ “waiting on you”, never “done”.</b> A month isn’t finished while messy tracks are unfiled.</li>
+      <li><b>Survives reload &amp; restart.</b> The card rebuilds from durable batch state (T-312), not from replayed memory.</li>
+    </ul>
+  </div>
+
+  <!-- ============ SCREEN 1 — just started ============ -->
+  <div class="caprow">
+    <span class="capnum">01</span>
+    <span class="captxt">A batch just started
+      <small>The paste is accepted (the URL R1 used to reject), the playlist is named from its YouTube title, and 50 track-jobs are queued. Almost everything is still “queued”; the first track is downloading, shown live. The card is born whole — the shape doesn’t change as it fills.</small>
+    </span>
+  </div>
+  <div class="frame">
+    <div class="fbar"><i></i><i></i><i></i><span class="u">cleanmuzik · localhost:5173</span></div>
+    <div class="scr">
+      <aside class="rail">
+        <div class="rail__brand"><div class="rail__seal"></div><div class="rail__wm">CleanMuzik</div><p class="rail__tag">Paste a YouTube URL and it lands, tagged, in your library.</p></div>
+        <div class="rail__form"><div class="rail__in">youtube.com/playlist?list=PL…aug</div><div class="rail__go">Working…</div></div>
+        <div class="rail__path"><span class="rail__stage">Download</span><span class="rail__stage">Transcode</span><span class="rail__stage">Identify</span><span class="rail__stage">Tag</span><span class="rail__stage">Land</span></div>
+      </aside>
+      <main class="deck">
+        <div class="deck__head"><h2 class="deck__title">Batch</h2><span class="deck__count">1</span></div>
+        <div class="batch">
+          <div class="batch__top">
+            <div class="batch__id"><h3 class="batch__title">August 2026 — night drives</h3><p class="batch__src">youtube.com/playlist?list=PL8u…&nbsp;·&nbsp;50 tracks</p></div>
+            <span class="pill pill--live">Processing</span>
+          </div>
+          <div class="agg">
+            <div class="agg__bar"><div class="agg__fill" style="width:3%"></div></div>
+            <div class="agg__meta"><span class="agg__count">1 of 50 processed</span><span class="agg__pct">2%</span></div>
+          </div>
+          <div class="tally">
+            <div class="tally__cell tally__cell--landed tally__cell--zero"><span class="tally__n">0</span><span class="tally__k">Landed</span></div>
+            <div class="tally__cell tally__cell--review tally__cell--zero"><span class="tally__n">0</span><span class="tally__k">In review</span></div>
+            <div class="tally__cell tally__cell--failed tally__cell--zero"><span class="tally__n">0</span><span class="tally__k">Gone</span></div>
+            <div class="tally__cell tally__cell--skipped tally__cell--zero"><span class="tally__n">0</span><span class="tally__k">Skipped</span></div>
+            <div class="tally__cell"><span class="tally__n">49</span><span class="tally__k">Queued</span></div>
+          </div>
+          <div class="live">
+            <p class="live__lab"><span class="live__dot"></span>Now processing · track 1 of 50</p>
+            <div class="live__now">Midnight City — M83</div>
+            <div class="live__sub">youtube.com/watch?v=dX3k_QDnzHE</div>
+            <div class="meter"><span class="seg" data-s="active"></span><span class="seg" data-s="pending"></span><span class="seg" data-s="pending"></span><span class="seg" data-s="pending"></span><span class="seg" data-s="pending"></span></div>
+            <div class="mlabels"><span data-s="active">Download</span><span data-s="pending">Transcode</span><span data-s="pending">Identify</span><span data-s="pending">Tag</span><span data-s="pending">Land</span></div>
+          </div>
+          <div class="foot-note">Sequential by design (ADR-001) — one track at a time, in playlist order. <b>Nothing landed yet</b>; the buckets below appear as tracks resolve.</div>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <!-- ============ SCREEN 2 — mid-grind ============ -->
+  <div class="caprow">
+    <span class="capnum">02</span>
+    <span class="captxt">Mid-grind — the journal filling in
+      <small>34 of 50 processed. The live track pulses; buckets have formed below with “needs you” on top. <b>Album art rides landed rows only</b> — the parked rows carry a plain “still filling in” placeholder, no cover asserted.</small>
+    </span>
+  </div>
+  <div class="frame">
+    <div class="fbar"><i></i><i></i><i></i><span class="u">cleanmuzik · localhost:5173</span></div>
+    <div class="scr">
+      <aside class="rail">
+        <div class="rail__brand"><div class="rail__seal"></div><div class="rail__wm">CleanMuzik</div><p class="rail__tag">Paste a YouTube URL and it lands, tagged, in your library.</p></div>
+        <div class="rail__form"><div class="rail__in">https://www.youtube.com/watch?v=…</div><div class="rail__go">Go</div></div>
+        <div class="rail__path"><span class="rail__stage">Download</span><span class="rail__stage">Transcode</span><span class="rail__stage">Identify</span><span class="rail__stage">Tag</span><span class="rail__stage">Land</span></div>
+      </aside>
+      <main class="deck">
+        <div class="deck__head"><h2 class="deck__title">Batch</h2><span class="deck__count">1</span></div>
+        <div class="batch">
+          <div class="batch__top">
+            <div class="batch__id"><h3 class="batch__title">August 2026 — night drives</h3><p class="batch__src">youtube.com/playlist?list=PL8u…&nbsp;·&nbsp;50 tracks</p></div>
+            <span class="pill pill--live">Processing</span>
+          </div>
+          <div class="agg">
+            <div class="agg__bar"><div class="agg__fill" style="width:68%"></div></div>
+            <div class="agg__meta"><span class="agg__count">34 of 50 processed</span><span class="agg__pct">68%</span></div>
+          </div>
+          <div class="tally">
+            <div class="tally__cell tally__cell--landed"><span class="tally__n">28</span><span class="tally__k">Landed</span></div>
+            <div class="tally__cell tally__cell--review"><span class="tally__n">4</span><span class="tally__k">In review</span></div>
+            <div class="tally__cell tally__cell--failed"><span class="tally__n">2</span><span class="tally__k">Gone</span></div>
+            <div class="tally__cell tally__cell--skipped tally__cell--zero"><span class="tally__n">0</span><span class="tally__k">Skipped</span></div>
+            <div class="tally__cell"><span class="tally__n">15</span><span class="tally__k">Queued</span></div>
+          </div>
+          <div class="live">
+            <p class="live__lab"><span class="live__dot"></span>Now processing · track 35 of 50</p>
+            <div class="live__now">Nightcall — Kavinsky</div>
+            <div class="live__sub">Identifying — matching against MusicBrainz…</div>
+            <div class="meter"><span class="seg" data-s="complete"></span><span class="seg" data-s="complete"></span><span class="seg" data-s="active"></span><span class="seg" data-s="pending"></span><span class="seg" data-s="pending"></span></div>
+            <div class="mlabels"><span data-s="complete">Download</span><span data-s="complete">Transcode</span><span data-s="active">Identify</span><span data-s="pending">Tag</span><span data-s="pending">Land</span></div>
+          </div>
+          <div class="bucket bucket--needs">
+            <div class="bucket__head"><h4 class="bucket__name">Needs you</h4><span class="bucket__n">4</span></div>
+            <div class="rows">
+              <div class="row row--needs">
+                <div class="noart"><span>filling</span></div>
+                <div class="row__body"><div class="row__t">Weak match — “teardrop massive attack”</div><div class="row__m">track 12 · two candidates, low confidence</div></div>
+                <button class="resolve">Resolve</button>
+              </div>
+              <div class="row row--needs">
+                <div class="noart"><span>filling</span></div>
+                <div class="row__body"><div class="row__t">Weak match — “resonance home”</div><div class="row__m">track 19 · still filling in</div></div>
+                <button class="resolve">Resolve</button>
+              </div>
+            </div>
+          </div>
+          <div class="bucket">
+            <div class="bucket__head"><h4 class="bucket__name">Landed</h4><span class="bucket__n">28</span></div>
+            <div class="rows">
+              <div class="row">
+                <div class="cover"><svg viewBox="0 0 44 44"><rect width="44" height="44" fill="#1c3a44"/><circle cx="22" cy="22" r="13" fill="none" stroke="#3fb6d8" stroke-width="2"/><circle cx="22" cy="22" r="3" fill="#3fb6d8"/></svg></div>
+                <div class="row__body"><div class="row__t">Midnight City — M83</div><div class="row__m">Hurry Up, We’re Dreaming · 2011 · Electronic</div></div>
+                <span class="row__state" style="color:var(--ok)">Landed</span>
+              </div>
+              <div class="row">
+                <div class="cover"><svg viewBox="0 0 44 44"><rect width="44" height="44" fill="#2a2140"/><path d="M8 30 L18 14 L26 26 L34 12 L38 30 Z" fill="#7fd6ee"/></svg></div>
+                <div class="row__body"><div class="row__t">Genesis — Grimes</div><div class="row__m">Visions · 2012 · Art Pop</div></div>
+                <span class="row__state" style="color:var(--ok)">Landed</span>
+              </div>
+            </div>
+          </div>
+          <div class="bucket">
+            <div class="bucket__head"><h4 class="bucket__name">Gone</h4><span class="bucket__n">2</span></div>
+            <div class="rows">
+              <div class="row row--gone">
+                <div class="noart"><span>—</span></div>
+                <div class="row__body"><div class="row__t">track 7 — video unavailable</div><div class="row__m">deleted or region-locked · the batch carried on</div></div>
+                <span class="row__state row__state--gone">Gone</span>
+              </div>
+            </div>
+          </div>
+          <div class="foot-note">One failed video <b>does not stop the batch</b> (ADR-002). The card holds its shape from the first second to the last.</div>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <!-- ============ SCREEN 3 — a failed song, up close ============ -->
+  <div class="caprow">
+    <span class="capnum">03</span>
+    <span class="captxt">The ugly state: a failed song
+      <small>A deleted or region-locked video. It reads <b>“gone / unavailable”</b> in muted ink — <b>not</b> error-red, no alarm tint, no stack trace. The row is dimmed and carries no art. This is the single most important “don’t make my journal feel like an error console” decision.</small>
+    </span>
+  </div>
+  <div class="frame">
+    <div class="fbar"><i></i><i></i><i></i><span class="u">cleanmuzik · localhost:5173 · gone bucket</span></div>
+    <div class="scr">
+      <aside class="rail">
+        <div class="rail__brand"><div class="rail__seal"></div><div class="rail__wm">CleanMuzik</div><p class="rail__tag">Paste a YouTube URL and it lands, tagged, in your library.</p></div>
+        <div class="rail__form"><div class="rail__in">https://www.youtube.com/watch?v=…</div><div class="rail__go">Go</div></div>
+        <div class="rail__path"><span class="rail__stage">Download</span><span class="rail__stage">Transcode</span><span class="rail__stage">Identify</span><span class="rail__stage">Tag</span><span class="rail__stage">Land</span></div>
+      </aside>
+      <main class="deck">
+        <div class="deck__head"><h2 class="deck__title">Batch</h2><span class="deck__count">1</span></div>
+        <div class="batch">
+          <div class="batch__top">
+            <div class="batch__id"><h3 class="batch__title">August 2026 — night drives</h3><p class="batch__src">youtube.com/playlist?list=PL8u…&nbsp;·&nbsp;50 tracks</p></div>
+            <span class="pill pill--live">Processing</span>
+          </div>
+          <div class="agg">
+            <div class="agg__bar"><div class="agg__fill" style="width:82%"></div></div>
+            <div class="agg__meta"><span class="agg__count">41 of 50 processed</span><span class="agg__pct">82%</span></div>
+          </div>
+          <div class="tally">
+            <div class="tally__cell tally__cell--landed"><span class="tally__n">35</span><span class="tally__k">Landed</span></div>
+            <div class="tally__cell tally__cell--review"><span class="tally__n">3</span><span class="tally__k">In review</span></div>
+            <div class="tally__cell tally__cell--failed"><span class="tally__n">3</span><span class="tally__k">Gone</span></div>
+            <div class="tally__cell tally__cell--skipped tally__cell--zero"><span class="tally__n">0</span><span class="tally__k">Skipped</span></div>
+            <div class="tally__cell"><span class="tally__n">9</span><span class="tally__k">Queued</span></div>
+          </div>
+          <div class="bucket">
+            <div class="bucket__head"><h4 class="bucket__name">Gone</h4><span class="bucket__n">3</span></div>
+            <div class="rows">
+              <div class="row row--gone">
+                <div class="noart"><span>—</span></div>
+                <div class="row__body"><div class="row__t">track 7 — video unavailable</div><div class="row__m">the uploader deleted it · nothing to download</div></div>
+                <span class="row__state row__state--gone">Gone</span>
+              </div>
+              <div class="row row--gone">
+                <div class="noart"><span>—</span></div>
+                <div class="row__body"><div class="row__t">track 23 — not available in your region</div><div class="row__m">region-locked · the other 49 were unaffected</div></div>
+                <span class="row__state row__state--gone">Gone</span>
+              </div>
+              <div class="row row--gone">
+                <div class="noart"><span>—</span></div>
+                <div class="row__body"><div class="row__t">track 38 — download failed</div><div class="row__m">source refused after retries</div></div>
+                <span class="row__state row__state--gone">Gone</span>
+              </div>
+            </div>
+          </div>
+          <div class="foot-note"><b>No red.</b> A gone video is a fact of the source, not a fault of the library. The word is <b>“gone”</b>, the ink is muted, and the batch never paused.</div>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <!-- ============ SCREEN 4 — N in review ============ -->
+  <div class="caprow">
+    <span class="capnum">04</span>
+    <span class="captxt">The ugly state: “N in review” — still filling in
+      <small>Low-confidence tracks (common on YouTube rips) go to the <b>same review inbox R1.1 built</b>. Here the “needs you” bucket is the story: each row reads <b>“still filling in,”</b> carries no art (nothing has landed to draw a cover from), and offers the existing <b>Resolve</b> seam. This is the messy-but-not-broken state.</small>
+    </span>
+  </div>
+  <div class="frame">
+    <div class="fbar"><i></i><i></i><i></i><span class="u">cleanmuzik · localhost:5173 · needs-you bucket</span></div>
+    <div class="scr">
+      <aside class="rail">
+        <div class="rail__brand"><div class="rail__seal"></div><div class="rail__wm">CleanMuzik</div><p class="rail__tag">Paste a YouTube URL and it lands, tagged, in your library.</p></div>
+        <div class="rail__form"><div class="rail__in">https://www.youtube.com/watch?v=…</div><div class="rail__go">Go</div></div>
+        <div class="rail__path"><span class="rail__stage">Download</span><span class="rail__stage">Transcode</span><span class="rail__stage">Identify</span><span class="rail__stage">Tag</span><span class="rail__stage">Land</span></div>
+      </aside>
+      <main class="deck">
+        <div class="deck__head"><h2 class="deck__title">Batch</h2><span class="deck__count">1</span></div>
+        <div class="batch">
+          <div class="batch__top">
+            <div class="batch__id"><h3 class="batch__title">August 2026 — night drives</h3><p class="batch__src">youtube.com/playlist?list=PL8u…&nbsp;·&nbsp;50 tracks</p></div>
+            <span class="pill pill--live">Processing</span>
+          </div>
+          <div class="agg">
+            <div class="agg__bar"><div class="agg__fill" style="width:90%"></div></div>
+            <div class="agg__meta"><span class="agg__count">45 of 50 processed</span><span class="agg__pct">90%</span></div>
+          </div>
+          <div class="tally">
+            <div class="tally__cell tally__cell--landed"><span class="tally__n">36</span><span class="tally__k">Landed</span></div>
+            <div class="tally__cell tally__cell--review"><span class="tally__n">6</span><span class="tally__k">In review</span></div>
+            <div class="tally__cell tally__cell--failed"><span class="tally__n">3</span><span class="tally__k">Gone</span></div>
+            <div class="tally__cell tally__cell--skipped tally__cell--zero"><span class="tally__n">0</span><span class="tally__k">Skipped</span></div>
+            <div class="tally__cell"><span class="tally__n">5</span><span class="tally__k">Queued</span></div>
+          </div>
+          <div class="bucket bucket--needs">
+            <div class="bucket__head"><h4 class="bucket__name">Needs you</h4><span class="bucket__n">6</span></div>
+            <div class="rows">
+              <div class="row row--needs">
+                <div class="noart"><span>filling</span></div>
+                <div class="row__body"><div class="row__t">“teardrop massive attack”</div><div class="row__m">track 12 · weak match — two candidates</div></div>
+                <button class="resolve">Resolve</button>
+              </div>
+              <div class="row row--needs">
+                <div class="noart"><span>filling</span></div>
+                <div class="row__body"><div class="row__t">“resonance home cover”</div><div class="row__m">track 19 · weak match — still filling in</div></div>
+                <button class="resolve">Resolve</button>
+              </div>
+              <div class="row row--needs">
+                <div class="noart"><span>filling</span></div>
+                <div class="row__body"><div class="row__t">“a real hero college electric youth”</div><div class="row__m">track 27 · weak match — still filling in</div></div>
+                <button class="resolve">Resolve</button>
+              </div>
+            </div>
+          </div>
+          <div class="foot-note">The same inbox as a single-song review — <b>batching doesn’t invent a second place to look</b>. Resolve one now, or later: a resolved track <b>backfills into this playlist automatically</b> (T-306).</div>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <!-- ============ SCREEN 5 — terminal: waiting on you ============ -->
+  <div class="caprow">
+    <span class="capnum">05</span>
+    <span class="captxt">The terminal state: “waiting on you”, not “done”
+      <small>The grind is finished — every queued track processed — but 4 are still parked in review. The card reads <b>“Waiting on you”</b> in amber, <b>not</b> green “Done”: a month isn’t complete while messy tracks are unfiled (US22). The needs-you bucket is hoisted to the top. This is the state the owner walks back to.</small>
+    </span>
+  </div>
+  <div class="frame">
+    <div class="fbar"><i></i><i></i><i></i><span class="u">cleanmuzik · localhost:5173 · reopened after walking away</span></div>
+    <div class="scr">
+      <aside class="rail">
+        <div class="rail__brand"><div class="rail__seal"></div><div class="rail__wm">CleanMuzik</div><p class="rail__tag">Paste a YouTube URL and it lands, tagged, in your library.</p></div>
+        <div class="rail__form"><div class="rail__in">https://www.youtube.com/watch?v=…</div><div class="rail__go">Go</div></div>
+        <div class="rail__path"><span class="rail__stage">Download</span><span class="rail__stage">Transcode</span><span class="rail__stage">Identify</span><span class="rail__stage">Tag</span><span class="rail__stage">Land</span></div>
+      </aside>
+      <main class="deck">
+        <div class="deck__head"><h2 class="deck__title">Batch</h2><span class="deck__count">1</span></div>
+        <div class="batch">
+          <div class="batch__top">
+            <div class="batch__id"><h3 class="batch__title">August 2026 — night drives</h3><p class="batch__src">youtube.com/playlist?list=PL8u…&nbsp;·&nbsp;50 tracks&nbsp;·&nbsp;restored from durable state</p></div>
+            <span class="pill pill--wait">Waiting on you</span>
+          </div>
+          <div class="agg">
+            <div class="agg__bar"><div class="agg__fill agg__fill--wait" style="width:100%"></div></div>
+            <div class="agg__meta"><span class="agg__count">50 of 50 processed · 4 waiting on you</span><span class="agg__pct" style="color:var(--warn)">Parked</span></div>
+          </div>
+          <div class="tally">
+            <div class="tally__cell tally__cell--landed"><span class="tally__n">43</span><span class="tally__k">Landed</span></div>
+            <div class="tally__cell tally__cell--review"><span class="tally__n">4</span><span class="tally__k">In review</span></div>
+            <div class="tally__cell tally__cell--failed"><span class="tally__n">3</span><span class="tally__k">Gone</span></div>
+            <div class="tally__cell tally__cell--skipped tally__cell--zero"><span class="tally__n">0</span><span class="tally__k">Skipped</span></div>
+            <div class="tally__cell tally__cell--zero"><span class="tally__n">0</span><span class="tally__k">Queued</span></div>
+          </div>
+          <div class="bucket bucket--needs">
+            <div class="bucket__head"><h4 class="bucket__name">Needs you</h4><span class="bucket__n">4</span></div>
+            <div class="rows">
+              <div class="row row--needs">
+                <div class="noart"><span>filling</span></div>
+                <div class="row__body"><div class="row__t">“teardrop massive attack”</div><div class="row__m">track 12 · weak match — resolve to file it</div></div>
+                <button class="resolve">Resolve</button>
+              </div>
+              <div class="row row--needs">
+                <div class="noart"><span>filling</span></div>
+                <div class="row__body"><div class="row__t">“resonance home cover”</div><div class="row__m">track 19 · weak match — resolve to file it</div></div>
+                <button class="resolve">Resolve</button>
+              </div>
+            </div>
+          </div>
+          <div class="bucket">
+            <div class="bucket__head"><h4 class="bucket__name">Landed</h4><span class="bucket__n">43</span></div>
+            <div class="rows">
+              <div class="row">
+                <div class="cover"><svg viewBox="0 0 44 44"><rect width="44" height="44" fill="#1c3a44"/><circle cx="22" cy="22" r="13" fill="none" stroke="#3fb6d8" stroke-width="2"/><circle cx="22" cy="22" r="3" fill="#3fb6d8"/></svg></div>
+                <div class="row__body"><div class="row__t">Midnight City — M83</div><div class="row__m">/music/M83/Hurry Up, We’re Dreaming/…</div></div>
+                <span class="row__state" style="color:var(--ok)">Landed</span>
+              </div>
+              <div class="row">
+                <div class="cover"><svg viewBox="0 0 44 44"><rect width="44" height="44" fill="#402b1c"/><rect x="10" y="10" width="24" height="24" fill="none" stroke="#e0a33d" stroke-width="2"/><line x1="10" y1="22" x2="34" y2="22" stroke="#e0a33d" stroke-width="2"/></svg></div>
+                <div class="row__body"><div class="row__t">Nightcall — Kavinsky</div><div class="row__m">/music/Kavinsky/OutRun/…</div></div>
+                <span class="row__state" style="color:var(--ok)">Landed</span>
+              </div>
+              <div class="already" style="margin-top:9px;border-style:dashed"><span class="already__n">+41</span><span class="already__t">more landed — <b>collapsed</b> so the journal isn’t a wall. Click to expand.</span></div>
+            </div>
+          </div>
+          <div class="foot-note">The Jellyfin playlist <b>“August 2026 — night drives”</b> is created and holds the 43 landed tracks. Resolve the 4 parked and they append automatically — <b>then</b> the card turns green.</div>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <!-- ============ SCREEN 6 — mostly already here (re-paste) ============ -->
+  <div class="caprow">
+    <span class="capnum">06</span>
+    <span class="captxt">The quiet case: a mostly-already-done re-paste
+      <small>The owner re-pastes August as it grew. 45 songs are already in the library (exact video-ID match) — skipped, not re-downloaded, but <b>still added to the playlist</b>. Only 3 are new. The common case must be <b>quiet</b>: the 45 collapse to one line, the 3 new ones land, and the headline is <b>“45 already here · 3 added · nothing wrong.”</b></small>
+    </span>
+  </div>
+  <div class="frame">
+    <div class="fbar"><i></i><i></i><i></i><span class="u">cleanmuzik · localhost:5173 · re-paste of an existing playlist</span></div>
+    <div class="scr">
+      <aside class="rail">
+        <div class="rail__brand"><div class="rail__seal"></div><div class="rail__wm">CleanMuzik</div><p class="rail__tag">Paste a YouTube URL and it lands, tagged, in your library.</p></div>
+        <div class="rail__form"><div class="rail__in">youtube.com/playlist?list=PL…aug</div><div class="rail__go">Go</div></div>
+        <div class="rail__path"><span class="rail__stage">Download</span><span class="rail__stage">Transcode</span><span class="rail__stage">Identify</span><span class="rail__stage">Tag</span><span class="rail__stage">Land</span></div>
+      </aside>
+      <main class="deck">
+        <div class="deck__head"><h2 class="deck__title">Batch</h2><span class="deck__count">1</span></div>
+        <div class="batch">
+          <div class="batch__top">
+            <div class="batch__id"><h3 class="batch__title">August 2026 — night drives</h3><p class="batch__src">re-paste · updates the same Jellyfin playlist · 48 tracks</p></div>
+            <span class="pill pill--done">Done</span>
+          </div>
+          <div class="agg">
+            <div class="agg__bar"><div class="agg__fill agg__fill--done" style="width:100%"></div></div>
+            <div class="agg__meta"><span class="agg__count">45 already here · 3 added · nothing wrong</span><span class="agg__pct" style="color:var(--ok)">100%</span></div>
+          </div>
+          <div class="tally">
+            <div class="tally__cell tally__cell--landed"><span class="tally__n">3</span><span class="tally__k">Added</span></div>
+            <div class="tally__cell tally__cell--review tally__cell--zero"><span class="tally__n">0</span><span class="tally__k">In review</span></div>
+            <div class="tally__cell tally__cell--failed tally__cell--zero"><span class="tally__n">0</span><span class="tally__k">Gone</span></div>
+            <div class="tally__cell tally__cell--skipped"><span class="tally__n">45</span><span class="tally__k">Skipped</span></div>
+            <div class="tally__cell tally__cell--zero"><span class="tally__n">0</span><span class="tally__k">Queued</span></div>
+          </div>
+          <div class="bucket">
+            <div class="bucket__head"><h4 class="bucket__name">Added this time</h4><span class="bucket__n">3</span></div>
+            <div class="rows">
+              <div class="row">
+                <div class="cover"><svg viewBox="0 0 44 44"><rect width="44" height="44" fill="#22304a"/><circle cx="22" cy="22" r="10" fill="none" stroke="#7fd6ee" stroke-width="2"/><circle cx="22" cy="22" r="2.5" fill="#7fd6ee"/></svg></div>
+                <div class="row__body"><div class="row__t">Instant Crush — Daft Punk</div><div class="row__m">Random Access Memories · 2013 · Electronic</div></div>
+                <span class="row__state" style="color:var(--ok)">Added</span>
+              </div>
+              <div class="row">
+                <div class="cover"><svg viewBox="0 0 44 44"><rect width="44" height="44" fill="#1c4436"/><path d="M14 30 V16 L30 22 Z" fill="#46b878"/></svg></div>
+                <div class="row__body"><div class="row__t">Hurt — Oliver Tree</div><div class="row__m">Ugly is Beautiful · 2020 · Alt Pop</div></div>
+                <span class="row__state" style="color:var(--ok)">Added</span>
+              </div>
+            </div>
+          </div>
+          <div class="bucket">
+            <div class="bucket__head"><h4 class="bucket__name">Already in your library</h4><span class="bucket__n">45</span></div>
+            <div class="already">
+              <span class="already__n">45</span>
+              <span class="already__t"><b>Skipped, not re-downloaded</b> — exact same videos you already own. Each was <b>added to this playlist</b> so August still reads complete. No duplicate files, no re-prompts.</span>
+            </div>
+          </div>
+          <div class="foot-note">Safe to re-run all month. The <b>same</b> Jellyfin playlist is updated in place — a July song reappearing in August shows up in both, stored once (US9–US11).</div>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <!-- ================================================================
+       PART 2 — THE ACQUIRE DIAL (added 2026-08-16 from the design council)
+       ================================================================ -->
+  <div class="caprow" style="margin-top:88px; border-top:1px solid var(--doc-line); padding-top:44px;">
+    <span class="capnum" style="background:var(--doc-ink); color:var(--doc-bg);">NEW</span>
+    <span class="captxt">The acquire control — the dial
+      <small>From the design council (2026-08-16). Before the batch card fills, the owner sets <b>intent</b> on a round
+      detented selector — the one round object in a sharp-cornered instrument, a hero control on purpose. It clicks
+      between <b>Single · Playlist · Multi</b>; it never spins (it's an accessible radiogroup, not a knob you drag). The
+      real fix underneath: the app <b>stops guessing intent from URL shape</b> and silently stripping playlists — you say
+      what you mean and the backend honours it. Single is the resting default every load, so the walk-away flow is untouched.</small>
+    </span>
+  </div>
+
+  <!-- ---- D1 — SINGLE (default, resting) ---- -->
+  <div class="caprow">
+    <span class="capnum">D1</span>
+    <span class="captxt">Single — the default, the instant 99% path
+      <small>Every session opens with the dial on Single. Paste a bare song URL, press Go, done — the R1 walk-away flow, byte-for-byte, the selector untouched and unlooked-at. The dial adds no step to the common case.</small>
+    </span>
+  </div>
+  <div class="frame">
+    <div class="fbar"><i></i><i></i><i></i><span class="u">cleanmuzik · localhost:5173</span></div>
+    <div class="scr">
+      <aside class="rail">
+        <div class="rail__brand"><div class="rail__seal"></div><div class="rail__wm">CleanMuzik</div><p class="rail__tag">Set the dial, paste a URL, and it lands, tagged, in your library.</p></div>
+        <div class="rail__dial">
+          <div class="dial" data-mode="single" role="radiogroup" aria-label="Acquire mode">
+            <div class="dial__knob"><span class="dial__pointer"></span><span class="dial__cap"></span></div>
+            <span class="dial__lab dial__lab--single" data-on="true">Single</span>
+            <span class="dial__lab dial__lab--playlist">Playlist</span>
+            <span class="dial__lab dial__lab--multi">Multi<i>·soon</i></span>
+          </div>
+        </div>
+        <div class="rail__form"><div class="rail__in">youtube.com/watch?v=dX3k_QDnzHE</div><div class="rail__go">Go</div></div>
+        <div class="rail__path"><span class="rail__stage">Download</span><span class="rail__stage">Transcode</span><span class="rail__stage">Identify</span><span class="rail__stage">Tag</span><span class="rail__stage">Land</span></div>
+      </aside>
+      <main class="deck">
+        <div class="deck__head"><h2 class="deck__title">Batch</h2></div>
+        <div class="ready"><p class="ready__t">Nothing running.</p><p class="ready__s">Dial's on Single — paste a song and it opens here, live.</p></div>
+      </main>
+    </div>
+  </div>
+
+  <!-- ---- D2 — song + list on Single → just the song, no prompt ---- -->
+  <div class="caprow">
+    <span class="capnum">D2</span>
+    <span class="captxt">A song that's inside a playlist — just the song, no fuss
+      <small>Paste <code style="font-family:var(--mono);font-size:.9em">watch?v=…&amp;list=PL…</code> (the address-bar copy) while the dial's on Single and it does the obvious thing: <b>lands the one song, no prompt, no interruption</b>. The dial already said Single — if you'd wanted the whole month you'd have turned it to Playlist. A quiet line points the way; it never stops you. (This is why the dial replaces the old "which did you mean?" question — the mode already answered it.)</small>
+    </span>
+  </div>
+  <div class="frame">
+    <div class="fbar"><i></i><i></i><i></i><span class="u">cleanmuzik · localhost:5173 · single (playlist attached, ignored)</span></div>
+    <div class="scr">
+      <aside class="rail">
+        <div class="rail__brand"><div class="rail__seal"></div><div class="rail__wm">CleanMuzik</div><p class="rail__tag">Set the dial, paste a URL, and it lands, tagged, in your library.</p></div>
+        <div class="rail__dial">
+          <div class="dial" data-mode="single" role="radiogroup" aria-label="Acquire mode">
+            <div class="dial__knob"><span class="dial__pointer"></span><span class="dial__cap"></span></div>
+            <span class="dial__lab dial__lab--single" data-on="true">Single</span>
+            <span class="dial__lab dial__lab--playlist">Playlist</span>
+            <span class="dial__lab dial__lab--multi">Multi<i>·soon</i></span>
+          </div>
+        </div>
+        <div class="rail__form"><div class="rail__in">…watch?v=dX3…&amp;list=PL8u…</div><div class="rail__go">Go</div></div>
+        <p class="note-line">Playlist attached — <b>taking just this song</b>.<br>Want all 50? Turn the dial to <b>Playlist</b>.</p>
+        <div class="rail__path"><span class="rail__stage">Download</span><span class="rail__stage">Transcode</span><span class="rail__stage">Identify</span><span class="rail__stage">Tag</span><span class="rail__stage">Land</span></div>
+      </aside>
+      <main class="deck">
+        <div class="deck__head"><h2 class="deck__title">Batch</h2></div>
+        <div class="ready"><p class="ready__t">Landing one track.</p><p class="ready__s">The playlist stays put — turn the dial to Playlist to grab it.</p></div>
+      </main>
+    </div>
+  </div>
+
+  <!-- ---- D3 — PLAYLIST mode ---- -->
+  <div class="caprow">
+    <span class="capnum">D3</span>
+    <span class="captxt">Playlist — intent declared, no prompt
+      <small>Turn the dial to Playlist and a playlist (or song+list) URL expands straight into a batch — no confirm, because you already said so. And the graceful edge: paste a single-song URL while on Playlist and it lands as one song with a quiet note, never a hard error.</small>
+    </span>
+  </div>
+  <div class="frame">
+    <div class="fbar"><i></i><i></i><i></i><span class="u">cleanmuzik · localhost:5173 · playlist mode</span></div>
+    <div class="scr">
+      <aside class="rail">
+        <div class="rail__brand"><div class="rail__seal"></div><div class="rail__wm">CleanMuzik</div><p class="rail__tag">Set the dial, paste a URL, and it lands, tagged, in your library.</p></div>
+        <div class="rail__dial">
+          <div class="dial" data-mode="playlist" role="radiogroup" aria-label="Acquire mode">
+            <div class="dial__knob"><span class="dial__pointer"></span><span class="dial__cap"></span></div>
+            <span class="dial__lab dial__lab--single">Single</span>
+            <span class="dial__lab dial__lab--playlist" data-on="true">Playlist</span>
+            <span class="dial__lab dial__lab--multi">Multi<i>·soon</i></span>
+          </div>
+        </div>
+        <div class="rail__form"><div class="rail__in">youtube.com/playlist?list=PL8u…</div><div class="rail__go">Go</div></div>
+        <p class="note-line">Expands the whole playlist. <br><b>On a single-song URL</b> here: lands it as one song — a quiet note, not an error.</p>
+        <div class="rail__path"><span class="rail__stage">Download</span><span class="rail__stage">Transcode</span><span class="rail__stage">Identify</span><span class="rail__stage">Tag</span><span class="rail__stage">Land</span></div>
+      </aside>
+      <main class="deck">
+        <div class="deck__head"><h2 class="deck__title">Batch</h2></div>
+        <div class="ready"><p class="ready__t">Ready to expand.</p><p class="ready__s">Press Go and the 50 tracks open as one card, live.</p></div>
+      </main>
+    </div>
+  </div>
+
+  <!-- ---- D4 — MULTI (present but inert) ---- -->
+  <div class="caprow">
+    <span class="capnum">D4</span>
+    <span class="captxt">Multi — present now, built later
+      <small>The third stop ships visible and dimmed ("soon"), so the control's geometry already reserves its place and the roadmap is on screen from day one. Selecting it shows what's coming — a hand-assembled set of songs with a "+ add another" — without building it yet. Backend's ready (the batch data model already groups N jobs into one playlist); this is input-UI work for later.</small>
+    </span>
+  </div>
+  <div class="frame">
+    <div class="fbar"><i></i><i></i><i></i><span class="u">cleanmuzik · localhost:5173 · multi (coming soon)</span></div>
+    <div class="scr">
+      <aside class="rail">
+        <div class="rail__brand"><div class="rail__seal"></div><div class="rail__wm">CleanMuzik</div><p class="rail__tag">Set the dial, paste a URL, and it lands, tagged, in your library.</p></div>
+        <div class="rail__dial">
+          <div class="dial" data-mode="multi" role="radiogroup" aria-label="Acquire mode">
+            <div class="dial__knob"><span class="dial__pointer"></span><span class="dial__cap"></span></div>
+            <span class="dial__lab dial__lab--single">Single</span>
+            <span class="dial__lab dial__lab--playlist">Playlist</span>
+            <span class="dial__lab dial__lab--multi" data-on="true">Multi<i>·soon</i></span>
+          </div>
+        </div>
+        <div class="soon">
+          <div class="soon__k">Multi · coming soon</div>
+          <p class="soon__t">Queue up a handful of songs by hand into one set — not a playlist, just your own pick.</p>
+          <div class="ghost-rows">
+            <div class="ghost-row">youtube.com/watch?v=…&nbsp;·&nbsp;song 1</div>
+            <div class="ghost-row">youtube.com/watch?v=…&nbsp;·&nbsp;song 2</div>
+            <div class="ghost-row ghost-row--add">+ add another song</div>
+          </div>
+        </div>
+        <div class="rail__path"><span class="rail__stage">Download</span><span class="rail__stage">Transcode</span><span class="rail__stage">Identify</span><span class="rail__stage">Tag</span><span class="rail__stage">Land</span></div>
+      </aside>
+      <main class="deck">
+        <div class="deck__head"><h2 class="deck__title">Batch</h2></div>
+        <div class="ready"><p class="ready__t">Not built yet.</p><p class="ready__s">The stop's here so you can see it's coming — the set assembles here when it lands.</p></div>
+      </main>
+    </div>
+  </div>
+
+  <div class="foot">
+    <b>Sign-off asked for — two parts.</b> All screens fix the <b>shape and the copy</b> before any component code (ADR-016).
+    <br><br><b>Part 1 · the batch card (01–06):</b> (1) the outcome vocabulary — <b>Landed / In review / Gone / Skipped /
+    Queued</b>; (2) failures as muted <b>“gone”</b>, never red; (3) <b>art on landed rows only</b>; (4) <b>“waiting on you”</b>
+    as the terminal state while parked&nbsp;&gt;&nbsp;0; (5) the collapsed <b>“already here”</b> summary for the quiet re-paste.
+    <br><br><b>Part 2 · the acquire dial (D1–D4):</b> (6) a <b>round detented selector</b> — Single (default) / Playlist /
+    Multi·soon — as the acquire-intent control; (7) the <b>dial is the intent</b>: a song+list paste on Single just lands
+    the one song (no prompt — a quiet line points to Playlist), and Playlist mode expands; (8) <b>Multi shown-but-inert</b> now,
+    built later. Single-song R1 acquire keeps its existing card, unchanged, in the same deck.
+    <div class="signoff">
+      <span>◻ Batch card — shape + copy approved</span><span>◻ “Gone” not red — approved</span><span>◻ Art-on-landed-only — approved</span><span>◻ The dial (Single/Playlist/Multi·soon) — approved</span><span>◻ Dial-is-intent (song+list → just the song, no prompt) — approved</span><span>◻ Changes requested (see notes)</span>
+    </div>
+  </div>
+</div>

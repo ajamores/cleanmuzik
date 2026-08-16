@@ -153,7 +153,7 @@ integrate onto `main` with the status line flipped in the closing commit, transc
 
 ### T-302 — Accept + expand a playlist URL → N track-jobs (relax the 422)
 - **Status:** todo
-- **Depends on:** T-300
+- **Depends on:** T-300, **ADR-029** (explicit-intent accept contract)
 - **Agent:** back-end
 - **What:** **`app/routes/jobs.py`** (the route — **not** `app/jobs.py`, the worker) currently refuses a
   playlist URL by shape (`422`, `app/routes/jobs.py:~63`, `download.is_playlist_url`/`names_one_song`). R2
@@ -166,10 +166,18 @@ integrate onto `main` with the status line flipped in the closing commit, transc
   A **single-song** URL still enqueues **one `playlist_id = null` job** — the R1 path, byte-for-byte
   unchanged. Reuse the per-song job + the R1/R1.1 pipeline **and the review lifecycle unchanged**: **parked
   batch tracks route to the existing `/api/reviews` inbox** (US6 — batching invents no second place to look).
+- **Explicit intent (ADR-029).** `POST /api/jobs` gains an **optional `intent` enum (`single | playlist`;
+  `multi` reserved, not wired).** When **present**, it decides the ambiguous `watch?v=X&list=PL…` case — the
+  dial's answer, **not** `names_one_song` — so a song-in-a-playlist paste can expand instead of silently
+  stripping. When **absent**, fall back to today's shape inference **verbatim** so R1 is byte-for-byte
+  unchanged. Intent stays at the accept/expand door — **it must NOT leak into the pipeline** (that column
+  switch is what guarantees R1 non-regression). Kill the shape re-guess **only** for the explicit case.
 - **Done when:** a playlist URL that R1 answered `422` now upserts the `playlists` row, creates the Jellyfin
   playlist, and expands into N enqueued track-jobs each with the shared `playlist_id` + distinct `position` +
-  its `youtube_video_id`; a single-song URL still enqueues one `playlist_id = null` job on the R1 path.
-  (Acceptance item 1; item 11 — R1 unchanged. Stories: US1, US2, US6, US14.)
+  its `youtube_video_id`; **an `intent`-carrying `watch?v=X&list=PL…` expands (or stays single) per the
+  field, and an `intent`-less request classifies exactly as R1 did**; a single-song URL still enqueues one
+  `playlist_id = null` job on the R1 path. (Acceptance item 1; item 11 — R1 unchanged. Stories: US1, US2,
+  US6, US14. Intent contract: ADR-029.)
 
 ### T-304 — Jellyfin playlist output seam: create / resolve-post-scan / append (+ membership write)
 - **Status:** todo
@@ -353,7 +361,12 @@ integrate onto `main` with the status line flipped in the closing commit, transc
   error-red); "N in review" ("still filling in"); the terminal **"waiting on you"** (parked > 0); and a
   **mostly-already-done re-paste** ("45 already here, 3 added, nothing wrong") — published for owner sign-off.
   Runs *ahead of* the DoD, not inside it. The mockups **encode ADR-027/028** — writing them before those ADRs
-  land means re-mocking (why the design gate depends on Phase A).
+  land means re-mocking (why the design gate depends on Phase A). **Gate artifact: `docs/r2/design/t310-batch-view.html`.**
+  - **Added 2026-08-16 (ADR-029): the acquire dial screens (D1–D4).** The gate also covers the acquire-intent
+    control that feeds the batch — the round detented **Single / Playlist / Multi·soon** selector: its three
+    resting stops, the `watch?v=X&list=PL…`-on-Single **quiet note** (no prompt — the dial is the intent, ADR-029), and the **Multi "soon"** state. The
+    dial is input-strip only; **the aggregate card itself is unchanged** by it. The Multi *build* is backlog
+    (see T-046); this ticket ships the dial's **Single + Playlist** behaviour with Multi present-but-inert.
 - **What:** **One aggregate playlist card** in the existing `.deck` layout (no router), reusing **the shipped
   console skin (ADR-018 — note: "Signal Path" is the *superseded* predecessor per ADR-018's 2026-08-04
   amendment; canonical is the shipped code `11b6302`+`819f22c`, not `signal-path-tweaked.html`)** and the
