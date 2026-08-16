@@ -122,7 +122,14 @@ integrate onto `main` with the status line flipped in the closing commit, transc
   switch.)
 
 ### T-301 — T-037 canonical artist-credit normalisation: the decision (ADR-028)
-- **Status:** todo
+- **Status:** done — **ADR-028 filed 2026-08-15** (council-reviewed: 4 lenses + chair; owner picked the
+  layered+observable reach). Decisions: surgical layered fold (NFC floor + enumerated `Ÿ`→`Y` map +
+  hyphen-class U+2010/U+2011→U+002D), placement via one shared `canonicalize_credit` helper in
+  `import_seam.py` wired at BOTH `_accept` (:634) and `ResolveSession.choose_item` (:1520), NFKC/TR39/
+  ASCII-strip rejected on record. **Diagnosis corrected:** the `Ÿ` is NOT an in-app decode fault (byte-
+  mechanically impossible; MB serves it, beets writes it faithfully) — reframed as identity
+  normalisation. See ADR-028's binding note for T-308 (both sites must route through the helper) and the
+  near-duplicate-folder tripwire filed as a follow-on.
 - **Depends on:** none
 - **Agent:** back-end
 - **What:** Record **ADR-028** — the decision that binds **every path the app writes**, so T-308 has a

@@ -796,3 +796,84 @@ Format: `ADR-NNN — decision. Rationale. [date]`
   Recorded before the design gate (T-310) because retrofitting the association into live job data later
   is unrecoverable (spec §Implementation "Batch model" + §Further Notes). Implemented in T-300 (schema +
   DAO); the two flagged owner decisions carry recommended defaults above. [2026-08-15]
+- **ADR-028 — The artist-credit written to a matched landing is normalised to the owner's single
+  canonical identity before beets applies it: NFC floor + an enumerated confusable map (today only
+  `Ÿ`→`Y`) + a hyphen-class fold. This is deliberate *identity normalisation*, not mojibake repair, and
+  it binds every write path.** The T-037 decision (T-301); T-308 implements it. Council-reviewed
+  2026-08-15 (four lenses + chair, `docs/research/` transcript in the run journal; owner picked the
+  layered+observable reach).
+  - **The diagnosis the ticket carried is corrected on the record.** T-037 (`docs/backlog/T-037.md`)
+    calls the `Ÿ` a mojibake "**in our write path**." It is not, and cannot be: a plain ASCII `Y`
+    (`0x59`) cannot decode into `Ÿ` (U+0178) under any codec (U+0178 needs `0x9F` in cp1252 or
+    `0xC5 0xB8` in UTF-8). All four council lenses independently grepped `server/` — no decode/encode/
+    `errors=`/`latin-1`/`cp1252` fault exists; the only decode in the seam is `os.fsdecode` on the file
+    *path*. **MusicBrainz serves the stylised credit `JAY‑Z` (with a Unicode hyphen U+2010), and beets/
+    mediafile write it faithfully.** Nothing we own mangled a clean `Y`. Framing this as "our decode is
+    broken" is a landmine: a future reader hunts a bug that cannot exist, or deletes the fold as
+    redundant and re-splits the library. So the decision is framed as reconciling MB's per-release
+    *artist credit* to the owner's one canonical Jellyfin identity.
+  - **(a) Fold scope — surgical, layered.** An **NFC** canonical-composition floor (lossless, idempotent,
+    identity-preserving — it also closes the *same* split class where a precomposed `Beyoncé` and a
+    decomposed `Beyonce`+U+0301 land two folders) beneath a **declared, extensible confusable→canonical
+    map**, today exactly one pair: **`Ÿ` (U+0178) → `Y` (U+0059)**. Every other diacritic passes
+    byte-for-byte untouched (Beyoncé, Björk, Sigur Rós, Mötley Crüe, Motörhead unchanged). The map grows
+    **one diagnosed pair at a time — never a heuristic detector.** **Explicitly rejected on the record:**
+    (i) **NFKC** — does not even decompose `Ÿ`→`Y` (U+0178 has no compatibility decomposition), so it is
+    *ineffective for this defect* while still firing invisibly elsewhere; (ii) **TR39 confusable-folding**
+    — silently *false-merges* two genuinely distinct artists, damage that reads as a "complete"
+    discography and is harder to detect than the split it replaces; (iii) **ASCII-strip** — manufactures
+    new splits from the owner's own correctly-accented folders (Beyoncé→Beyonce), i.e. the exact bug T-037
+    exists to kill.
+  - **(b) Hyphen policy — fold to ASCII.** Fold the hyphen class **U+2010 (hyphen) and U+2011
+    (non-breaking hyphen) → U+002D**, matching the owner's existing `Jay-Z/` (plain keyboard hyphen).
+    Accepting MB's U+2010 lands fresh writes at the byte-distinct `JAY‑Z/`, undoing the completed one-time
+    sweep on the next download. **En dash U+2013 and em dash U+2014 are explicitly excluded** — legitimate
+    distinct punctuation, out of scope for this fold.
+  - **(c) Placement — one shared helper at the two matched-metadata sites, mutating the value upstream of
+    BOTH tag and path.** Path-only is rejected: Jellyfin groups its artist view by the embedded
+    `artist`/`albumartist` *tag*, so a clean folder around a mangled tag re-splits on Jellyfin's side.
+    T-308 adds a **`canonicalize_credit(match)`** helper in `server/app/import_seam.py` mirroring the
+    proven, tested **`_with_title_suffix` (import_seam.py:1547)** — deep-copy `match.info` (a beets-cached
+    `TrackInfo` shared across candidates; mutating in place leaks), fold the credit fields **`artist`,
+    `albumartist`, and their `_credit` variants**, return a new `TrackMatch`. Per that helper's own
+    docstring, beets applies `info.item_data` onto the item, so the single edit drives **both** the ID3
+    write **and** the path template (`$albumartist` / `$artist`) — one edit, both effects. Wire it at the
+    **two** sites that write an MB credit, *before* `session.run()` applies the match:
+    **(1) `_accept` (import_seam.py:634)**, the shared tail of the fingerprint gate and the 2-of-3
+    reconcile gate; **(2) `ResolveSession.choose_item` (import_seam.py:1520)**, which appends to
+    `_accepted` directly and **bypasses `_accept`** — **T-308's binding note: it MUST route through the
+    same helper**, or the resolve path silently keeps writing the stylised credit. **Not** a beets
+    event-listener (the app registers **zero** today — `register_listener` grep is clean — so it is
+    unproven machinery, and a write/move-time hook can fix the tag *after* the path is already computed,
+    reintroducing the clean-tag/wrong-folder split). **Not** `KeepUntaggedSession` (import_seam.py:1597) —
+    owner-typed intent, no MB match, the defect is byte-mechanically impossible there.
+  - **(d) Symptom vs. root — the fold is binding; the root-hunt is a non-blocking probe.** They are
+    complementary but not equal: the fold is the deliberate, root-*appropriate* fix at the last gate we
+    control. A one-shot timeboxed probe — log the raw `match.info` credit codepoints on the next
+    Jay-Z-class landing — may retire hypotheses or shrink the map, but **must NOT gate T-308, and the fold
+    stays even if an upstream fix is ever located.** Observability is part of the decision: **emit one
+    structured log line whenever the fold changes any codepoint**, so a fold that fires (or mis-fires) is
+    never silent.
+  - **Do NOT cite ADR-019 as precedent.** ADR-019's ASCII-fold is a *search-query* fold that affects
+    MusicBrainz *ranking, not identity*. This is a *write-path* fold that **deliberately changes** the
+    artist's canonical folder = its Jellyfin identity — the opposite direction. The two only look alike.
+  - **Dissents preserved.** (1) *Shipping Pragmatist:* ship exactly the two diagnosed faults — the NFC
+    floor and observability are insurance against unobserved futures; every glyph the fold touches is a
+    chance to damage an identity. (Owner overrode: took the layered+observable reach; NFC is lossless and
+    the cost is a few lines.) (2) *Listener camp (3 of 4 on mechanism):* a single event-listener would
+    cover every session uniformly — their legitimate kernel (don't scatter divergent copies, don't miss
+    the resolve path) is absorbed by the **one** shared helper wired at both matched sites; the standing
+    risk is that T-308 verification must prove **both** `_accept` and `ResolveSession.choose_item` route
+    through it. (3) *Maintainability:* a **near-duplicate-folder tripwire** (flag a freshly-landed artist
+    folder that is a confusable/near-duplicate of an existing one the map did *not* repair) — **filed as a
+    follow-on ticket, not binding on T-308**, else ADR-028 fixes Jay-Z and hides the next class exactly as
+    T-037 was hidden.
+  - **Rule statement (what T-308 implements, what a reviewer checks).** Before beets applies a matched
+    `TrackInfo` — at `_accept` (:634) and `ResolveSession.choose_item` (:1520), on a deep-copied
+    `match.info` via the one shared `canonicalize_credit` helper — normalise the credit fields (`artist`,
+    `albumartist`, `_credit` variants) by (i) NFC-composing, (ii) mapping the enumerated confusable set
+    (currently only `Ÿ`→`Y`), (iii) folding the hyphen class (U+2010, U+2011 → U+002D), leaving all other
+    diacritics and en/em dashes untouched, and emit one structured log line when any codepoint changes.
+    Verify: `JAŸ‐Z` → `JAY-Z`; `Beyoncé` / `Sigur Rós` pass byte-for-byte unchanged; decomposed
+    `Beyonce`+U+0301 → precomposed `Beyoncé`; a log line fires only on the folding cases. (Owner-settled
+    reach 2026-08-15: layered + observable.) [2026-08-15]
