@@ -13,7 +13,7 @@ import pytest
 import requests
 
 from app.config import Settings
-from app.jellyfin import JellyfinScanError, trigger_scan
+from app.jellyfin import JellyfinScanError, create_playlist, trigger_scan
 
 
 def _settings(url: str = "http://jf.local:8096", key: str = "secret-key") -> Settings:
@@ -21,12 +21,18 @@ def _settings(url: str = "http://jf.local:8096", key: str = "secret-key") -> Set
 
 
 class _Resp:
-    def __init__(self, status: int = 204):
+    def __init__(self, status: int = 204, body: object = None):
         self.status_code = status
+        self._body = body
 
     def raise_for_status(self):
         if self.status_code >= 400:
             raise requests.HTTPError(str(self.status_code))
+
+    def json(self):
+        if isinstance(self._body, Exception):
+            raise self._body
+        return self._body
 
 
 class _FakeHTTP:
@@ -101,3 +107,67 @@ def test_http_error_status_raises_scan_error():
     http = _FakeHTTP(lambda url, kw: _Resp(401))
     with pytest.raises(JellyfinScanError):
         trigger_scan(settings=_settings(), http=http)
+
+
+# --- T-302: create_playlist — a create at expansion, degrade-never-raise ------
+# The whole reason its contract diverges from trigger_scan: a create failure gates ALL N
+# enqueues of a batch, so BOTH config-absent AND present-but-failed degrade to None (warn),
+# never raise. A transient Jellyfin blip must not abort a 50-track paste.
+
+
+def test_create_playlist_posts_and_returns_the_id():
+    http = _FakeHTTP(lambda url, kw: _Resp(200, {"Id": "jf-playlist-1"}))
+    playlist_id = create_playlist("Summer 2026", settings=_settings(), http=http)
+
+    assert playlist_id == "jf-playlist-1"
+    assert len(http.calls) == 1
+    url, kwargs = http.calls[0]
+    assert url == "http://jf.local:8096/Playlists"
+    assert kwargs["headers"]["X-Emby-Token"] == "secret-key"
+    assert kwargs["json"]["Name"] == "Summer 2026"
+
+
+@pytest.mark.parametrize(
+    "override, expected_var",
+    [({"key": ""}, "JELLYFIN_API_KEY"), ({"url": ""}, "JELLYFIN_URL"), ({"key": "  "}, "JELLYFIN_API_KEY")],
+)
+def test_create_playlist_absent_config_degrades_to_none(override, expected_var, caplog):
+    http = _FakeHTTP(lambda url, kw: pytest.fail("must not call Jellyfin without config"))
+    with caplog.at_level(logging.WARNING, logger="cleanmuzik"):
+        result = create_playlist("Mix", settings=_settings(**override), http=http)
+
+    assert result is None
+    assert http.calls == []
+    assert expected_var in caplog.text
+
+
+def test_create_playlist_network_failure_degrades_to_none_not_raises(caplog):
+    # THE divergence from trigger_scan: a present-but-failed create does NOT raise.
+    def handler(url, kw):
+        raise requests.ConnectionError("connection refused")
+
+    with caplog.at_level(logging.WARNING, logger="cleanmuzik"):
+        result = create_playlist("Mix", settings=_settings(), http=_FakeHTTP(handler))
+
+    assert result is None
+    assert "failed" in caplog.text.lower()
+
+
+def test_create_playlist_http_error_degrades_to_none(caplog):
+    http = _FakeHTTP(lambda url, kw: _Resp(500))
+    with caplog.at_level(logging.WARNING, logger="cleanmuzik"):
+        result = create_playlist("Mix", settings=_settings(), http=http)
+    assert result is None
+
+
+def test_create_playlist_non_json_body_degrades_to_none():
+    # A 2xx with an unparseable body (requests raises a ValueError subclass on .json()).
+    http = _FakeHTTP(lambda url, kw: _Resp(200, ValueError("no json")))
+    assert create_playlist("Mix", settings=_settings(), http=http) is None
+
+
+def test_create_playlist_missing_id_in_body_degrades_to_none(caplog):
+    http = _FakeHTTP(lambda url, kw: _Resp(200, {"NotAnId": "x"}))
+    with caplog.at_level(logging.WARNING, logger="cleanmuzik"):
+        result = create_playlist("Mix", settings=_settings(), http=http)
+    assert result is None

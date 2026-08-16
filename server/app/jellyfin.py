@@ -37,6 +37,13 @@ logger = logging.getLogger("cleanmuzik")
 _REFRESH_PATH = "/Library/Refresh"
 _SCAN_TIMEOUT = 10
 
+# Jellyfin's create-playlist endpoint (R2, T-302). `POST /Playlists` with a
+# `CreatePlaylistDto` body returns `{ "Id": "<playlist id>" }`. We create it empty
+# (`Ids: []`) at batch expansion and append the landed items later (T-304). MediaType
+# "Audio" scopes it to the music library. Bounded like the scan.
+_PLAYLISTS_PATH = "/Playlists"
+_CREATE_TIMEOUT = 10
+
 
 class JellyfinScanError(Exception):
     """A genuine scan-stage failure — config was present but the call failed.
@@ -101,3 +108,87 @@ def trigger_scan(
 
     logger.info("Jellyfin library scan triggered (%s)", endpoint)
     return True
+
+
+def create_playlist(
+    name: str,
+    *,
+    settings: Settings | None = None,
+    timeout: int = _CREATE_TIMEOUT,
+    http=requests,
+) -> str | None:
+    """Create an empty Jellyfin playlist by `name`; return its id, or `None` if it couldn't.
+
+    Called at batch expansion (create-at-queued, ADR-027 seam 3), off the sequential
+    worker, so an all-parked batch still gets a `jellyfin_playlist_id` for T-306 to
+    backfill against.
+
+    **Degrades to `None` — never raises — on BOTH failure modes** (owner-settled
+    2026-08-16, ADR-027 seam-3 addendum), *deliberately unlike* `trigger_scan`:
+
+    - **Config absent** — no `JELLYFIN_URL`/`JELLYFIN_API_KEY`. Same "absent is not a
+      failure" contract as the scan.
+    - **Config present but the POST fails** — a network error, a 401, a 5xx, or a body
+      with no `Id`. `trigger_scan` *raises* here because a scan failure is a nameable
+      *per-track* `scan` stage; a create failure instead gates **all N enqueues** of the
+      batch, and refusing a 50-track paste over one transient Jellyfin blip is
+      disproportionate. So we warn and return `None`: the batch still upserts, expands,
+      enqueues, and lands canonically on disk; `jellyfin_playlist_id` stays NULL and the
+      T-306 create-if-missing guard backfills it.
+
+    The warning is load-bearing — a NULL id must never be silent (a Jellyfin-less or
+    -flaky run should be visible in the log, not a mystery empty playlist later).
+    """
+    s = settings or get_settings()
+    url = s.jellyfin_url.strip().rstrip("/")
+    key = s.jellyfin_api_key.strip()
+
+    if not (url and key):
+        missing = ", ".join(
+            varname
+            for varname, value in (("JELLYFIN_URL", url), ("JELLYFIN_API_KEY", key))
+            if not value
+        )
+        logger.warning(
+            "Jellyfin playlist create skipped — %s not set; the batch still expands and "
+            "lands, with a NULL jellyfin_playlist_id (backfilled on a later scan)",
+            missing,
+        )
+        return None
+
+    endpoint = f"{url}{_PLAYLISTS_PATH}"
+    try:
+        resp = http.post(
+            endpoint,
+            headers={"X-Emby-Token": key},
+            json={"Name": name, "Ids": [], "MediaType": "Audio"},
+            timeout=timeout,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+    except (requests.RequestException, ValueError) as exc:
+        # ValueError covers a 2xx with a non-JSON body (requests' JSONDecodeError is a
+        # ValueError). Degrade, don't raise — see the docstring's whole-batch rationale.
+        logger.warning(
+            "Jellyfin playlist create failed (%s): %s — the batch still expands and "
+            "lands, with a NULL jellyfin_playlist_id (backfilled on a later scan)",
+            endpoint,
+            exc,
+        )
+        return None
+
+    # Guard the body shape too: a proxy or odd Jellyfin build can answer 2xx with a JSON
+    # *list* (or null), on which `.get` would AttributeError — an uncaught raise that would
+    # abort all N enqueues, the one thing this function's contract forbids. Anything not a
+    # dict-with-an-Id is treated as a failed create → degrade to None.
+    playlist_id = data.get("Id") if isinstance(data, dict) else None
+    if not playlist_id:
+        logger.warning(
+            "Jellyfin playlist create returned no Id (%s) — NULL jellyfin_playlist_id "
+            "(backfilled on a later scan)",
+            endpoint,
+        )
+        return None
+
+    logger.info("Jellyfin playlist created: %r (%s)", name, playlist_id)
+    return playlist_id

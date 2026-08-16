@@ -12,9 +12,13 @@ from pathlib import Path
 import pytest
 
 from app.download import (
+    ExpandedPlaylist,
+    PlaylistEntry,
     PlaylistURLError,
     curated_list_kind,
     download_song,
+    expand_playlist,
+    expandable_playlist_id,
     is_playlist_url,
     names_one_song,
     normalize_url,
@@ -149,6 +153,98 @@ _LIST_KIND_CASES = [
 @pytest.mark.parametrize("url, expected", _LIST_KIND_CASES)
 def test_curated_list_kind(url: str, expected: str | None) -> None:
     assert curated_list_kind(url) == expected
+
+
+# --- T-302: which URLs can be EXPANDED, and into which curated playlist id -----
+# `expandable_playlist_id` is narrower than `is_playlist_url` on purpose: it returns an
+# id only for a curated `PL…`/`OLAK5uy_…` list (whether the song sits in the path, a `v=`,
+# or nowhere), and None for an unbounded `RD…` radio seed, a non-curated auto-list, and a
+# non-YouTube host. That id is what the accept path (ADR-029 dial) expands when the owner
+# means "the playlist," including the `watch?v=X&list=PL…` that `is_playlist_url` calls a song.
+_EXPANDABLE_CASES = [
+    # Curated PL / OLAK — the id comes back regardless of whether a song is also named.
+    ("https://www.youtube.com/playlist?list=PL123", "PL123"),
+    ("https://www.youtube.com/watch?v=SONG&list=PL123", "PL123"),  # song-in-playlist → the LIST id
+    ("https://www.youtube.com/watch?list=PL123&v=SONG", "PL123"),  # order-independent
+    ("https://youtu.be/SONG?list=PLmonthlyJuly", "PLmonthlyJuly"),  # song id in the path
+    ("www.youtube.com/playlist?list=PL123", "PL123"),  # scheme-less paste
+    ("https://music.youtube.com/playlist?list=OLAK5uy_album", "OLAK5uy_album"),
+    # Non-curated auto-lists are NOT expandable — a radio/mix is unbounded.
+    ("https://www.youtube.com/watch?v=SONG&list=RDAMVM123", None),  # radio
+    ("https://www.youtube.com/playlist?list=RDCLAK5uy_radio", None),  # album *radio* is RD*
+    ("https://www.youtube.com/watch?v=SONG&list=LLliked", None),  # Liked
+    ("https://www.youtube.com/watch?v=SONG&list=WL", None),  # Watch Later
+    ("https://www.youtube.com/watch?v=SONG&list=UUuploads", None),  # channel uploads
+    # No list at all → nothing to expand.
+    ("https://www.youtube.com/watch?v=SONG", None),
+    ("https://youtu.be/SONG", None),
+    ("https://www.youtube.com/watch?v=SONG&list=", None),  # empty list id
+    # A YouTube-only tool: a non-YouTube host is never ours to expand, list or not.
+    ("https://vimeo.com/watch?v=SONG&list=PL123", None),
+    ("https://evil-youtube.com/playlist?list=PL123", None),
+]
+
+
+@pytest.mark.parametrize("url, expected", _EXPANDABLE_CASES)
+def test_expandable_playlist_id(url: str, expected: str | None) -> None:
+    assert expandable_playlist_id(url) == expected
+
+
+def test_expand_playlist_flattens_entries(monkeypatch) -> None:
+    # Flat extraction of the CANONICAL /playlist URL (not the pasted watch?v= URL), turned
+    # into one PlaylistEntry per usable entry with a clean single-song watch URL.
+    info = {
+        "id": "PL123",
+        "title": "Summer 2026",
+        "entries": [
+            {"id": "vid1", "title": "First"},
+            {"id": "vid2", "title": "Second"},
+        ],
+    }
+    monkeypatch.setattr("app.download.YoutubeDL", _fake_ydl_returning(info))
+
+    result = expand_playlist("https://www.youtube.com/watch?v=SONG&list=PL123")
+
+    assert isinstance(result, ExpandedPlaylist)
+    assert result.youtube_playlist_id == "PL123"
+    assert result.title == "Summer 2026"
+    assert result.entries == [
+        PlaylistEntry("vid1", "https://www.youtube.com/watch?v=vid1", "First"),
+        PlaylistEntry("vid2", "https://www.youtube.com/watch?v=vid2", "Second"),
+    ]
+
+
+def test_expand_playlist_drops_deleted_and_idless_entries(monkeypatch) -> None:
+    # yt-dlp yields None (a deleted/private placeholder) or an id-less dict for entries it
+    # can't resolve; neither can become a downloadable URL, so both are dropped rather than
+    # enqueued as a job doomed to fail the download stage.
+    info = {
+        "id": "PL123",
+        "title": "Mixed",
+        "entries": [None, {"id": "", "title": "empty"}, {"title": "no id key"}, {"id": "ok"}],
+    }
+    monkeypatch.setattr("app.download.YoutubeDL", _fake_ydl_returning(info))
+
+    result = expand_playlist("https://www.youtube.com/playlist?list=PL123")
+
+    assert [e.video_id for e in result.entries] == ["ok"]
+
+
+def test_expand_playlist_titles_the_row_by_id_when_youtube_is_silent(monkeypatch) -> None:
+    # The `playlists` row title is what the Jellyfin playlist + batch card show; never let
+    # it be "" — fall back to the playlist id.
+    info = {"id": "PL123", "title": "", "entries": [{"id": "vid1", "title": "x"}]}
+    monkeypatch.setattr("app.download.YoutubeDL", _fake_ydl_returning(info))
+
+    assert expand_playlist("https://www.youtube.com/playlist?list=PL123").title == "PL123"
+
+
+def test_expand_playlist_refuses_a_url_with_no_curated_list(monkeypatch) -> None:
+    # Guard, not the routine path (the accept path gates on expandable_playlist_id first):
+    # a URL with no expandable list must never reach a bogus extraction.
+    monkeypatch.setattr("app.download.YoutubeDL", _fake_ydl_returning({}))
+    with pytest.raises(PlaylistURLError):
+        expand_playlist("https://www.youtube.com/watch?v=SONG&list=RDradio")
 
 
 # --- Scheme-less pastes reach yt-dlp intact (re-review, 2026-07-19) ----------

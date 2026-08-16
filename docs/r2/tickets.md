@@ -152,7 +152,8 @@ integrate onto `main` with the status line flipped in the closing commit, transc
 ## Phase B — accept, dedup, the two output seams
 
 ### T-302 — Accept + expand a playlist URL → N track-jobs (relax the 422)
-- **Status:** todo
+- **Status:** done — shipped 2026-08-16 (council-settled create split → ADR-027 seam-3 addendum;
+  `create_playlist` degrades on absent/failed Jellyfin; verified against a real 183-track playlist).
 - **Depends on:** T-300, **ADR-029** (explicit-intent accept contract)
 - **Agent:** back-end
 - **What:** **`app/routes/jobs.py`** (the route — **not** `app/jobs.py`, the worker) currently refuses a
@@ -172,12 +173,21 @@ integrate onto `main` with the status line flipped in the closing commit, transc
   stripping. When **absent**, fall back to today's shape inference **verbatim** so R1 is byte-for-byte
   unchanged. Intent stays at the accept/expand door — **it must NOT leak into the pipeline** (that column
   switch is what guarantees R1 non-regression). Kill the shape re-guess **only** for the explicit case.
+- **Jellyfin create lives HERE (council-settled 2026-08-16, ADR-027 seam-3 addendum).** T-302 adds a
+  minimal **`create_playlist()`** to `jellyfin.py` (one `POST /Playlists` by the derived name, mirroring
+  `trigger_scan`'s DI + config-strip shape) and calls it at expansion, gated `if playlist.jellyfin_playlist_id
+  is None:` (so a re-paste does not double-create), storing the returned id via `set_jellyfin_playlist_id`.
+  **Failure contract (owner-settled): degrade to `None` + warn on BOTH config-absent AND a present-but-failed
+  POST** — a create gates all N enqueues, so a transient Jellyfin blip must not abort the batch; the null
+  falls to T-306's create-if-missing guard. T-304 owns the hard remainder (resolve / append / reconcile).
 - **Done when:** a playlist URL that R1 answered `422` now upserts the `playlists` row, creates the Jellyfin
-  playlist, and expands into N enqueued track-jobs each with the shared `playlist_id` + distinct `position` +
-  its `youtube_video_id`; **an `intent`-carrying `watch?v=X&list=PL…` expands (or stays single) per the
-  field, and an `intent`-less request classifies exactly as R1 did**; a single-song URL still enqueues one
-  `playlist_id = null` job on the R1 path. (Acceptance item 1; item 11 — R1 unchanged. Stories: US1, US2,
-  US6, US14. Intent contract: ADR-029.)
+  playlist **via the minimal `create_playlist()` (stubbed in tests), persisting a non-null
+  `jellyfin_playlist_id` — and, config-absent OR POST-failed, degrades to a NULL id without aborting the
+  batch (the all-parked / Jellyfin-less case)**, and expands into N enqueued track-jobs each with the shared
+  `playlist_id` + distinct `position` + its `youtube_video_id`; **an `intent`-carrying `watch?v=X&list=PL…`
+  expands (or stays single) per the field, and an `intent`-less request classifies exactly as R1 did**; a
+  single-song URL still enqueues one `playlist_id = null` job on the R1 path. (Acceptance item 1; item 11 —
+  R1 unchanged. Stories: US1, US2, US6, US14. Intent contract: ADR-029. Create split: ADR-027 seam-3 addendum.)
 
 ### T-304 — Jellyfin playlist output seam: create / resolve-post-scan / append (+ membership write)
 - **Status:** todo
@@ -185,9 +195,11 @@ integrate onto `main` with the status line flipped in the closing commit, transc
 - **Agent:** back-end
 - **What:** `jellyfin.py` today does exactly one thing — fire-and-forget `POST /Library/Refresh`
   (`jellyfin.py:~87`); it has **no item-resolution** capability. Extend the **single existing Jellyfin seam**
-  (no second integration point) with: **create-playlist** (by the derived name; store the returned
-  `jellyfin_playlist_id` on the `playlists` row — called at `batch.queued`, T-302), **resolve a landed file →
-  its Jellyfin item ID**, and **append an item to a playlist**. **The post-scan resolve is the highest-risk
+  (no second integration point) with **resolve a landed file → its Jellyfin item ID** and **append an item to
+  a playlist**. **`create_playlist` is NOT here — it was defined *and* called in T-302** (council-settled
+  2026-08-16, ADR-027 seam-3 addendum: create is cohesive with the upsert and must exist when T-302
+  integrates, or an all-parked batch violates seam 3 on `main`). T-304 consumes the `jellyfin_playlist_id`
+  T-302 already stored. **The post-scan resolve is the highest-risk
   piece — build it to ADR-027 seam 1:** Jellyfin's scan is async, so the item ID exists only *after* it
   indexes the new file. Poll Items-by-path on a bounded interval with a **hard timeout**; the resolve/append
   must **not block the sequential worker** (a blocking wait per track serializes the whole batch). On
@@ -195,8 +207,8 @@ integrate onto `main` with the status line flipped in the closing commit, transc
   scan reconciles — never drop it silently (that is the "invisible hole in the journal" the acceptance
   forbids). Append is a **no-op when membership already exists** (T-300 seam 4). The file still lands
   **canonically under `Artist/Album`** (one copy on disk); the playlist holds **pointers**.
-- **Done when:** against a **stubbed** `jellyfin.py` edge, the app calls create-playlist with the derived
-  name and append-item with the right (playlist, item); the post-scan resolve polls-with-timeout rather than
+- **Done when:** against a **stubbed** `jellyfin.py` edge, the app calls append-item with the right
+  (playlist, item) using the `jellyfin_playlist_id` T-302 stored; the post-scan resolve polls-with-timeout rather than
   racing or blocking the worker; a forced resolve timeout writes membership + a pending append (no silent
   drop); a re-append of an existing member is a no-op; the canonical file is unmoved (pointer, not copy). The
   **real** Jellyfin playlist appearing is proven in T-311. (Acceptance items 2, 3; ADR-027 timing seam.

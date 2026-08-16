@@ -842,10 +842,187 @@ def client(tmp_path, monkeypatch):
     return test_client
 
 
-def test_post_playlist_url_rejected_422(client):
-    resp = client.post("/api/jobs", json={"url": "https://youtube.com/playlist?list=PL1"})
+def _stub_expansion(monkeypatch, *, entries, title="My Mix", yt_id="PL1", jf_id="jf-created"):
+    """Stub the two network calls the expand path makes, and record how they were called.
+
+    The route imports `expand_playlist`/`create_playlist` lazily from their source modules
+    (T-001 lazy-engine), so patching the modules is what the handler picks up. Returns a
+    dict recording every expand url and every create name, so a test can assert the expand
+    path was — or was NOT — taken.
+    """
+    import app.download as dl
+    import app.jellyfin as jf
+    from app.download import ExpandedPlaylist, PlaylistEntry
+
+    calls = {"expand": [], "create": []}
+
+    def fake_expand(url):
+        calls["expand"].append(url)
+        return ExpandedPlaylist(
+            youtube_playlist_id=yt_id,
+            title=title,
+            entries=[
+                PlaylistEntry(v, f"https://www.youtube.com/watch?v={v}", t)
+                for v, t in entries
+            ],
+        )
+
+    def fake_create(name, **kwargs):
+        calls["create"].append(name)
+        return jf_id
+
+    monkeypatch.setattr(dl, "expand_playlist", fake_expand)
+    monkeypatch.setattr(jf, "create_playlist", fake_create)
+    return calls
+
+
+def test_post_playlist_url_expands_into_track_jobs(client, monkeypatch):
+    # R2 (T-302) replaces R1's 422: a playlist URL now upserts a `playlists` row, creates
+    # the Jellyfin playlist, and enqueues one job per entry carrying the batch columns.
+    calls = _stub_expansion(
+        monkeypatch,
+        entries=[("v1", "First"), ("v2", "Second"), ("v3", "Third")],
+        title="Summer 2026",
+        yt_id="PLsummer",
+        jf_id="jf-1",
+    )
+    resp = client.post("/api/jobs", json={"url": "https://youtube.com/playlist?list=PLsummer"})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert "job_id" not in body  # the batch shape, not the single-song shape
+    assert len(body["job_ids"]) == 3
+
+    playlist = client.store.get_playlist(body["playlist_id"])
+    assert playlist.youtube_playlist_id == "PLsummer"
+    assert playlist.title == "Summer 2026"
+    assert playlist.jellyfin_playlist_id == "jf-1"  # create-at-queued, id stored
+    assert calls["create"] == ["Summer 2026"]
+
+    # Each job carries the shared playlist_id, its 1-based position, and its video id, and
+    # was submitted to the worker with the clean single-song URL.
+    assert [u for _, u in client.worker.submitted] == [
+        "https://www.youtube.com/watch?v=v1",
+        "https://www.youtube.com/watch?v=v2",
+        "https://www.youtube.com/watch?v=v3",
+    ]
+    for position, job_id in enumerate(body["job_ids"], start=1):
+        job = client.store.get_job(job_id)
+        assert job.playlist_id == body["playlist_id"]
+        assert job.position == position
+        assert job.youtube_video_id == f"v{position}"
+
+
+def test_single_song_url_keeps_the_r1_shape(client):
+    # Acceptance item 11: a single-song URL still enqueues one `playlist_id = NULL` job and
+    # returns the bare `{ job_id }` — the R1 path, byte-for-byte.
+    resp = client.post("/api/jobs", json={"url": "https://youtu.be/abc123"})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert "playlist_id" not in body
+    assert client.store.get_job(body["job_id"]).playlist_id is None
+
+
+def test_intent_single_takes_just_the_song_from_a_song_in_playlist(client, monkeypatch):
+    # ADR-029: the dial on Single lands one song from a `watch?v=X&list=PL…`, no expand,
+    # no Jellyfin playlist — the visible-not-silent replacement for R1's noplaylist strip.
+    calls = _stub_expansion(monkeypatch, entries=[("v1", "x")])
+    url = "https://www.youtube.com/watch?v=SONG&list=PLmonthly"
+    resp = client.post("/api/jobs", json={"url": url, "intent": "single"})
+    assert resp.status_code == 200
+    assert "job_id" in resp.json()
+    assert calls == {"expand": [], "create": []}  # neither network call fired
+    assert client.worker.submitted == [(resp.json()["job_id"], url)]
+    assert client.store.get_job(resp.json()["job_id"]).playlist_id is None
+
+
+def test_intent_playlist_expands_a_song_in_playlist(client, monkeypatch):
+    # The dial on Playlist takes the whole list from the same ambiguous paste that Single
+    # (and absent intent) treat as one song.
+    calls = _stub_expansion(monkeypatch, entries=[("v1", "x"), ("v2", "y")], yt_id="PLmonthly")
+    url = "https://www.youtube.com/watch?v=SONG&list=PLmonthly"
+    resp = client.post("/api/jobs", json={"url": url, "intent": "playlist"})
+    assert resp.status_code == 200
+    assert len(resp.json()["job_ids"]) == 2
+    assert calls["expand"] == [url]
+
+
+def test_intent_playlist_on_a_bare_single_lands_one_song(client, monkeypatch):
+    # ADR-029 behaviour 4: a bare single URL left under Playlist lands one song, not a hard
+    # error — a left-on Playlist mode can't over-expand a single paste.
+    calls = _stub_expansion(monkeypatch, entries=[("v1", "x")])
+    resp = client.post("/api/jobs", json={"url": "https://youtu.be/solo", "intent": "playlist"})
+    assert resp.status_code == 200
+    assert "job_id" in resp.json()
+    assert calls == {"expand": [], "create": []}
+
+
+def test_absent_intent_song_in_playlist_stays_single(client, monkeypatch):
+    # R1 byte-for-byte: with no intent, `watch?v=X&list=PL…` resolves to one song (it names
+    # one), exactly as R1 did — the `list=` is not silently expanded.
+    calls = _stub_expansion(monkeypatch, entries=[("v1", "x")])
+    url = "https://www.youtube.com/watch?v=SONG&list=PLmonthly"
+    resp = client.post("/api/jobs", json={"url": url})
+    assert resp.status_code == 200
+    assert "job_id" in resp.json()
+    assert calls == {"expand": [], "create": []}
+    assert client.store.get_job(resp.json()["job_id"]).playlist_id is None
+
+
+def test_intent_multi_is_reserved_422(client):
+    resp = client.post("/api/jobs", json={"url": "https://youtu.be/abc", "intent": "multi"})
     assert resp.status_code == 422
-    assert "playlist" in resp.json()["detail"].lower()
+    assert "reserved" in resp.json()["detail"].lower()
+
+
+def test_unknown_intent_is_422(client):
+    resp = client.post("/api/jobs", json={"url": "https://youtu.be/abc", "intent": "banana"})
+    assert resp.status_code == 422
+
+
+def test_jellyfin_create_degrade_leaves_null_id_but_still_enqueues(client, monkeypatch):
+    # Owner-settled failure contract: create degrades to None (Jellyfin absent/flaky) → the
+    # batch still upserts, expands, and enqueues; jellyfin_playlist_id stays NULL for T-306.
+    _stub_expansion(monkeypatch, entries=[("v1", "x"), ("v2", "y")], yt_id="PLx", jf_id=None)
+    resp = client.post("/api/jobs", json={"url": "https://youtube.com/playlist?list=PLx"})
+    assert resp.status_code == 200
+    assert len(resp.json()["job_ids"]) == 2
+    assert client.store.get_playlist(resp.json()["playlist_id"]).jellyfin_playlist_id is None
+
+
+def test_repaste_reuses_the_row_and_does_not_recreate_the_jellyfin_playlist(client, monkeypatch):
+    # The upsert is create-or-reuse; the create is gated on a NULL id, so a re-paste reuses
+    # the same row and does NOT POST a second Jellyfin playlist.
+    calls = _stub_expansion(monkeypatch, entries=[("v1", "x")], yt_id="PLx", jf_id="jf-1")
+    first = client.post("/api/jobs", json={"url": "https://youtube.com/playlist?list=PLx"}).json()
+    second = client.post("/api/jobs", json={"url": "https://youtube.com/playlist?list=PLx"}).json()
+    assert first["playlist_id"] == second["playlist_id"]
+    assert calls["create"] == ["My Mix"]  # created once, not twice
+
+
+def test_unexpandable_playlist_returns_502_not_500(client, monkeypatch):
+    # A private/deleted/unavailable list (or an upstream blip) makes expand_playlist raise
+    # PlaylistURLError. The synchronous accept path must answer with a clean error, not let
+    # it crash into a 500 — and must write nothing.
+    import app.download as dl
+
+    def boom(url):
+        raise dl.PlaylistURLError("private playlist")
+
+    monkeypatch.setattr(dl, "expand_playlist", boom)
+    resp = client.post("/api/jobs", json={"url": "https://youtube.com/playlist?list=PLgone"})
+    assert resp.status_code == 502
+    assert client.worker.submitted == []  # nothing queued
+
+
+def test_empty_playlist_is_422_and_writes_nothing(client, monkeypatch):
+    # A playlist that expands to zero usable entries must be refused BEFORE any write — no
+    # phantom playlists row, no stray empty Jellyfin playlist, nothing enqueued.
+    calls = _stub_expansion(monkeypatch, entries=[], yt_id="PLempty")
+    resp = client.post("/api/jobs", json={"url": "https://youtube.com/playlist?list=PLempty"})
+    assert resp.status_code == 422
+    assert calls["create"] == []  # no Jellyfin playlist created
+    assert client.worker.submitted == []  # nothing queued
+    assert client.store.get_playlist_by_youtube_id("PLempty") is None  # no row written
 
 
 def test_post_channel_url_rejected_422(client):

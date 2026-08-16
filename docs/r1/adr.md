@@ -780,6 +780,26 @@ Format: `ADR-NNN — decision. Rationale. [date]`
      later backfill (T-306) has nowhere to append. **Owner-settled [2026-08-15]: create-at-queued.**
      The alternative (backfill creates-if-missing) is kept only as a **guard** in T-306 for the
      should-not-happen null case, not as the primary path.
+     - **Create/resolve split across T-302/T-304 — council-settled [2026-08-16] (4 lenses: ticket-DoD,
+       backend-architecture, ADR-fidelity, integration-risk — unanimous; owner-settled the failure
+       contract).** Seam 3 is *inside T-302's accept path*, so the **`create_playlist` capability is built
+       and called in T-302**, not deferred to T-304 — else T-302 integrates onto `main` with an
+       all-parked batch carrying a NULL `jellyfin_playlist_id`, the exact state this seam forbids, for the
+       whole T-302→T-304 window (a silent seam-3 reversal at the ticket boundary). Create is cohesive with
+       the `upsert_playlist` that decides whether a create is even needed (a re-paste returns the existing
+       row with its id already set) and cleanly separable from the seam-1 machinery (a plain `POST
+       /Playlists` returning an id, no scan-timing coupling). **T-304 keeps only the hard, coupled parts:
+       post-scan resolve, append, and pending-append reconciliation.** The one-seam rule (no *second*
+       Jellyfin integration point) is about integration points, not authorship — `create_playlist` and the
+       future `append` are disjoint functions in the *same* `jellyfin.py` seam, landed in dependency order.
+     - **Failure contract — owner-settled [2026-08-16]: `create_playlist` degrades to `None` on BOTH
+       config-absent AND a present-but-failed POST** (deliberately *unlike* `trigger_scan`, which raises on
+       a present-but-failed scan). A create fires at the accept door and gates **all N enqueues**, so a
+       transient Jellyfin blip must not abort a 50-track paste — the batch still upserts, expands, enqueues,
+       and lands canonically on disk; `jellyfin_playlist_id` stays NULL and lands squarely in the T-306
+       create-if-missing guard above. `trigger_scan` raises because a scan failure is a nameable *per-track*
+       stage; a create failure has a whole-batch blast radius, which warrants the degrade. Warn on the
+       degrade so a Jellyfin-less (or -flaky) run is never silent.
   4. **Membership uniqueness + per-entry order.** `UNIQUE(playlist_id, youtube_video_id)`; append is a
      **no-op when membership exists** (`ON CONFLICT DO NOTHING`, returns "already a member"). Per entry
      the fixed order is **membership-check → library video-dedup → process**, so a re-paste of an

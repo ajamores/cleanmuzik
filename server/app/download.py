@@ -18,6 +18,7 @@ Staging cleanup on failure is T-012's job; this module only creates the dir.
 import logging
 import tempfile
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
@@ -202,6 +203,117 @@ def curated_list_kind(url: str) -> str | None:
     if list_id.startswith(_PLAYLIST_LIST_PREFIX):
         return "playlist"
     return None
+
+
+def expandable_playlist_id(url: str) -> str | None:
+    """The **curated** YouTube playlist/album id this URL can expand into, or `None` (R2, T-302).
+
+    Curated means the same allowlist `curated_list_kind` trusts — a `PL…` user/creator
+    playlist or an `OLAK5uy_…` auto-album. Both a `watch?v=X&list=PL…` and a bare
+    `/playlist?list=PL…` yield the id (the `list=` param, wherever the song sits). Every
+    other `list=` yields `None`:
+
+    - an auto-appended `RD…`/`LL`/`WL`/`UU…`/`FL` radio/mix/library seed — expanding one
+      is unbounded (a radio never ends) and is never what "expand the playlist" means;
+    - a non-YouTube host — this is a YouTube-only tool (PRD), and only a YouTube list is
+      ours to expand.
+
+    Pure and network-free, like `is_playlist_url`. It is the single predicate the accept
+    path (T-302) asks "can this be expanded, and into which playlist id?" — distinct from
+    `is_playlist_url` (shape-only: would R1 have refused it) so the explicit-intent dial
+    (ADR-029) can expand a `watch?v=X&list=PL…` that `is_playlist_url` calls one song.
+    """
+    parts = _parse(url)
+    if not _is_youtube_host(parts.hostname):
+        return None
+    list_ids = parse_qs(parts.query).get("list")
+    if not list_ids:
+        return None
+    list_id = list_ids[0]
+    if list_id.startswith(_ALBUM_LIST_PREFIX) or list_id.startswith(_PLAYLIST_LIST_PREFIX):
+        return list_id
+    return None
+
+
+@dataclass(frozen=True)
+class PlaylistEntry:
+    """One track in an expanded playlist — the fields T-302 enqueues a job from."""
+
+    video_id: str  # the YouTube id, the batch dedup key recorded on the job (T-303)
+    url: str        # a clean single-song `watch?v=<id>` URL the R1 pipeline downloads
+    title: str      # the entry title (best-effort; "" if yt-dlp was silent)
+
+
+@dataclass(frozen=True)
+class ExpandedPlaylist:
+    """A playlist flattened into its entries — the result of `expand_playlist` (T-302)."""
+
+    youtube_playlist_id: str  # the create-or-reuse key for the `playlists` row (ADR-027)
+    title: str                # derived from the YouTube playlist title (no user naming)
+    entries: list[PlaylistEntry]
+
+
+def expand_playlist(url: str) -> ExpandedPlaylist:
+    """Flatten a curated YouTube playlist URL into its entries (R2, T-302). Network I/O.
+
+    Uses yt-dlp's **flat** extraction (`extract_flat="in_playlist"`, `download=False`) —
+    one metadata pull for the whole list, no per-entry resolution — so expanding a
+    50-track playlist is a single cheap call, not 50. The heavy per-song download stays
+    in `download_song`, driven off each enqueued job.
+
+    Expands the **canonical** `/playlist?list=<id>` URL built from the curated id, not the
+    pasted string: a `watch?v=X&list=PL…` paste would otherwise extract just video X, and
+    the whole point of an explicit Playlist intent (ADR-029) is to take the list. Refuses
+    a URL with no expandable (curated) list up front — the caller gates on
+    `expandable_playlist_id` first, so this raise is a guard, not the routine path.
+
+    Entries with no id (a deleted/private placeholder yt-dlp yields as `None` or an
+    id-less dict) are dropped: they can't become a downloadable single-song URL and would
+    only enqueue a job doomed to fail the download stage.
+    """
+    playlist_id = expandable_playlist_id(url)
+    if playlist_id is None:
+        raise PlaylistURLError(f"URL carries no expandable playlist: {url}")
+
+    canonical = f"https://www.youtube.com/playlist?list={playlist_id}"
+    ydl_opts = {
+        "extract_flat": "in_playlist",
+        "quiet": True,
+        "no_warnings": True,
+    }
+    # Convert yt-dlp's failure (a private/deleted/region-blocked list, or a transient
+    # network blip) into this module's typed PlaylistURLError, so the accept route can
+    # answer with a clean error instead of a 500 (this call is synchronous in the request
+    # path, unlike download_song which runs on the worker with per-job error handling).
+    try:
+        with YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(canonical, download=False)
+    except YoutubeDLError as exc:
+        raise PlaylistURLError(
+            f"Could not expand playlist {playlist_id}: {exc}"
+        ) from exc
+
+    entries: list[PlaylistEntry] = []
+    for raw in info.get("entries") or []:
+        if not raw:
+            continue
+        video_id = str(raw.get("id") or "").strip()
+        if not video_id:
+            continue
+        entries.append(
+            PlaylistEntry(
+                video_id=video_id,
+                url=f"https://www.youtube.com/watch?v={video_id}",
+                title=str(raw.get("title") or "").strip(),
+            )
+        )
+
+    # Fall back to the id if yt-dlp gave no title, so the `playlists` row is never
+    # named "" (the title is what the Jellyfin playlist and the batch card show).
+    title = str(info.get("title") or "").strip() or playlist_id
+    return ExpandedPlaylist(
+        youtube_playlist_id=playlist_id, title=title, entries=entries
+    )
 
 
 # The hosts CleanMuzik accepts — a YouTube-only tool (PRD "YouTube → Jellyfin").
