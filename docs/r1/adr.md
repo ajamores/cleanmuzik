@@ -770,6 +770,17 @@ Format: `ADR-NNN — decision. Rationale. [date]`
      Polling Items-by-path keeps the single seam with no server-side setup; ship polling for R2, and
      switch to push at T-304 only if the plugin proves as cheap as expected AND the second seam is judged
      worth it (or polling proves too slow).
+     **[Resolved 2026-08-16, T-304 build] — polling confirmed, plugin rejected.** The push assumption
+     was evaluated against the plugin's actual behaviour and does not hold: the Webhook plugin's
+     **`ItemAdded` notification is not a real-time push** — it is fired by a Jellyfin *scheduled task*
+     ("Webhook Item Added Notifier") that batches on an interval, with **reported 15–45 min delays**
+     ([#367](https://github.com/jellyfin/jellyfin-plugin-webhook/issues/367)) and open reliability bugs
+     on that exact event: no-fire ([#252](https://github.com/jellyfin/jellyfin-plugin-webhook/issues/252),
+     [#232](https://github.com/jellyfin/jellyfin-plugin-webhook/issues/232)) and mis-fire on playback stop
+     ([#358](https://github.com/jellyfin/jellyfin-plugin-webhook/issues/358)). So push is **slower and
+     flakier** than the 2s/10s-cap poll — not faster — and because `ItemAdded` can silently no-fire, a
+     webhook design would **still need polling underneath** as a correctness net (both, not instead). The
+     one-seam poll is the simpler *and* faster answer; **do not re-litigate at T-306.**
   2. **Landed-video dedup store + predicate (T-303).** One store — the `jobs` row's `youtube_video_id`,
      written at **enqueue** (T-302) — and the exact, status-filtered test
      **`EXISTS(job WHERE youtube_video_id = ? AND status = 'done')`**. The `status='done'` filter is
