@@ -107,10 +107,12 @@ def test_landed_status_is_durable(tmp_path):
     assert rec["store"].get_job(rec["job_id"]).status == "done"
 
 
-def test_status_is_the_only_durable_landing_state(tmp_path):
-    # ADR-015: the landing path/tags are NOT persisted — only the coarse `status` is
-    # durable. A landed song's row is a bare `done`; where it went rode the `track.done`
-    # event. Read back through a FRESH Store to prove nothing extra was written.
+def test_landing_persists_only_the_path_and_status_not_the_display_detail(tmp_path):
+    # ADR-015, as narrowed by ADR-027 seam-2 (T-303): the landing *tags* are still NOT
+    # persisted — the display detail rides the `track.done` event. What IS now durable on
+    # the row is the coarse `status` PLUS the canonical `landed_path`, kept as the operational
+    # handle a later re-paste reads to skip an already-owned video and add its file to a
+    # playlist. Read back through a FRESH Store to prove exactly those, and only those, land.
     tags = {"title": "Song", "artist": "Band", "genre": "Rock", "has_art": True}
     _, rec = _run(
         tmp_path,
@@ -121,7 +123,10 @@ def test_status_is_the_only_durable_landing_state(tmp_path):
     )
     reread = Store(rec["store"]._db_path).get_job(rec["job_id"])
     assert reread.status == "done"
-    assert not hasattr(reread, "landed_path"), "no durable receipt lives on the row (ADR-015)"
+    assert reread.landed_path == "/lib/Band/Song.mp3"  # durable dedup handle (T-303)
+    # The display detail (tags) has no home on the row — the Job dataclass carries no such
+    # field, so it cannot be persisted; it rode the event.
+    assert not hasattr(reread, "tags"), "no display receipt lives on the row (ADR-015)"
 
 
 def test_finish_announces_a_landing_even_with_a_falsy_path(tmp_path):

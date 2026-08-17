@@ -825,6 +825,22 @@ Format: `ADR-NNN — decision. Rationale. [date]`
      **`EXISTS(job WHERE youtube_video_id = ? AND status = 'done')`**. The `status='done'` filter is
      load-bearing: without it a **parked or failed** never-landed entry reads as "already owned" and a
      re-paste skips it forever. Never fuzzy; a genuinely different upload is treated as new (US13).
+     - **Amendment [2026-08-17, T-303 build — owner-approved]: the predicate needs a *where*, not just a
+       *whether*.** `EXISTS(status='done')` proves a video is **owned** but not **where its file is** — and
+       the skip's whole job is to *add that file to the playlist*, which `add_member` cannot do without a
+       resolvable `landed_path` (a pathless membership row is T-304's undrainable dead letter). So the
+       durable store grows a **fourth `jobs` column, `landed_path`** (nullable, ALTER-legal), stamped at
+       land in `_finish` (every landing — R1-single and batch — routes through it, so it is the one
+       video→path map). The skip reads `landed_path_for_video` = *newest `done` job for the video whose
+       `landed_path IS NOT NULL`*. **This narrows, not reverses, ADR-015:** ADR-015 keeps the landing off
+       the row as a **display** receipt (the card reads the `track.done` event); this is an **operational**
+       dedup handle read by a re-paste months later — different consumer, sole durable copy, exactly as
+       `playlist_members.landed_path` already is for the append machinery. The reconcile snapshot route
+       still surfaces no path (ADR-015 intact for the client). An **owned-but-unlocatable** landing (a
+       pre-migration row, or a REPLACE-resolve that landed with a null path) reads `None` and is
+       **re-processed**, never skipped into a dead-letter membership row. The skip lands a **distinct
+       `status='skipped'`** (not `done`), because the T-305/T-312 tally counts skips as their own bucket
+       off `jobs.status`.
   3. **Jellyfin playlist create timing.** Create the Jellyfin playlist at **`batch.queued`** (expansion,
      T-302), **not** on first land — else an all-parked batch never gets a `jellyfin_playlist_id` and its
      later backfill (T-306) has nowhere to append. **Owner-settled [2026-08-15]: create-at-queued.**

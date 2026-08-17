@@ -145,6 +145,20 @@ _ADDED_COLUMNS = [
     ("jobs", "playlist_id", "TEXT"),
     ("jobs", "position", "INTEGER"),
     ("jobs", "youtube_video_id", "TEXT"),
+    # R2 (T-303 / ADR-027 seam-2 amendment). A fourth `jobs` column — the canonical
+    # library path a landing wrote, stamped at land time (`_finish`, `landed=True`). It
+    # is what the exact-video dedup skip appends to the new playlist: `EXISTS(status=
+    # 'done')` proves the video is *owned*, but says nothing about *where*, and T-304's
+    # `add_member` needs a resolvable `landed_path` or the pending row is an undrainable
+    # dead letter. This is the ONE durable video→path map (covers R1-single AND batch
+    # landings, since every land routes through `_finish`). It *narrows* ADR-015: that
+    # decision keeps the landing off the row as a **display** datum (the card reads the
+    # event); this is an **operational** dedup handle (a re-paste months later reads the
+    # row) — different consumer, and the sole durable copy, exactly as `playlist_members.
+    # landed_path` is for the append machinery. Nullable + no default → ALTER-legal; an
+    # old row (or a REPLACE-resolve landing with no path) reads NULL and is re-processed
+    # rather than skipped-without-a-file.
+    ("jobs", "landed_path", "TEXT"),
     # R2 (T-304 / ADR-027 seam-1 amendment). Two columns on the `playlist_members` table,
     # which SHIPPED in T-300 and is on the owner's live DB — so they go via ALTER, NOT the
     # CREATE (a column added to a `CREATE TABLE IF NOT EXISTS` never lands on an existing
@@ -213,6 +227,7 @@ class Job:
     playlist_id: str | None = None  # → playlists.id (app-enforced); NULL = single-song (R1)
     position: int | None = None  # index in the expanded playlist
     youtube_video_id: str | None = None  # source video, recorded at enqueue (T-303 dedup)
+    landed_path: str | None = None  # canonical library path stamped at land (T-303 skip source)
 
 
 @dataclass(frozen=True)
@@ -419,6 +434,42 @@ class Store:
             # or stale id otherwise looks identical to a real transition).
             if cur.rowcount == 0:
                 raise KeyError(f"no job with id {job_id!r}")
+
+    def set_landed_path(self, job_id: str, landed_path: str) -> None:
+        """Stamp the canonical library path a landing wrote onto its `jobs` row (T-303).
+
+        Called from `_finish` on every landing (`landed=True`) so a later re-paste of the
+        same video can add the already-owned file to a playlist without re-downloading it
+        (`landed_path_for_video`). Idempotent overwrite; a no-op update (id gone) is
+        tolerated — a stamp that fails must never fail the landing it trails, and the datum
+        is recoverable on the next land.
+        """
+        with self._connect() as conn:
+            conn.execute(
+                "UPDATE jobs SET landed_path = ? WHERE id = ?", (landed_path, job_id)
+            )
+
+    def landed_path_for_video(self, youtube_video_id: str) -> str | None:
+        """The canonical path of an already-owned video, or None (T-303 skip source).
+
+        Encodes ADR-027 seam 2's `EXISTS(job WHERE youtube_video_id=? AND status='done')`
+        AND its *where*: the newest **done** job for this video that actually carries a
+        `landed_path`. `status='done'` is load-bearing — a parked/failed never-landed entry
+        must not read as owned (or a re-paste skips it forever). The extra `landed_path IS
+        NOT NULL` guard means an owned-but-unlocatable landing (a pre-migration row, or a
+        REPLACE-resolve that landed with no path) returns None and is re-processed rather
+        than skipped into an undrainable membership row (T-304's dead-letter hazard). Newest
+        first, so the freshest known location wins if the video landed more than once.
+        """
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT landed_path FROM jobs "
+                "WHERE youtube_video_id = ? AND status = 'done' "
+                "AND landed_path IS NOT NULL "
+                "ORDER BY created_at DESC, rowid DESC LIMIT 1",
+                (youtube_video_id,),
+            ).fetchone()
+        return row["landed_path"] if row else None
 
     # --- reviews ----------------------------------------------------------
 
@@ -831,6 +882,7 @@ def _job_from_row(row: sqlite3.Row) -> Job:
         playlist_id=row["playlist_id"],
         position=row["position"],
         youtube_video_id=row["youtube_video_id"],
+        landed_path=row["landed_path"],
     )
 
 
