@@ -226,7 +226,7 @@ integrate onto `main` with the status line flipped in the closing commit, transc
   keyed on the stored `position`. Not in T-304's "Done when"; flagged for owner call (own ticket vs T-311).
 
 ### T-303 — Exact-video de-duplication (record video-ID at enqueue; skip only landed videos)
-- **Status:** todo
+- **Status:** done
 - **Depends on:** T-300, **T-304** (the skip path adds the existing file to the playlist via T-304's append)
 - **Agent:** back-end
 - **What:** `youtube_video_id` is written on the `jobs` row **at enqueue** (T-302). On expansion, test each

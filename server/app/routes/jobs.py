@@ -40,7 +40,7 @@ _SSE_HEADERS = {
 # importing it here would break T-001's lazy-engine property. When a job is already in
 # one of these and its SSE channel has been evicted, the stream must close at once
 # rather than hang (see EventBus.stream's `terminal` hint).
-_TERMINAL_STATUSES = frozenset({"done", "review", "error"})
+_TERMINAL_STATUSES = frozenset({"done", "review", "error", "skipped"})
 
 # ADR-029 explicit-intent values. `single`/`playlist` are wired; `multi` is reserved
 # geometry (a present-but-inert dial stop) whose build is backlog T-046, so the backend
@@ -249,10 +249,12 @@ def get_job(job_id: str, request: Request) -> dict:
         "status": job.status,
         "created_at": job.created_at,
     }
-    # No landing path/tags here: the landing detail rides the terminal SSE event, not the
-    # durable row (ADR-015). A card recovers the path from the replayed `track.done` /
-    # `track.error`; after a restart (empty replay buffer) it shows a bare status and the
-    # owner re-scans — the file is at a deterministic library path regardless.
+    # No landing path/tags here: the landing *display* detail rides the terminal SSE event,
+    # not the reconnect snapshot (ADR-015). A card recovers the path from the replayed
+    # `track.done` / `track.error`; after a restart (empty replay buffer) it shows a bare
+    # status and the owner re-scans — the file is at a deterministic library path regardless.
+    # (`jobs.landed_path` IS durable since T-303, but as the dedup engine's internal handle —
+    # deliberately not surfaced as a client-facing receipt here.)
 
     live = request.app.state.worker.registry.get(job_id)
     if live is not None:

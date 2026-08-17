@@ -102,6 +102,11 @@ STATUS_RUNNING = "running"
 STATUS_DONE = "done"
 STATUS_REVIEW = "review"
 STATUS_ERROR = "error"
+# T-303: an exact-video re-paste — already in the library, so the pipeline is skipped and
+# the owned file is added to the playlist instead. A DISTINCT terminal status (not folded
+# into `done`) because the batch tally (T-305/T-312) counts skips as their own bucket, and
+# that tally is derived straight off `jobs.status` grouped by `playlist_id` (ADR-027 seam 5).
+STATUS_SKIPPED = "skipped"
 
 
 @dataclass(frozen=True)
@@ -385,6 +390,70 @@ def _drain_after_land(store: Store, job_id: str, *, settings: Settings | None) -
         logger.warning("post-land drain failed for job %s (%s)", job_id, exc)
 
 
+def _try_skip_duplicate(
+    job,
+    *,
+    store: Store,
+    registry: JobRegistry,
+    bus: EventBus,
+    settings: Settings | None,
+) -> JobState | None:
+    """Exact-video dedup: skip an already-owned playlist entry, add its file instead (T-303).
+
+    Returns the terminal `JobState` when the entry is skipped, or `None` to fall through to
+    the normal pipeline. Gated by the caller to batch members (`playlist_id IS NOT NULL`), so
+    a single-song R1 paste never reaches here — it keeps landing (or ADR-009-parking) exactly
+    as in R1 (acceptance item 11).
+
+    On a hit the entry is *not* downloaded/transcoded/identified/tagged. Instead:
+      1. the owned file is added to this playlist (membership-guarded `add_member`, so a
+         re-add of a video already in *this* playlist is a harmless no-op — ADR-027 seam 4),
+         carrying the canonical `landed_path` so the append is drainable;
+      2. a few pending appends are opportunistically drained (the just-added member's file
+         landed long ago, so it is already indexed and usually appends on this very pass);
+      3. `track.skipped` is emitted and the job ends `skipped`.
+
+    Silent by contract — it must NOT route through the ADR-009 duplicate-park keep/replace
+    prompt (that is for a different-bitrate library duplicate offered as a choice; an exact
+    re-paste of a video already in *this* library is just "already have it"). A genuinely
+    different upload of the same song has a different video id, misses here, and is treated
+    as new (US13 — no wanted song is silently swapped out).
+    """
+    path = store.landed_path_for_video(job.youtube_video_id)
+    if path is None or not os.path.exists(path):
+        # Not owned, owned-but-unlocatable (no durable path), or the recorded file is GONE
+        # — deleted, or moved by the migrate/clean job (this app's own second flow rewrites
+        # library paths). A stale path can never resolve, so skipping would strand the song:
+        # neither re-downloaded nor a working playlist entry, under a `skipped` status that
+        # reads as success. Fall through to the normal pipeline instead — a re-acquire re-lands
+        # the file and re-stamps its current path (US13: no wanted song silently missing).
+        return None
+    # Owned + locatable. Record the playlist slot durably (pending append), then let the
+    # standard reconcile drain resolve+append it — the file is long-since indexed, so this
+    # usually appends immediately. Best-effort: the skip's terminal state must still fire.
+    try:
+        store.add_member(
+            job.playlist_id,
+            job.youtube_video_id,
+            job.position,
+            jellyfin_item_id=None,  # pending — the reconcile pass resolves + appends
+            landed_path=path,
+        )
+    except Exception as exc:  # noqa: BLE001 — a membership write must not fail the skip
+        logger.warning(
+            "could not record membership for skipped job %s (%s) — recoverable on re-paste",
+            job.id, exc,
+        )
+    bus.publish(job.id, "track.skipped", {
+        "job_id": job.id,
+        "youtube_video_id": job.youtube_video_id,
+        "position": job.position,
+        "path": path,
+    })
+    _drain_after_land(store, job.id, settings=settings)
+    return _finish(store, registry, job.id, bus=bus, status=STATUS_SKIPPED)
+
+
 def run_pipeline(
     job_id: str,
     url: str,
@@ -436,6 +505,19 @@ def run_pipeline(
         "list_kind": curated_list_kind(url),
     })
     registry.start(job_id)  # constructs the state at stage "download"
+    # Exact-video dedup (T-303), BEFORE any download/transcode/identify/tag work but AFTER
+    # registry.start so the skip's `_finish` updates a live state (not a phantom terminal).
+    # Gated to batch members (`playlist_id IS NOT NULL`): a single-song R1 paste skips this
+    # entirely and runs byte-for-byte (acceptance item 11). Per-entry order is membership-check
+    # → video-dedup → process (ADR-027 seam 4); the membership-check is `add_member`'s own
+    # UNIQUE guard, applied inside the skip. A hit ends the job here as `skipped`.
+    job = store.get_job(job_id)
+    if job is not None and job.playlist_id is not None and job.youtube_video_id:
+        skipped = _try_skip_duplicate(
+            job, store=store, registry=registry, bus=bus, settings=s,
+        )
+        if skipped is not None:
+            return skipped
     # pct is omitted, not invented: the download stage doesn't report progress (spec §6
     # marks pct optional). The event still fires so the card leaves "queued".
     bus.publish(job_id, "track.downloading", {"job_id": job_id})
@@ -1206,6 +1288,21 @@ def _finish(
     # was in, which is always one of spec §6's six names.
     prev = registry.get(job_id)
     _set_status(store, job_id, status)
+    # Stamp the canonical library path on the landing's own row so a later re-paste of the
+    # same video can add the owned file to a playlist without re-downloading it (T-303).
+    # Tied to `landed` (a real landing), not to `status`: a scan-failed landing is on disk
+    # but ends `error`, so its path is stamped yet never read (the dedup source filters on
+    # `status='done'`). A REPLACE-resolve can land with no path — nothing to stamp, so the
+    # video reads as unlocatable later and is re-processed rather than skipped. Best-effort:
+    # a stamp must not fail the landing it trails (the `track.done` below is the priority).
+    if landed and landed_path is not None:
+        try:
+            store.set_landed_path(job_id, landed_path)
+        except Exception as exc:  # noqa: BLE001 — a dedup stamp must not fail a landed job
+            logger.warning(
+                "could not stamp landed_path for job %s (%s) — re-download on re-paste",
+                job_id, exc,
+            )
     state = registry.finish(
         job_id, status=status, stage=stage, review_id=review_id, error=error
     )
