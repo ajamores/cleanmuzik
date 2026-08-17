@@ -22,6 +22,10 @@ CleanMuzik — personal YouTube → Jellyfin music tool. Purpose, stack, constra
 ## Current State (2026-08-16)
 
 - **On `main`, pushed.** R2 (Playlists) `in-build`.
+- **T-304 push-vs-poll settled → poll** (`9a36476`). Researched the Jellyfin Webhook plugin: its
+  `ItemAdded` is a scheduled-task batch (reported 15–45 min delay) with open no-fire/mis-fire bugs —
+  slower + flakier than the 2s/10s poll, and would still need polling underneath. ADR-027 seam 1
+  resolved; do-not-re-litigate note added. **T-304 unblocked, not yet started.**
 - **T-302 done + shipped** (`daa65af`). `POST /api/jobs` now expands a curated playlist URL → N
   track-jobs (shared `playlist_id` + 1-based `position` + `youtube_video_id`); single-song URL
   unchanged (R1 byte-for-byte). Explicit `intent` (ADR-029) added; **`create_playlist` built in
@@ -47,15 +51,15 @@ CleanMuzik — personal YouTube → Jellyfin music tool. Purpose, stack, constra
 
 ## Recent sessions (rolling — last 2–3)
 
-- **2026-08-16 (this session)** — **Shipped T-302** (accept + expand + explicit intent + minimal
+- **2026-08-16 (this session)** — Researched the Jellyfin Webhook plugin for T-304; **settled
+  push-vs-poll → poll** (ADR-027 seam 1 resolved, `9a36476`). T-304 unblocked.
+- **2026-08-16 (earlier)** — **Shipped T-302** (accept + expand + explicit intent + minimal
   `create_playlist`). Owner convened a **4-lens council** on the create/resolve ticket split →
   unanimous "create in T-302" → **ADR-027 seam-3 addendum**; owner settled the degrade-on-failure
   contract. `/code-review` surfaced 5 findings (4 fixed, 1 single-user race accepted-in-code).
 - **2026-08-16 (earlier)** — Built the **T-310 design gate** (10 screens), owner-approved. Raised the
   paste-intent ambiguity → 5-agent council → **ADR-029** (acquire dial + explicit intent). Filed
   backlog **T-045** (theme switcher) + **T-046** (the Multi build).
-- **2026-08-15** — **T-301 done** (**ADR-028** artist-credit normalisation, council). **T-300** shipped
-  (batch data model + **ADR-027**).
 
 ## Where the rest of the context lives
 
