@@ -51,6 +51,7 @@ from mediafile import MediaFile
 
 from app.config import Settings, get_settings
 from app.db import (
+    MAX_APPEND_ATTEMPTS,
     REVIEW_REJECTED,
     REVIEW_RESOLVED,
     Review,
@@ -66,7 +67,13 @@ from app.import_seam import (
     resolve_asis_import,
     resolve_import,
 )
-from app.jellyfin import JellyfinScanError, trigger_scan
+from app.jellyfin import (
+    JellyfinAppendError,
+    JellyfinScanError,
+    append_to_playlist,
+    resolve_item_id,
+    trigger_scan,
+)
 from app.normalize import normalize_title
 from app.reviews import (
     CHOICE_KEEP_UNTAGGED,
@@ -216,6 +223,166 @@ def _read_normalized_query(mp3_path: Path) -> str:
     if not title:
         return ""
     return normalize_title(title, media.artist or None)
+
+
+# How many pending appends the *opportunistic* on-land drain resolves per landed track
+# (ADR-027 seam-1 amendment, T-304). Small on purpose: each land drains a few of the
+# oldest-and-most-likely-indexed pending members in the gaps the pipeline already owns,
+# so a batch's playlist fills as it runs without the worker ever polling a just-landed
+# file's own (least-settled) index. The background tick + boot sweep drain the tail with
+# no such cap.
+_ON_LAND_DRAIN_LIMIT = 5
+
+# How many pending appends the background tick + boot sweep drain per pass (T-304). Larger
+# than the on-land cap because the tick owns the *tail* — a batch's final tracks have no
+# later land to trail them, so this pass, not the opportunistic drain, is what guarantees
+# they eventually join the playlist. Still bounded so one pass can't monopolise the worker.
+_TICK_DRAIN_LIMIT = 50
+
+
+def reconcile_pending_appends(
+    store: Store,
+    *,
+    settings: Settings | None = None,
+    limit: int,
+    resolve_fn=resolve_item_id,
+    append_fn=append_to_playlist,
+) -> int:
+    """Drain up to `limit` pending Jellyfin appends; return how many landed this pass.
+
+    The heart of ADR-027 seam 1 (as amended by T-304): a track's membership row was
+    written durably at land time with `jellyfin_item_id = NULL` + its `landed_path`, but
+    the Jellyfin append was deferred because a just-landed file isn't indexed yet. This
+    pass resolves each pending member's path → its Jellyfin item id and appends it, once
+    Jellyfin has caught up. Runs on the worker thread only (opportunistically after a
+    land, on the background tick, and at boot), so it never contends with the sequential
+    pipeline for the SQLite write lock (ADR-001's single-writer spirit).
+
+    Per member, in order:
+    - No `jellyfin_playlist_id` on the parent playlist → the Jellyfin playlist itself was
+      never created (config was absent at expansion). Skip WITHOUT counting an attempt —
+      the member isn't stuck, its container is; T-306's create-if-missing backfill owns
+      that recovery. Counting attempts here would burn the give-up budget on a healthy row.
+    - `resolve_fn` misses (not indexed yet, or Jellyfin unreachable) → count one attempt
+      and leave it pending; a later pass retries until it resolves or hits the give-up cap.
+    - `resolve_fn` hits → append; on success stamp the item id (the row leaves the pending
+      set — idempotent by construction). A present-but-failed append raises
+      `JellyfinAppendError`, caught here per member: count an attempt, leave pending, and
+      keep going, so one bad append never stops the batch (ADR-003).
+
+    Never raises: a reconcile failure must not kill the worker loop or a job that landed
+    fine. Individual members degrade; the pass returns the count that succeeded.
+    """
+    pending = store.list_pending_appends(limit)
+    if not pending:
+        return 0
+    playlists: dict[str, object] = {}  # cache: one get_playlist per playlist per pass
+    appended = 0
+    for member in pending:
+        # Each member is isolated: a store error on one (e.g. a row deleted out from under
+        # us between the query and the UPDATE) must not abort the drain for the rest — the
+        # "never raises" contract, and ADR-003's one-failure-continues, applied per member.
+        try:
+            if member.playlist_id not in playlists:
+                playlists[member.playlist_id] = store.get_playlist(member.playlist_id)
+            playlist = playlists[member.playlist_id]
+            jf_playlist_id = getattr(playlist, "jellyfin_playlist_id", None)
+            if not jf_playlist_id:
+                continue  # container not created yet — T-306's backfill, not a member fault
+
+            item_id = resolve_fn(member.landed_path, settings=settings)
+            if not item_id:
+                attempts = store.bump_append_attempt(member.id)
+                if attempts >= MAX_APPEND_ATTEMPTS:
+                    logger.warning(
+                        "giving up on the Jellyfin append for %s (%s) after %d tries — the "
+                        "file landed but Jellyfin never indexed its path; surfaced in the "
+                        "batch view, not retried further",
+                        member.youtube_video_id, member.landed_path, attempts,
+                    )
+                continue
+
+            try:
+                ok = append_fn(jf_playlist_id, item_id, settings=settings)
+            except JellyfinAppendError as exc:
+                store.bump_append_attempt(member.id)
+                logger.warning(
+                    "Jellyfin append failed for %s (item %s) — left pending: %s",
+                    member.youtube_video_id, item_id, exc,
+                )
+                continue
+            if not ok:
+                # Append degraded to a no-op (config went absent between the resolve and
+                # the append). Do NOT stamp it done — that would drop the track from the
+                # playlist while marking it added (silent loss). Leave it pending and count
+                # the attempt so a persistent degrade reaches the visible give-up.
+                store.bump_append_attempt(member.id)
+                continue
+            store.mark_member_appended(member.id, item_id)
+            appended += 1
+        except Exception as exc:  # noqa: BLE001 — one bad member must not abort the pass
+            logger.warning(
+                "reconcile: skipping member %s after an unexpected error: %s",
+                member.id, exc,
+            )
+    return appended
+
+
+def _record_pending_membership(store: Store, job_id: str, landed_path: str) -> None:
+    """Record a landed member's playlist slot as a pending append (T-304). No-op for R1.
+
+    Gated on the job being a batch member (`playlist_id IS NOT NULL`): a single-song R1
+    paste writes nothing here, so its land path is byte-for-byte the R1 one (acceptance
+    item 11). For a member, `add_member` is idempotent (`UNIQUE(playlist_id,
+    youtube_video_id)`), so a re-paste of an already-landed track is a harmless no-op.
+    Best-effort: the file has landed and `track.done` must still fire, so a membership
+    write that fails is logged, not raised — the row is recoverable on a re-paste, a
+    dropped `track.done` is not.
+    """
+    try:
+        job = store.get_job(job_id)
+        if job is None or job.playlist_id is None:
+            return  # R1 single-song path — untouched
+        if not landed_path:
+            # A member that landed with no canonical path can never be resolved by path,
+            # so a pending row would be an undrainable dead letter (silent loss — the one
+            # thing a walk-away owner can't catch). Shouldn't happen — a real landing
+            # always has a path — so surface it loudly rather than record an unresolvable
+            # row. The track is still on disk; the batch tally (T-312, jobs-by-status)
+            # still counts it done.
+            logger.warning(
+                "member job %s landed with no path — cannot record a resolvable "
+                "playlist membership; the track is on disk but won't auto-append", job_id,
+            )
+            return
+        store.add_member(
+            job.playlist_id,
+            job.youtube_video_id,
+            job.position,
+            jellyfin_item_id=None,  # pending — the reconcile pass resolves + appends
+            landed_path=landed_path,
+        )
+    except Exception as exc:  # noqa: BLE001 — a membership write must not fail a landed job
+        logger.warning(
+            "could not record playlist membership for job %s (%s) — "
+            "recoverable on re-paste", job_id, exc,
+        )
+
+
+def _drain_after_land(store: Store, job_id: str, *, settings: Settings | None) -> None:
+    """Opportunistically drain a few pending appends after a member lands (T-304). No-op for R1.
+
+    Gated on the job being a batch member so the R1 path issues no extra query. Best-effort
+    and bounded (`_ON_LAND_DRAIN_LIMIT`): `reconcile_pending_appends` never raises, but the
+    gate lookup might, and a landed job must still reach `track.done` regardless.
+    """
+    try:
+        job = store.get_job(job_id)
+        if job is None or job.playlist_id is None:
+            return  # R1 single-song path — untouched
+        reconcile_pending_appends(store, settings=settings, limit=_ON_LAND_DRAIN_LIMIT)
+    except Exception as exc:  # noqa: BLE001 — a drain must not fail a landed job
+        logger.warning("post-land drain failed for job %s (%s)", job_id, exc)
 
 
 def run_pipeline(
@@ -406,7 +573,15 @@ def run_pipeline(
             bus.publish(job_id, "track.tagging", {
                 "job_id": job_id, "chosen": landed.chosen or {},
             })
-            # 6. Nudge Jellyfin so the track appears in seconds (T-010). A missing
+            # 6a. If this is a playlist member (T-304), record its membership NOW —
+            #     durably, with the canonical path, `jellyfin_item_id` still NULL. This
+            #     is tied to the LAND, not the scan, so the pending append survives even
+            #     if the scan below fails: the file is on disk, its playlist slot is
+            #     recorded, and the reconcile pass drains it whenever Jellyfin catches up.
+            #     Gated on `playlist_id`, so a single-song R1 job touches none of this
+            #     (acceptance item 11 — the R1 path stays byte-for-byte).
+            _record_pending_membership(store, job_id, landed.landed_path)
+            # 6b. Nudge Jellyfin so the track appears in seconds (T-010). A missing
             #    config degrades to a warning (still landed); a present-but-failed
             #    config is a genuine scan-stage error (the file stays on disk).
             registry.set_stage(job_id, STAGE_SCAN)
@@ -425,6 +600,14 @@ def run_pipeline(
                     store, registry, job_id, bus=bus,
                     path=landed.landed_path, tags=landed.tags, exc=exc,
                 )
+            # 6c. Opportunistic drain (T-304): resolve+append a few of the OLDEST pending
+            #     members — the earlier tracks Jellyfin has had time to index by now — so
+            #     the playlist fills as the batch runs, at ~0 marginal cost, and never on
+            #     the R1 path. On a small batch the just-landed member is among the oldest
+            #     and gets one resolve attempt too; that simply misses (not indexed yet)
+            #     and is retried later — a single cheap local call, never a blocking poll.
+            #     Best-effort by contract.
+            _drain_after_land(store, job_id, settings=s)
             # Announce the landing: `_finish` publishes `track.done` built from the path/tags
             # below (ADR-015 — they ride the event, not a durable row).
             return _finish(
@@ -1153,6 +1336,20 @@ class _ResolveWork:
     request: ResolveRequest
 
 
+@dataclass(frozen=True)
+class _ReconcileWork:
+    """Work item: drain pending Jellyfin appends (T-304, the background tick + boot sweep).
+
+    Runs on the same one queue as pipeline/resolve work so the reconcile pass executes on
+    the worker thread — serialized behind any in-flight download (ADR-001) and never
+    contending for the SQLite write lock. `limit` caps the pass; the tick uses a larger
+    bound than the opportunistic on-land drain because it owns the tail (a batch's last
+    tracks, which have no later land to piggyback on).
+    """
+
+    limit: int
+
+
 class JobWorker:
     """The single background thread that runs queued jobs one at a time (ADR-001).
 
@@ -1224,10 +1421,25 @@ class JobWorker:
             target=self._run, name="cleanmuzik-worker", daemon=True
         )
         self._thread.start()
+        # Boot sweep (T-304): drain any appends left pending by a previous run's tail
+        # (`playlist_members.jellyfin_item_id IS NULL`) right away, rather than waiting for
+        # the first background tick. Restart-safe by construction — the pending rows are
+        # durable and carry their `landed_path`, so a crash mid-batch loses no membership.
+        self.submit_reconcile()
         logger.info("job worker started")
 
     def submit(self, job_id: str, url: str) -> None:
         self._queue.put(_PipelineWork(job_id, url))
+
+    def submit_reconcile(self, limit: int = _TICK_DRAIN_LIMIT) -> None:
+        """Enqueue a pending-append drain pass (T-304 background tick).
+
+        Called from the lifespan loop on a timer. It only enqueues — the drain itself runs
+        on the worker thread when it reaches the front, so it never races the pipeline for
+        the SQLite lock. Cheap when there's nothing pending (`list_pending_appends` returns
+        empty and the pass is a no-op), so a steady tick against an idle worker is fine.
+        """
+        self._queue.put(_ReconcileWork(limit))
 
     def submit_resolve(self, job_id: str, review_id: str, request: ResolveRequest) -> None:
         """Re-open the job's stream, mark it running, and enqueue the resolve.
@@ -1323,6 +1535,12 @@ class JobWorker:
                     run_resolve(
                         item.job_id, item.review_id, item.request, store=self._store,
                         registry=self.registry, settings=self._settings, bus=self.bus,
+                    )
+                elif isinstance(item, _ReconcileWork):
+                    # Drain pending Jellyfin appends (T-304). Never raises; runs here so
+                    # it's serialized with pipeline/resolve work, no lock contention.
+                    reconcile_pending_appends(
+                        self._store, settings=self._settings, limit=item.limit,
                     )
                 else:
                     logger.error("worker got an unknown work item: %r", item)

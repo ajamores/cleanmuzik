@@ -987,3 +987,14 @@ Format: `- <date> — what went wrong → the correction / rule now in place`
   **Essentia** — the *local* analysis library — is alive and is what PRD §6 already names for the R3
   acoustic tier (BPM/key/energy). Rule: spec the R3 acoustic tier around **local** Essentia/Librosa
   analysis, never the AcousticBrainz service or its plugin. We use none of them today (R3 is unstarted).
+- 2026-08-17 — (T-304, mistake) **"New table, no shipped DB" is the wrong test for whether a column
+  can go in a `CREATE TABLE IF NOT EXISTS` — the right test is whether that *table* already shipped.**
+  T-304 added `landed_path`/`append_attempts` to `playlist_members`'s CREATE, reasoning it was safe
+  because "R2 isn't a shipped release." Wrong: the *table* shipped in **T-300** (commit `1e9021f`, on
+  `main`), so it already exists on the owner's live DB — where `CREATE TABLE IF NOT EXISTS` is a no-op and
+  the new columns would **silently never appear** (add_member then raises `no column named landed_path` in
+  production while every test passes on its fresh temp DB). This IS the T-206 lesson, one layer out: a
+  column added to an *existing* table must go via `_ADDED_COLUMNS` (ALTER), never the CREATE — and it's
+  ALTER-legal iff nullable or NOT-NULL-*with-a-default*. Rule: before editing any `_SCHEMA` CREATE, `git
+  log -S "CREATE TABLE ... <name>"` — if that table shipped in ANY prior commit, the new column goes in
+  `_ADDED_COLUMNS`, full stop. Caught by cold-review, not tests (tests build the full schema fresh).

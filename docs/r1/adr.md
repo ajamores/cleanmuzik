@@ -781,6 +781,45 @@ Format: `ADR-NNN — decision. Rationale. [date]`
      flakier** than the 2s/10s-cap poll — not faster — and because `ItemAdded` can silently no-fire, a
      webhook design would **still need polling underneath** as a correctness net (both, not instead). The
      one-seam poll is the simpler *and* faster answer; **do not re-litigate at T-306.**
+     **[Superseded inline timing — 2026-08-16, T-304 build; 4-lens council + owner, ratified.]** The
+     owner-settled "poll every 2s up to a 10s hard cap, then defer" was written for an *inline* resolve —
+     polling a **just-landed** track's own index on the worker. That timing is retired: a batch of N such
+     waits adds ~10s×N of dead time to the strictly-sequential worker (ADR-001), the exact per-track tax the
+     owner flagged. The insight that retires it: **a track's own index is always the least-settled thing in
+     the system (0s old), so the cheapest id to resolve is never your own — it's a predecessor's**, landed a
+     full pipeline-cycle ago and already indexed. So the worker **never polls at all**. Instead: (a) at land,
+     write the pending membership row immediately (`jellyfin_item_id NULL` + `landed_path`) and move on —
+     ~0 added critical-path time; (b) **opportunistically drain** a few of the *oldest* pending appends on
+     each subsequent land (single non-blocking `resolve_item_id` each — a **local** Jellyfin call, outside
+     ADR-001's rate-limit concern — so the playlist fills live-ish as the batch runs); (c) a **durable
+     background reconcile tick** (~25s) + a **boot sweep** own the *tail* — a batch's last tracks have no
+     later land to trail them, so the tick, not the opportunistic drain, is the correctness floor that
+     guarantees they eventually join. The 2s/10s poll is gone entirely; a resolve is now a *single attempt*
+     retried across passes. **`resolve_item_id` / `append_to_playlist` are the two seam functions** (same
+     `jellyfin.py`, no second integration point). **The pending-append durable home also persists the landed
+     canonical path as `playlist_members.landed_path` (nullable)**, because the reconcile pass resolves a
+     deferred item via `Items?Path=` and has **no other durable handle** (Jellyfin indexes by on-disk path);
+     this is an *operational* retry-handle, **not** the transient *display* path ADR-015 made non-durable
+     (different table, different consumer, sole durable copy of the datum). It is added via `_ADDED_COLUMNS`
+     (ALTER), **not** the `playlist_members` CREATE — a cold-review catch: that table SHIPPED in T-300 and is
+     on the owner's live DB, so a column on the `CREATE TABLE IF NOT EXISTS` would silently never land (the
+     exact T-206 lesson; the "new table, no shipped DB" reasoning was wrong — R2-as-a-*release* isn't shipped,
+     but the *table* is). Both columns are ALTER-legal (`landed_path` nullable; `append_attempts` NOT NULL
+     *with a DEFAULT*). A bounded `append_attempts` (cap 20) turns a never-indexable file into a **visible**
+     give-up (a warning; surfaced in the batch view at T-305/T-312), never an infinite retry or a silent drop
+     — silent loss being the one failure a walk-away owner cannot catch. **M3U weighed and rejected here:** an
+     on-disk `.m3u` of paths (letting Jellyfin import the playlist on scan, skipping item-id resolution) was
+     researched against Jellyfin's own `PlaylistResolver` — it does **not** skip the index wait (Jellyfin
+     won't link a path until it has independently indexed the file), trades the clean pollable checkpoint for
+     a silently-empty playlist with no signal, is **read-only in the UI since 10.9**, and has a 10.9-line
+     history of playlists wiped on scan ([#11625](https://github.com/jellyfin/jellyfin/issues/11625),
+     [#12110](https://github.com/jellyfin/jellyfin/issues/12110)). The item-id API is the lower-risk path;
+     **do not re-open M3U.** (The built-in `LibraryChanged` websocket, which *pushes* new item ids, is a
+     possible future latency upgrade — but its 30s default debounce makes it slower than the poll out of the
+     box, and it adds a second integration surface; not for R2.) **The `queued`-job re-enqueue on restart is
+     out of scope here** — a mid-batch crash still errors un-run tracks (T-104); "walk away, come back across
+     a restart" for *unprocessed* tracks is T-312. What T-304 guarantees restart-safe is the **pending
+     append**: its row is durable and carries its path, so the boot sweep drains it.
   2. **Landed-video dedup store + predicate (T-303).** One store — the `jobs` row's `youtube_video_id`,
      written at **enqueue** (T-302) — and the exact, status-filtered test
      **`EXISTS(job WHERE youtube_video_id = ? AND status = 'done')`**. The `status='done'` filter is

@@ -189,30 +189,41 @@ integrate onto `main` with the status line flipped in the closing commit, transc
   single-song URL still enqueues one `playlist_id = null` job on the R1 path. (Acceptance item 1; item 11 —
   R1 unchanged. Stories: US1, US2, US6, US14. Intent contract: ADR-029. Create split: ADR-027 seam-3 addendum.)
 
-### T-304 — Jellyfin playlist output seam: create / resolve-post-scan / append (+ membership write)
-- **Status:** todo
+### T-304 — Jellyfin playlist output seam: resolve / append / defer-first reconcile (+ membership write)
+- **Status:** done
 - **Depends on:** T-300
 - **Agent:** back-end
 - **What:** `jellyfin.py` today does exactly one thing — fire-and-forget `POST /Library/Refresh`
   (`jellyfin.py:~87`); it has **no item-resolution** capability. Extend the **single existing Jellyfin seam**
-  (no second integration point) with **resolve a landed file → its Jellyfin item ID** and **append an item to
-  a playlist**. **`create_playlist` is NOT here — it was defined *and* called in T-302** (council-settled
-  2026-08-16, ADR-027 seam-3 addendum: create is cohesive with the upsert and must exist when T-302
-  integrates, or an all-parked batch violates seam 3 on `main`). T-304 consumes the `jellyfin_playlist_id`
-  T-302 already stored. **The post-scan resolve is the highest-risk
-  piece — build it to ADR-027 seam 1:** Jellyfin's scan is async, so the item ID exists only *after* it
-  indexes the new file. Poll Items-by-path on a bounded interval with a **hard timeout**; the resolve/append
-  must **not block the sequential worker** (a blocking wait per track serializes the whole batch). On
-  timeout, **write the app-side membership now and defer the Jellyfin append** as a pending append the next
-  scan reconciles — never drop it silently (that is the "invisible hole in the journal" the acceptance
-  forbids). Append is a **no-op when membership already exists** (T-300 seam 4). The file still lands
-  **canonically under `Artist/Album`** (one copy on disk); the playlist holds **pointers**.
-- **Done when:** against a **stubbed** `jellyfin.py` edge, the app calls append-item with the right
-  (playlist, item) using the `jellyfin_playlist_id` T-302 stored; the post-scan resolve polls-with-timeout rather than
-  racing or blocking the worker; a forced resolve timeout writes membership + a pending append (no silent
-  drop); a re-append of an existing member is a no-op; the canonical file is unmoved (pointer, not copy). The
-  **real** Jellyfin playlist appearing is proven in T-311. (Acceptance items 2, 3; ADR-027 timing seam.
-  Stories: US4, US5.)
+  (no second integration point) with `resolve_item_id` (a landed file → its Jellyfin item id, `Items?Path=`)
+  and `append_to_playlist`. **`create_playlist` is NOT here — it was defined *and* called in T-302**
+  (council-settled 2026-08-16, ADR-027 seam-3 addendum). T-304 consumes the `jellyfin_playlist_id` T-302
+  already stored.
+  **Resolve/append timing — DEFER-FIRST, superseding the inline poll (4-lens council + owner, 2026-08-16;
+  ADR-027 seam-1 amendment):** Jellyfin's scan is async, so a landed file's item id exists only after it
+  indexes. The worker **never polls a just-landed track's own (least-settled) index** — that added ~10s×N of
+  dead time to the sequential worker. Instead: at land, write the pending membership row immediately
+  (`jellyfin_item_id NULL` + `landed_path`) and move on; a reconcile pass (`reconcile_pending_appends`)
+  resolves+appends the *older*, already-indexed pending members, triggered three ways — opportunistically on
+  each subsequent land (fills the playlist live-ish), a **background tick** (~25s) + a **boot sweep** (own the
+  tail). A resolve is a single attempt retried across passes; `append_attempts` (cap 20) bounds it into a
+  visible give-up, never a silent drop. Append is a **no-op when membership already exists** (T-300 seam 4).
+  The file lands **canonically under `Artist/Album`** (one copy on disk); the playlist holds **pointers**.
+  M3U-on-disk was weighed and rejected (doesn't skip the index wait; read-only + wipe bugs since 10.9) — see
+  the ADR-027 seam-1 amendment.
+- **Done when:** ✅ against a **stubbed** `jellyfin.py` edge, the app appends with the right (playlist, item)
+  using the `jellyfin_playlist_id` T-302 stored; the resolve **defers rather than blocking or racing the
+  worker** (single attempt, retried across passes — the superseding shape of "doesn't block the worker"); a
+  resolve miss leaves membership + a pending append (no silent drop) — in fact membership+path is written at
+  land, *before* any resolve, so it is always durable; a re-append of an existing member is a no-op
+  (idempotent across passes); the canonical file is unmoved (the membership holds the path, nothing touches
+  the file). Covered by `tests/test_playlist_append.py` (24 tests). The **real** Jellyfin playlist appearing
+  is proven in T-311. (Acceptance items 2, 3; ADR-027 seam-1 amendment. Stories: US4, US5.)
+- **Known limitation (cold-review, deferred):** appends land in **drain (≈land) order**, not the source
+  playlist's `position` order. In the common all-land case tracks land in position order so the two agree;
+  they diverge only when a track lands late (parked → resolved). Jellyfin's append API adds to the end, so
+  strict source-order needs a follow-up reorder pass (`POST /Playlists/{id}/Items/{itemId}/Move/{index}`)
+  keyed on the stored `position`. Not in T-304's "Done when"; flagged for owner call (own ticket vs T-311).
 
 ### T-303 — Exact-video de-duplication (record video-ID at enqueue; skip only landed videos)
 - **Status:** todo

@@ -68,10 +68,34 @@ async def lifespan(app: FastAPI):
     # cross-thread delivery works from the very first event, before any subscriber.
     worker.bus.bind_loop(asyncio.get_running_loop())
     app.state.worker = worker
+
+    # Background reconcile tick (T-304, ADR-027 seam 1). The opportunistic on-land drain
+    # fills a batch's playlist as it runs, but a batch's *last* tracks have no later land
+    # to trail them — so this timer owns the tail, enqueuing a bounded drain pass every
+    # interval. It only enqueues; the drain runs on the worker thread (no lock contention).
+    # Cheap when idle (an empty pending set is a no-op), so a steady tick is fine.
+    reconcile_task = asyncio.create_task(_reconcile_tick(worker))
     try:
         yield
     finally:
+        reconcile_task.cancel()
         worker.stop()
+
+
+# Seconds between background reconcile passes (T-304). ~25s comfortably exceeds Jellyfin's
+# post-scan index latency, so a batch's tail tracks are usually resolved on the first tick
+# after they land, while keeping idle wakeups rare.
+_RECONCILE_INTERVAL_S = 25
+
+
+async def _reconcile_tick(worker) -> None:
+    """Enqueue a pending-append drain every `_RECONCILE_INTERVAL_S` until cancelled."""
+    while True:
+        await asyncio.sleep(_RECONCILE_INTERVAL_S)
+        try:
+            worker.submit_reconcile()
+        except Exception:  # noqa: BLE001 — a tick must never break the loop task
+            logger.exception("reconcile tick could not enqueue a drain")
 
 
 app = FastAPI(title="CleanMuzik", version="0.1.0", lifespan=lifespan)

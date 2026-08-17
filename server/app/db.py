@@ -88,7 +88,10 @@ CREATE TABLE IF NOT EXISTS playlists (
 -- UNIQUE(playlist_id, youtube_video_id) makes a double-add structurally impossible
 -- (ADR-027 seam 4). `jellyfin_item_id` is NULL while the append is PENDING — the
 -- durable home for ADR-027 seam 1's "write membership now, defer the Jellyfin append
--- the next scan reconciles" (never a silent drop).
+-- the next scan reconciles" (never a silent drop). `landed_path` + `append_attempts`
+-- (T-304) are NOT in this CREATE — they are added via `_ADDED_COLUMNS` (ALTER), because
+-- this table SHIPPED in T-300 and already exists on the owner's live DB, where a new
+-- column on the CREATE would be a silent no-op (the exact T-206 lesson).
 CREATE TABLE IF NOT EXISTS playlist_members (
     id                TEXT PRIMARY KEY,
     playlist_id       TEXT NOT NULL REFERENCES playlists(id),
@@ -99,6 +102,14 @@ CREATE TABLE IF NOT EXISTS playlist_members (
     UNIQUE(playlist_id, youtube_video_id)
 );
 """
+
+# How many times the reconcile pass retries resolving a pending append before it gives
+# up *visibly* (a warning; the batch view surfaces it in T-305/T-312). A file Jellyfin
+# can never index (odd chars, a path it won't match) must not be retried forever, nor
+# vanish silently — silent loss is the one failure a walk-away owner cannot catch. With
+# the ~20–30s reconcile tick this is ~10 min of retries, comfortably past any normal
+# scan latency, before the row is declared stuck.
+MAX_APPEND_ATTEMPTS = 20
 
 # Columns added after the first release, as (table, column, DDL type). Applied by
 # `_migrate` on every connect for a DB that predates them — `CREATE TABLE IF NOT
@@ -134,6 +145,21 @@ _ADDED_COLUMNS = [
     ("jobs", "playlist_id", "TEXT"),
     ("jobs", "position", "INTEGER"),
     ("jobs", "youtube_video_id", "TEXT"),
+    # R2 (T-304 / ADR-027 seam-1 amendment). Two columns on the `playlist_members` table,
+    # which SHIPPED in T-300 and is on the owner's live DB — so they go via ALTER, NOT the
+    # CREATE (a column added to a `CREATE TABLE IF NOT EXISTS` never lands on an existing
+    # table; the T-206 lesson). Both are ALTER-legal: `landed_path` is nullable, and
+    # `append_attempts` is NOT NULL *with a DEFAULT* (SQLite forbids ALTER-ADD of a NOT
+    # NULL column only when it has no default).
+    #   landed_path — the pending append's re-resolve handle: the drain resolves a
+    #     deferred item by its canonical path (`Items?Path=`), so the durable home must
+    #     carry it or the row is an unresolvable dead letter. An *operational* handle for
+    #     the append machinery — NOT the transient *display* path ADR-015 made non-durable
+    #     (different table, different consumer, sole durable copy of the datum).
+    #   append_attempts — bounds the retry (MAX_APPEND_ATTEMPTS) so a never-indexable file
+    #     becomes a visible give-up, not an infinite retry or a silent drop.
+    ("playlist_members", "landed_path", "TEXT"),
+    ("playlist_members", "append_attempts", "INTEGER NOT NULL DEFAULT 0"),
 ]
 
 # Sentinel default for `release_review(last_error=...)`. It distinguishes "the caller
@@ -221,6 +247,8 @@ class PlaylistMember:
     position: int
     created_at: str  # ISO-8601 UTC
     jellyfin_item_id: str | None = None
+    landed_path: str | None = None  # re-resolve handle for a pending append (T-304)
+    append_attempts: int = 0  # bounded give-up counter (see MAX_APPEND_ATTEMPTS)
 
 
 @dataclass(frozen=True)
@@ -632,6 +660,7 @@ class Store:
         youtube_video_id: str,
         position: int,
         jellyfin_item_id: str | None = None,
+        landed_path: str | None = None,
     ) -> bool:
         """Record a track's membership in a playlist. A **no-op when it already exists**.
 
@@ -639,14 +668,16 @@ class Store:
         a member — the append is idempotent by construction (ADR-027 seam 4:
         `UNIQUE(playlist_id, youtube_video_id)`, so a re-paste of an already-in-playlist
         video cannot double-add). `jellyfin_item_id` is None for a *pending* append (the
-        file hasn't been resolved to its Jellyfin item yet — ADR-027 seam 1); T-304
-        reconciles it later.
+        file hasn't been resolved to its Jellyfin item yet — ADR-027 seam 1); the reconcile
+        pass (T-304) drains it later using `landed_path`, the durable re-resolve handle.
+        Pass `landed_path` whenever the append is pending, or the row can never be drained.
         """
         with self._connect() as conn:
             cur = conn.execute(
                 "INSERT INTO playlist_members "
-                "(id, playlist_id, youtube_video_id, position, jellyfin_item_id, created_at) "
-                "VALUES (?, ?, ?, ?, ?, ?) "
+                "(id, playlist_id, youtube_video_id, position, jellyfin_item_id, "
+                " landed_path, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?) "
                 "ON CONFLICT(playlist_id, youtube_video_id) DO NOTHING",
                 (
                     uuid.uuid4().hex,
@@ -654,10 +685,69 @@ class Store:
                     youtube_video_id,
                     position,
                     jellyfin_item_id,
+                    landed_path,
                     _now(),
                 ),
             )
             return cur.rowcount > 0
+
+    def list_pending_appends(self, limit: int) -> list[PlaylistMember]:
+        """The oldest pending appends the reconcile pass can still act on (T-304).
+
+        A row is drainable iff its Jellyfin append is still pending (`jellyfin_item_id IS
+        NULL`), it carries a re-resolve handle (`landed_path IS NOT NULL` — a row with no
+        path is unresolvable and must not be handed to the drainer), and it hasn't hit the
+        give-up ceiling (`append_attempts < MAX_APPEND_ATTEMPTS`). Oldest first (by
+        `created_at, rowid`) so the tracks that have had the longest to index — the ones
+        most likely to resolve on the first try — are drained first. `limit` bounds the
+        per-pass cost so the opportunistic on-land drain stays cheap.
+        """
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM playlist_members "
+                "WHERE jellyfin_item_id IS NULL AND landed_path IS NOT NULL "
+                "AND append_attempts < ? "
+                "ORDER BY created_at, rowid LIMIT ?",
+                (MAX_APPEND_ATTEMPTS, limit),
+            ).fetchall()
+        return [_member_from_row(row) for row in rows]
+
+    def mark_member_appended(self, member_id: str, jellyfin_item_id: str) -> None:
+        """Record that a pending append landed: stamp the resolved Jellyfin item id.
+
+        Once set, `list_pending_appends` no longer returns the row (the append is done),
+        which is what makes the drain idempotent — a member is appended to the Jellyfin
+        playlist exactly once.
+        """
+        with self._connect() as conn:
+            cur = conn.execute(
+                "UPDATE playlist_members SET jellyfin_item_id = ? WHERE id = ?",
+                (jellyfin_item_id, member_id),
+            )
+            if cur.rowcount == 0:
+                raise KeyError(f"no playlist_member with id {member_id!r}")
+
+    def bump_append_attempt(self, member_id: str) -> int:
+        """Count one failed resolve of a pending append; return the new total.
+
+        The reconcile pass calls this when a resolve misses (the file isn't indexed yet).
+        When the count reaches `MAX_APPEND_ATTEMPTS` the row drops out of
+        `list_pending_appends` — a bounded, visible give-up rather than an infinite retry
+        on a file Jellyfin will never index.
+        """
+        with self._connect() as conn:
+            cur = conn.execute(
+                "UPDATE playlist_members "
+                "SET append_attempts = append_attempts + 1 WHERE id = ?",
+                (member_id,),
+            )
+            if cur.rowcount == 0:
+                raise KeyError(f"no playlist_member with id {member_id!r}")
+            row = conn.execute(
+                "SELECT append_attempts FROM playlist_members WHERE id = ?",
+                (member_id,),
+            ).fetchone()
+        return row["append_attempts"]
 
     def list_members(self, playlist_id: str) -> list[PlaylistMember]:
         """Every membership row for a playlist, in playlist order (T-306/T-312 read this).
@@ -761,6 +851,8 @@ def _member_from_row(row: sqlite3.Row) -> PlaylistMember:
         youtube_video_id=row["youtube_video_id"],
         position=row["position"],
         jellyfin_item_id=row["jellyfin_item_id"],
+        landed_path=row["landed_path"],
+        append_attempts=row["append_attempts"],
         created_at=row["created_at"],
     )
 

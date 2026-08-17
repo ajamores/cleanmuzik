@@ -44,6 +44,25 @@ _SCAN_TIMEOUT = 10
 _PLAYLISTS_PATH = "/Playlists"
 _CREATE_TIMEOUT = 10
 
+# Item lookup + playlist append (R2, T-304). Jellyfin references a track by an internal
+# item id it assigns only *after* it indexes the landed file (async), so `resolve_item_id`
+# finds that id by the file's canonical path and `append_to_playlist` adds it. Both are
+# bounded like the scan/create. The `Path` filter on `/Items` is the one live-Jellyfin
+# detail T-311 verifies against a real server; the seam is a single function so that
+# verification touches nothing else.
+_ITEMS_PATH = "/Items"
+_RESOLVE_TIMEOUT = 10
+_APPEND_TIMEOUT = 10
+
+
+class JellyfinAppendError(Exception):
+    """A present-but-failed Jellyfin playlist append (network error, 401, 5xx).
+
+    Distinct from a degraded skip (config absent → `append_to_playlist` returns False).
+    The reconcile pass catches this *per member* and leaves the row pending for a later
+    retry, so one failed append never stops the batch (ADR-003).
+    """
+
 
 class JellyfinScanError(Exception):
     """A genuine scan-stage failure — config was present but the call failed.
@@ -192,3 +211,100 @@ def create_playlist(
 
     logger.info("Jellyfin playlist created: %r (%s)", name, playlist_id)
     return playlist_id
+
+
+def resolve_item_id(
+    path: str,
+    *,
+    settings: Settings | None = None,
+    timeout: int = _RESOLVE_TIMEOUT,
+    http=requests,
+) -> str | None:
+    """Find the Jellyfin item id for a landed file by its canonical `path`, or `None`.
+
+    A **single, non-blocking attempt** — never a poll-until-timeout loop. The retry is the
+    reconcile pass calling this again on a later tick (ADR-027 seam-1 amendment, T-304): a
+    just-landed file's own index is the least-settled thing in the system, so we never sit
+    and wait for it on the worker; we defer and let a *later* pass resolve it once Jellyfin
+    has indexed it. Returns the item id on a hit, `None` on a miss (not indexed yet) OR on
+    an absent/failed Jellyfin — a miss is not an error here, it just means "still pending,
+    try next pass". `Items?Path=` returns `{ "Items": [ { "Id": ... }, ... ] }`; we take
+    the first match (a landed file maps to one library item).
+    """
+    s = settings or get_settings()
+    url = s.jellyfin_url.strip().rstrip("/")
+    key = s.jellyfin_api_key.strip()
+    if not (url and key):
+        # Absent config → nothing to resolve against. The track still landed on disk; the
+        # pending row waits for a Jellyfin that's configured later (same degrade contract
+        # as the scan/create). Quiet — the create already warned once for this batch.
+        return None
+
+    endpoint = f"{url}{_ITEMS_PATH}"
+    try:
+        resp = http.get(
+            endpoint,
+            headers={"X-Emby-Token": key},
+            params={"Recursive": "true", "Path": path, "Fields": "Path"},
+            timeout=timeout,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+    except (requests.RequestException, ValueError) as exc:
+        # A resolve is best-effort: a miss and a transient failure are the same outcome
+        # here (leave the append pending, retry next pass), so we degrade to None rather
+        # than raise. Warn so a persistently-unreachable Jellyfin is visible in the log.
+        logger.warning("Jellyfin item resolve failed (%s) for %s: %s", endpoint, path, exc)
+        return None
+
+    items = data.get("Items") if isinstance(data, dict) else None
+    if not items:
+        return None  # not indexed yet — still pending
+    first = items[0]
+    return first.get("Id") if isinstance(first, dict) else None
+
+
+def append_to_playlist(
+    playlist_id: str,
+    item_id: str,
+    *,
+    settings: Settings | None = None,
+    timeout: int = _APPEND_TIMEOUT,
+    http=requests,
+) -> bool:
+    """Append one resolved item to a Jellyfin playlist. Returns True on success.
+
+    `POST /Playlists/{playlistId}/Items?Ids=<itemId>` (204 No Content). Returns False if
+    the Jellyfin config is absent (degrade, not fail — the durable membership row already
+    records the intent and the reconcile pass retries when Jellyfin returns). Raises
+    `JellyfinAppendError` if the config was present but the call failed, so the reconcile
+    pass can leave the row pending and count the attempt — a present-but-broken Jellyfin is
+    worth surfacing, unlike a merely absent one.
+
+    Idempotency is the caller's guarantee, not this call's: the reconcile pass only appends
+    a member whose `jellyfin_item_id IS NULL` and stamps it immediately after, so a given
+    (playlist, item) is POSTed exactly once even though Jellyfin's endpoint would itself
+    happily double-add.
+    """
+    s = settings or get_settings()
+    url = s.jellyfin_url.strip().rstrip("/")
+    key = s.jellyfin_api_key.strip()
+    if not (url and key):
+        return False
+
+    endpoint = f"{url}{_PLAYLISTS_PATH}/{playlist_id}{_ITEMS_PATH}"
+    try:
+        resp = http.post(
+            endpoint,
+            headers={"X-Emby-Token": key},
+            params={"Ids": item_id},
+            timeout=timeout,
+        )
+        resp.raise_for_status()
+    except requests.RequestException as exc:
+        raise JellyfinAppendError(
+            f"Jellyfin append of {item_id} to playlist {playlist_id} failed: {exc}"
+        ) from exc
+
+    logger.info("Jellyfin playlist %s gained item %s", playlist_id, item_id)
+    return True
