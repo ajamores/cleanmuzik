@@ -35,12 +35,29 @@ class _Resp:
         return self._body
 
 
-class _FakeHTTP:
-    """Records POSTs and routes them through handler(url, kwargs) -> _Resp."""
+# A single admin user, served for GET /Users so playlist ops can resolve a user id (T-311).
+_ADMIN_USERS = [{"Id": "user-1", "Policy": {"IsAdministrator": True}}]
 
-    def __init__(self, handler):
+
+class _FakeHTTP:
+    """Records POSTs and routes them through handler(url, kwargs) -> _Resp.
+
+    GETs are only ever GET /Users here (the T-311 user-id lookup): by default it serves one
+    admin user; pass `users_resp` to simulate a lookup failure. POSTs are recorded in `calls`;
+    GET /Users is recorded separately in `users_calls`, so a create test's `len(calls) == 1`
+    still counts just the create POST.
+    """
+
+    def __init__(self, handler, *, users_resp=None):
         self.handler = handler
         self.calls: list[tuple[str, dict]] = []
+        self.users_calls: list[tuple[str, dict]] = []
+        self._users_resp = users_resp if users_resp is not None else _Resp(200, _ADMIN_USERS)
+
+    def get(self, url, **kwargs):
+        assert "/Users" in url, f"unexpected GET in this fake: {url}"
+        self.users_calls.append((url, kwargs))
+        return self._users_resp
 
     def post(self, url, **kwargs):
         self.calls.append((url, kwargs))
@@ -125,6 +142,20 @@ def test_create_playlist_posts_and_returns_the_id():
     assert url == "http://jf.local:8096/Playlists"
     assert kwargs["headers"]["X-Emby-Token"] == "secret-key"
     assert kwargs["json"]["Name"] == "Summer 2026"
+    assert kwargs["json"]["UserId"] == "user-1"  # T-311: playlists belong to a user
+
+
+def test_create_playlist_degrades_to_none_when_no_user_id(caplog):
+    """T-311: create needs a user id to own the playlist; if /Users can't resolve one, degrade
+    to None (never raise) — same whole-batch rationale as any other create failure."""
+    http = _FakeHTTP(
+        lambda url, kw: pytest.fail("must not POST a playlist without a user id"),
+        users_resp=_Resp(200, []),  # no users returned
+    )
+    with caplog.at_level(logging.WARNING, logger="cleanmuzik"):
+        result = create_playlist("Mix", settings=_settings(), http=http)
+    assert result is None
+    assert http.calls == []  # never reached the create POST
 
 
 @pytest.mark.parametrize(

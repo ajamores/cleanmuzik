@@ -849,6 +849,24 @@ Format: `ADR-NNN — decision. Rationale. [date]`
        accelerator over this same ledger* (kills only 2 of the 3 bugs — the double-add is transactional,
        orthogonal to the readiness signal — and a half-open socket reintroduces the silent-stop the
        Webhook plugin was rejected for), **not** built for R2. Supersedes backlog **T-047**.
+     - **Amendment [2026-08-17, T-314 build — live spike against the real Jellyfin, owner-approved]: the
+       playlist seam was non-functional live; two API-shape assumptions were wrong.** The whole
+       create→resolve→append path had only ever run against fake-http unit tests; T-313's `/verify` was
+       first live contact and it failed. Fixes:
+         - **Playlist ops are user-scoped.** Jellyfin playlists belong to a user account: `POST /Playlists`,
+           the append `POST /Playlists/{id}/Items`, and the T-313 pre-check `GET /Playlists/{id}/Items` all
+           400 / return an odd empty body **without a `userId`**. The tool ships without one, so
+           **`resolve_user_id` auto-discovers it** (`GET /Users` → admin-else-first, cached per (url,key),
+           degrades to None) — chosen over a `JELLYFIN_USER_ID` setting (single-user; nothing to configure).
+           `create_playlist` sends `UserId`; append + pre-check send `userId`; each degrades in its own
+           idiom when the id can't be resolved (create → NULL id, append → `JellyfinAppendError` so the row
+           stays pending, pre-check → None so the pass defers — never blind-appends).
+         - **`resolve_item_id`'s `Items?Path=` filter is IGNORED by the live server** — it returned the
+           whole recursive library, so T-304's `items[0]` was the library-root *folder*. Replaced by an
+           **exact client-side path match** over the audio items (`IncludeItemTypes=Audio&Recursive&
+           Fields=Path`). The T-313 3-state contract is preserved. *"Poll not push" and the reconcile ledger
+           are unchanged* — this is purely the HTTP shape of the two Jellyfin calls. Verified live: a real
+           track landed in a real playlist through the app code (T-314 `/verify`).
   2. **Landed-video dedup store + predicate (T-303).** One store — the `jobs` row's `youtube_video_id`,
      written at **enqueue** (T-302) — and the exact, status-filtered test
      **`EXISTS(job WHERE youtube_video_id = ? AND status = 'done')`**. The `status='done'` filter is

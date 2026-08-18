@@ -347,6 +347,51 @@ integrate onto `main` with the status line flipped in the closing commit, transc
 
 ---
 
+### T-314 — Make the Jellyfin playlist seam actually work live: user-id scoping + client-side path resolve
+- **Status:** done (2026-08-17; merged to `main`, 646 tests green, `/verify` watched a real track land in a
+  real playlist through the app code). Fixes the two live-seam bugs T-313's `/verify` surfaced (filed on T-311).
+- **Depends on:** T-302 (create), T-304 (resolve/append), T-313 (3-state/idempotent reconcile — this rides it).
+- **Agent:** back-end
+- **What:** the "add a track to a Jellyfin playlist" path had **never worked end-to-end against a real
+  server** — built entirely on API-docs assumptions + fake-http tests (confirmed by history audit). First
+  live contact (T-313 `/verify`) found two breakages, both fixed here after a live spike nailed the real
+  API shapes:
+  1. **Every playlist op is user-scoped.** Jellyfin playlists belong to a user account: `POST /Playlists`,
+     `POST /Playlists/{id}/Items` (append), and `GET /Playlists/{id}/Items` (the T-313 pre-check) all **400
+     / return an odd empty body without a `userId`**. This tool ships without one, so a new
+     **`resolve_user_id`** auto-discovers it (`GET /Users` → the admin, else first, user; cached per
+     (url,key); degrades to `None` like every other seam) — **owner-chosen over adding a `JELLYFIN_USER_ID`
+     setting** (single-user tool; nothing to fill in). `create_playlist` now sends `UserId` (degrades to
+     NULL id if unresolvable), `append_to_playlist` sends `userId` (raises `JellyfinAppendError` if
+     unresolvable, so the reconcile leaves the row pending — not a silent False), and `get_playlist_item_ids`
+     sends `userId` (returns `None` if unresolvable → the pass defers, never blind-appends).
+  2. **`resolve_item_id`'s `Path=` filter is ignored by the live server** — it returned the whole recursive
+     library, so T-304's `items[0]` was the library-root **folder**, not the track. Replaced with an
+     **exact client-side path match** over the audio items (`IncludeItemTypes=Audio&Recursive&Fields=Path`,
+     then `Path == <landed path>`). Preserves the T-313 3-state contract (RESOLVED / NOT_INDEXED on no match
+     / UNREACHABLE on a network or malformed-body error; a matched-but-Idless row is UNREACHABLE, never
+     RESOLVED(None)). *Efficiency note:* it lists the audio library per resolve call — fine for a small
+     single-user library; a future optimisation could cache the listing per reconcile pass.
+- **Done when:** `/verify` drives the **real** `create_playlist → resolve_item_id → get_playlist_item_ids →
+  append_to_playlist` chain against the live Jellyfin and observes a real track **actually in a real
+  playlist**, plus the idempotent pre-check short-circuit and a NOT_INDEXED miss — **done, all pass**
+  (2026-08-17). This closes the two T-311 live findings; the **full** end-to-end acceptance checklist stays
+  T-311 (it needs the unbuilt batch spine — T-305/T-306/T-310/T-312).
+- **Deferred follow-ups (from `/code-review high`, judged out-of-scope for the fix, tracked here):**
+  1. **Per-pass resolve cache.** `resolve_item_id` now lists the audio library on every call, and the
+     reconcile pass calls it once per pending member — O(members × library) full-library GETs per pass
+     (bounded: bursty during a healthy batch, only sustained on a persistent NOT_INDEXED backlog). Fine at
+     the current single-user library scale; when it matters, fetch the audio listing **once per reconcile
+     pass** (like the per-playlist pre-check cache) and match all members against it — needs a small
+     `resolve_fn` signature change (an optional prefetched index), which is why it wasn't rushed into the fix.
+  2. **Path-remap robustness (Phase 1).** The resolve match is an **exact** `Path ==` compare, correct and
+     verified on **Phase 0 localhost** (app and Jellyfin share the identical absolute path). On the Phase 1
+     always-on box (roadmap R3+, Tailscale) Jellyfin's library mount root may differ from where the app
+     writes, and the exact compare would then miss forever (every track NOT_INDEXED). Revisit with a
+     path-normalisation / suffix-match strategy when Phase 1 lands — do NOT ship speculative normalisation now.
+
+---
+
 ## Phase C — compose the batch behaviours
 
 ### T-306 — Backfill: a resolved parked track appends to its playlist
@@ -474,8 +519,10 @@ integrate onto `main` with the status line flipped in the closing commit, transc
 - **Status:** todo
 - **Depends on:** T-302–T-310, T-312 (all)
 - **Agent:** verify
-- **Live findings (2026-08-17, surfaced by T-313's `/verify` against the real Jellyfin — two live seams
-  are non-functional and MUST be fixed here before the end-to-end can pass):**
+- **Live findings [RESOLVED 2026-08-17 by T-314] (surfaced by T-313's `/verify` against the real Jellyfin —
+  two live seams were non-functional; both fixed under T-314, `/verify` since watched a real track land in a
+  real playlist. This ticket's remaining scope is the FULL acceptance checklist, still pending the batch
+  spine T-305/T-306/T-310/T-312):**
   1. **`resolve_item_id`'s `Path=` filter is IGNORED by the live Jellyfin.** `GET /Items?Recursive=true&
      Path=<canonical path>&Fields=Path` returns the **entire** recursive library (folders + albums + audio),
      not the one matching file — so `items[0]` is the library-root **`Folder`** (`C:\Users\aj_am\Music\

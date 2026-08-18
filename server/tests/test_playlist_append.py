@@ -32,6 +32,7 @@ from app.jellyfin import (
     append_to_playlist,
     get_playlist_item_ids,
     resolve_item_id,
+    resolve_user_id,
 )
 from app.jobs import JobRegistry, reconcile_pending_appends, run_pipeline
 from app.source_signals import SourceSignals
@@ -83,16 +84,33 @@ class _Resp:
         return self._json
 
 
-class _Http:
-    """Records the last get/post call and returns a canned response."""
+# A single admin user, served for GET /Users so playlist ops resolve a user id (T-311).
+_ADMIN_USERS = [{"Id": "user-1", "Policy": {"IsAdministrator": True}}]
 
-    def __init__(self, *, get_resp=None, post_resp=None):
+
+class _Http:
+    """Records the last get/post call and returns a canned response.
+
+    GET /Users (the T-311 user-id lookup, made internally by append/pre-check) is routed
+    separately: by default it serves one admin user, so those ops can resolve `user-1`; pass
+    `users_resp` to simulate a lookup failure. The operation's own GET/POST is recorded in
+    `get_call`/`post_call` as before.
+    """
+
+    def __init__(self, *, get_resp=None, post_resp=None, users_resp="default"):
         self._get_resp = get_resp
         self._post_resp = post_resp
+        self._users_resp = (
+            _Resp(json_body=_ADMIN_USERS) if users_resp == "default" else users_resp
+        )
         self.get_call = None
         self.post_call = None
+        self.users_call = None
 
     def get(self, endpoint, **kw):
+        if "/Users" in endpoint:
+            self.users_call = (endpoint, kw)
+            return self._users_resp
         self.get_call = (endpoint, kw)
         return self._get_resp
 
@@ -109,22 +127,32 @@ class TestResolveItemId:
     of RESOLVED / NOT_INDEXED / UNREACHABLE — the split that lets the reconcile pass tell
     'wait for the index' from 'Jellyfin is down' and stops an outage stranding healthy rows."""
 
-    def test_hit_returns_resolved_with_first_item_id(self):
-        http = _Http(get_resp=_Resp(json_body={"Items": [{"Id": "item-9"}]}))
+    def test_exact_path_match_returns_resolved(self):
+        # The live server ignores Path=, so we list audio items and match Path ourselves.
+        http = _Http(get_resp=_Resp(json_body={"Items": [
+            {"Id": "other", "Path": "/lib/A/y.mp3"},
+            {"Id": "item-9", "Path": "/lib/A/x.mp3"},
+        ]}))
         result = resolve_item_id("/lib/A/x.mp3", settings=_cfg(), http=http)
         assert result == ResolveResult(ResolveStatus.RESOLVED, "item-9")
         endpoint, kw = http.get_call
         assert endpoint == "http://jf:8096/Items"
-        assert kw["params"]["Path"] == "/lib/A/x.mp3"
+        assert kw["params"]["IncludeItemTypes"] == "Audio"
+        assert "Path" not in kw["params"]  # no longer relies on the ignored server-side filter
         assert kw["headers"]["X-Emby-Token"] == "key"
+
+    def test_no_matching_path_is_not_indexed(self):
+        http = _Http(get_resp=_Resp(json_body={"Items": [{"Id": "z", "Path": "/lib/A/other.mp3"}]}))
+        result = resolve_item_id("/lib/A/x.mp3", settings=_cfg(), http=http)
+        assert result.status is ResolveStatus.NOT_INDEXED and result.item_id is None
 
     def test_empty_items_is_not_indexed(self):
         http = _Http(get_resp=_Resp(json_body={"Items": []}))
         result = resolve_item_id("/lib/A/x.mp3", settings=_cfg(), http=http)
-        assert result.status is ResolveStatus.NOT_INDEXED and result.item_id is None
+        assert result.status is ResolveStatus.NOT_INDEXED
 
     def test_absent_config_is_not_indexed_without_calling(self):
-        http = _Http(get_resp=_Resp(json_body={"Items": [{"Id": "no"}]}))
+        http = _Http(get_resp=_Resp(json_body={"Items": [{"Id": "no", "Path": "/lib/A/x.mp3"}]}))
         result = resolve_item_id("/lib/A/x.mp3", settings=_ABSENT, http=http)
         assert result.status is ResolveStatus.NOT_INDEXED
         assert http.get_call is None  # never touched the network
@@ -144,15 +172,20 @@ class TestResolveItemId:
         result = resolve_item_id("/lib/A/x.mp3", settings=_cfg(), http=http)
         assert result.status is ResolveStatus.UNREACHABLE
 
-    def test_present_but_idless_first_item_is_unreachable_never_resolved_none(self):
-        """The load-bearing case: a 2xx whose first item has no usable Id must NOT become
-        RESOLVED(None) (that would POST Ids=None → 400 → re-enter the retry burn, bug 3)."""
-        http = _Http(get_resp=_Resp(json_body={"Items": [{"Name": "no id here"}]}))
+    def test_items_not_a_list_is_unreachable(self):
+        http = _Http(get_resp=_Resp(json_body={"Items": "nope"}))
         result = resolve_item_id("/lib/A/x.mp3", settings=_cfg(), http=http)
         assert result.status is ResolveStatus.UNREACHABLE
 
-    def test_empty_string_id_is_unreachable(self):
-        http = _Http(get_resp=_Resp(json_body={"Items": [{"Id": ""}]}))
+    def test_matched_but_idless_is_unreachable_never_resolved_none(self):
+        """The load-bearing case: a path match whose Id is missing must NOT become
+        RESOLVED(None) (that would POST Ids=None → 400 → re-enter the retry burn, bug 3)."""
+        http = _Http(get_resp=_Resp(json_body={"Items": [{"Path": "/lib/A/x.mp3"}]}))
+        result = resolve_item_id("/lib/A/x.mp3", settings=_cfg(), http=http)
+        assert result.status is ResolveStatus.UNREACHABLE
+
+    def test_matched_but_empty_string_id_is_unreachable(self):
+        http = _Http(get_resp=_Resp(json_body={"Items": [{"Id": "", "Path": "/lib/A/x.mp3"}]}))
         result = resolve_item_id("/lib/A/x.mp3", settings=_cfg(), http=http)
         assert result.status is ResolveStatus.UNREACHABLE
 
@@ -171,8 +204,9 @@ class TestGetPlaylistItemIds:
         http = _Http(get_resp=_Resp(json_body={"Items": [{"Id": "a"}, {"Id": "b"}]}))
         got = get_playlist_item_ids("pl-1", settings=_cfg(), http=http)
         assert got == {"a", "b"}
-        endpoint, _ = http.get_call
+        endpoint, kw = http.get_call
         assert endpoint == "http://jf:8096/Playlists/pl-1/Items"
+        assert kw["params"] == {"userId": "user-1"}  # T-311: the read is user-scoped
 
     def test_empty_playlist_is_an_empty_set_not_none(self):
         """A valid answer distinct from failure — an empty playlist means 'append freely'."""
@@ -183,6 +217,12 @@ class TestGetPlaylistItemIds:
         http = _Http(get_resp=_Resp(json_body={"Items": []}))
         assert get_playlist_item_ids("pl-1", settings=_ABSENT, http=http) is None
         assert http.get_call is None
+
+    def test_unresolvable_user_id_is_none(self):
+        """No user id → can't scope the read → None → reconcile defers (never blind-append)."""
+        http = _Http(get_resp=_Resp(json_body={"Items": []}), users_resp=_Resp(json_body=[]))
+        assert get_playlist_item_ids("pl-1", settings=_cfg(), http=http) is None
+        assert http.get_call is None  # never reached the playlist read
 
     def test_request_failure_is_none(self):
         http = _Http(get_resp=_Resp(raise_exc=requests.RequestException("boom")))
@@ -199,13 +239,59 @@ class TestGetPlaylistItemIds:
         assert get_playlist_item_ids("pl-1", settings=_cfg(), http=http) == {"a"}
 
 
+class _UsersHttp:
+    """Serves GET /Users a canned response and counts how many times it was called."""
+
+    def __init__(self, resp):
+        self._resp = resp
+        self.calls = 0
+
+    def get(self, endpoint, **kw):
+        assert "/Users" in endpoint
+        self.calls += 1
+        return self._resp
+
+
+class TestResolveUserId:
+    """The auto-discovered Jellyfin user id every playlist op is scoped to (T-311)."""
+
+    def test_prefers_an_admin_user(self):
+        http = _UsersHttp(_Resp(json_body=[
+            {"Id": "viewer", "Policy": {"IsAdministrator": False}},
+            {"Id": "boss", "Policy": {"IsAdministrator": True}},
+        ]))
+        assert resolve_user_id(settings=_cfg(), http=http) == "boss"
+
+    def test_falls_back_to_first_user_when_no_admin(self):
+        http = _UsersHttp(_Resp(json_body=[{"Id": "only", "Policy": {}}]))
+        assert resolve_user_id(settings=_cfg(), http=http) == "only"
+
+    def test_absent_config_is_none_without_calling(self):
+        http = _UsersHttp(_Resp(json_body=[{"Id": "x"}]))
+        assert resolve_user_id(settings=_ABSENT, http=http) is None
+        assert http.calls == 0
+
+    def test_request_failure_is_none(self):
+        http = _UsersHttp(_Resp(raise_exc=requests.RequestException("boom")))
+        assert resolve_user_id(settings=_cfg(), http=http) is None
+
+    def test_empty_user_list_is_none(self):
+        assert resolve_user_id(settings=_cfg(), http=_UsersHttp(_Resp(json_body=[]))) is None
+
+    def test_result_is_cached_per_url_key(self):
+        http = _UsersHttp(_Resp(json_body=[{"Id": "boss", "Policy": {"IsAdministrator": True}}]))
+        assert resolve_user_id(settings=_cfg(), http=http) == "boss"
+        assert resolve_user_id(settings=_cfg(), http=http) == "boss"
+        assert http.calls == 1  # second call served from cache, no re-hit of /Users
+
+
 class TestAppendToPlaylist:
-    def test_success_posts_the_right_playlist_and_item(self):
+    def test_success_posts_the_right_playlist_item_and_user(self):
         http = _Http(post_resp=_Resp())
         assert append_to_playlist("pl-1", "item-9", settings=_cfg(), http=http) is True
         endpoint, kw = http.post_call
         assert endpoint == "http://jf:8096/Playlists/pl-1/Items"
-        assert kw["params"] == {"Ids": "item-9"}
+        assert kw["params"] == {"Ids": "item-9", "userId": "user-1"}  # T-311: scoped to a user
 
     def test_absent_config_degrades_to_false(self):
         http = _Http(post_resp=_Resp())
@@ -216,6 +302,14 @@ class TestAppendToPlaylist:
         http = _Http(post_resp=_Resp(raise_exc=requests.RequestException("503")))
         with pytest.raises(JellyfinAppendError):
             append_to_playlist("pl-1", "item-9", settings=_cfg(), http=http)
+
+    def test_unresolvable_user_id_raises_so_reconcile_retries(self):
+        """Config present but /Users can't resolve a user → present-but-broken Jellyfin, so
+        raise (reconcile leaves it pending, no penalty), not a silent False that looks absent."""
+        http = _Http(post_resp=_Resp(), users_resp=_Resp(json_body=[]))
+        with pytest.raises(JellyfinAppendError):
+            append_to_playlist("pl-1", "item-9", settings=_cfg(), http=http)
+        assert http.post_call is None  # never reached the append POST
 
 
 # --- 2. pending-append DAO --------------------------------------------------
@@ -473,9 +567,10 @@ class TestReconcile:
         (m,) = store.list_pending_appends(10)
         assert m.jellyfin_item_id is None and m.stuck_since is None
 
-    def test_precheck_unreadable_past_ceiling_flags_stuck_not_silent_strand(self, tmp_path):
-        """A stale/deleted container (pre-check None) past the ceiling must surface as stuck,
-        not defer forever invisibly — closes the silent-strand gap the review caught."""
+    def test_precheck_unreadable_never_flags_stuck_even_past_ceiling(self, tmp_path):
+        """Pre-check None is indistinguishable from an outage, so it must NOT flag stuck (that
+        would paint a whole backlog stuck on any multi-minute outage — the conflation the reframe
+        kills). Pure defer, consistent with resolve-UNREACHABLE; a missing container is T-306's."""
         store, _ = _playlist_with_pending(tmp_path)
         (m0,) = store.list_pending_appends(10)
         _backdate(store, m0.id, minutes=61)
@@ -483,11 +578,11 @@ class TestReconcile:
             store, limit=10,
             resolve_fn=lambda *a, **k: pytest.fail("must not resolve when membership unreadable"),
             append_fn=lambda *a, **k: pytest.fail("must not blind-append"),
-            precheck_fn=lambda pl_id, settings=None: None,  # unreadable / stale container
+            precheck_fn=lambda pl_id, settings=None: None,  # unreadable / outage
         )
         assert n == 0
         (m,) = store.list_pending_appends(10)  # still pending + retryable...
-        assert m.stuck_since is not None       # ...but now visible, not a silent strand
+        assert m.stuck_since is None           # ...and NOT flagged stuck on an unreadable pass
 
     def test_failed_append_leaves_it_pending_no_penalty(self, tmp_path):
         store, _ = _playlist_with_pending(tmp_path)
