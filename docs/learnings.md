@@ -1012,3 +1012,14 @@ Format: `- <date> — what went wrong → the correction / rule now in place`
   its live receipt is load-bearing, and "the fake-http test passes" is the weakest possible evidence for an
   API-shape assumption. When a live seam can't be exercised yet, say so loudly and keep the ticket open
   (T-311), never let unit-green stand in for a live API contract.
+- 2026-08-17 — (T-314, reference) **Two concrete live-Jellyfin API facts, learned by spiking the real
+  server (10.x), that the docs did not make obvious:** (1) **playlist operations are user-scoped** —
+  `POST /Playlists`, the append `POST /Playlists/{id}/Items`, and `GET /Playlists/{id}/Items` all fail
+  (400 / odd empty body) **without a `userId`**; pass the owning user's id and they 200/204. We
+  auto-discover it via `GET /Users` (admin-else-first, cached) rather than a config setting. (2) **the
+  `GET /Items?Path=<canonical path>` filter is IGNORED** — the server returns the entire recursive
+  library, so `items[0]` is the library-root *folder*, not the file. Look up an item by path by listing
+  `IncludeItemTypes=Audio&Recursive&Fields=Path` and matching `Path` exactly client-side. Both were the
+  root cause of the playlist-append feature never working live; both are now in `app/jellyfin.py`. If you
+  add any new Jellyfin call, assume it may need `userId` and verify the filter you rely on against a real
+  server before trusting it (the general lesson is the T-313 entry above).

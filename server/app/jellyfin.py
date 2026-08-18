@@ -55,6 +55,14 @@ _CREATE_TIMEOUT = 10
 _ITEMS_PATH = "/Items"
 _RESOLVE_TIMEOUT = 10
 _APPEND_TIMEOUT = 10
+
+# Jellyfin user lookup (R2, T-311). Playlists belong to a user account, so create / append /
+# read-back all require a `userId` — and this single-user tool ships without one configured.
+# Rather than add a setting the owner must fill in, we discover it: GET /Users with the API
+# key, take the admin (else first) user. Proven against the live server: every playlist op
+# 400s without it and 200/204s with it (T-311 spike, 2026-08-17).
+_USERS_PATH = "/Users"
+_USERS_TIMEOUT = 10
 # Pre-check GET of a playlist's current members (R2, T-313's idempotent append). Reading
 # `GET /Playlists/{id}/Items` before every POST closes the crash-between-POST-and-stamp
 # window: append only an item the playlist doesn't already hold. Bounded like the rest.
@@ -177,6 +185,67 @@ def trigger_scan(
     return True
 
 
+# Cache of the resolved user id, keyed by (url, key), so a batch's N appends don't each
+# re-hit GET /Users. The id is stable for the life of the server config; the cache is process-
+# scoped and cleared explicitly by tests (`_clear_user_id_cache`). A single-user tool never
+# invalidates it in production.
+_user_id_cache: dict[tuple[str, str], str] = {}
+
+
+def _clear_user_id_cache() -> None:
+    """Drop the memoised user id — for tests, so each exercises a fresh lookup."""
+    _user_id_cache.clear()
+
+
+def resolve_user_id(
+    *,
+    settings: Settings | None = None,
+    timeout: int = _USERS_TIMEOUT,
+    http=requests,
+) -> str | None:
+    """The Jellyfin user id every playlist op must be scoped to, or `None` if unavailable (T-311).
+
+    Jellyfin playlists belong to a user account, so create / append / read-back all require a
+    `userId` — and this tool ships without one configured (single-user). Rather than add a
+    setting the owner must fill in (owner-chosen 2026-08-17), we discover it: `GET /Users` with
+    the API key, take the **admin** user (else the first) with a non-empty string `Id`. Cached
+    per (url, key) so a batch's many appends don't each re-hit `/Users`.
+
+    Degrades to `None` — never raises — on absent config or any failure (network, non-2xx,
+    non-JSON, empty/odd body), exactly like the other seams. The caller treats `None` as "can't
+    scope the op" and degrades/defers accordingly (create → NULL id; append → left pending;
+    pre-check → defer the playlist). The ADR-027 seam-1 amendment poll contract is unchanged.
+    """
+    s = settings or get_settings()
+    url = s.jellyfin_url.strip().rstrip("/")
+    key = s.jellyfin_api_key.strip()
+    if not (url and key):
+        return None
+    cache_key = (url, key)
+    cached = _user_id_cache.get(cache_key)
+    if cached:
+        return cached
+    try:
+        resp = http.get(
+            f"{url}{_USERS_PATH}", headers={"X-Emby-Token": key}, timeout=timeout
+        )
+        resp.raise_for_status()
+        data = resp.json()
+    except (requests.RequestException, ValueError) as exc:
+        logger.warning("Jellyfin user lookup failed (%s%s): %s", url, _USERS_PATH, exc)
+        return None
+    if not isinstance(data, list) or not data:
+        return None
+    users = [u for u in data if isinstance(u, dict)]
+    admins = [u for u in users if (u.get("Policy") or {}).get("IsAdministrator")]
+    for u in admins + users:  # prefer an admin, fall back to the first valid user
+        uid = u.get("Id")
+        if isinstance(uid, str) and uid:
+            _user_id_cache[cache_key] = uid
+            return uid
+    return None
+
+
 def create_playlist(
     name: str,
     *,
@@ -223,12 +292,23 @@ def create_playlist(
         )
         return None
 
+    # A playlist belongs to a user (T-311): POST /Playlists 400s without a UserId. Resolve it
+    # (cached); if we can't, degrade to None like any other create failure — the batch still
+    # expands and lands, jellyfin_playlist_id stays NULL, and T-306 backfills on a later pass.
+    user_id = resolve_user_id(settings=s, http=http)
+    if not user_id:
+        logger.warning(
+            "Jellyfin playlist create skipped — could not resolve a user id (GET /Users) to "
+            "own the playlist; NULL jellyfin_playlist_id (backfilled on a later scan)",
+        )
+        return None
+
     endpoint = f"{url}{_PLAYLISTS_PATH}"
     try:
         resp = http.post(
             endpoint,
             headers={"X-Emby-Token": key},
-            json={"Name": name, "Ids": [], "MediaType": "Audio"},
+            json={"Name": name, "Ids": [], "MediaType": "Audio", "UserId": user_id},
             timeout=timeout,
         )
         resp.raise_for_status()
@@ -279,17 +359,20 @@ def resolve_item_id(
     Returns a `ResolveResult` distinguishing the three outcomes T-304 wrongly collapsed to
     `None` (T-313, repair 2 — this split is what kills the outage-strands-everything bug on
     the resolve path):
-      - RESOLVED(id)  — a real, non-empty item id.
-      - NOT_INDEXED   — Jellyfin answered cleanly but has no item for this path yet (empty
-                        `Items`, or config absent → nothing to resolve against). Keep waiting.
-      - UNREACHABLE   — a network error / non-2xx / non-JSON / malformed body (a 2xx whose
-                        first item has no usable string `Id`). An outage or a broken edge:
-                        the caller defers with no state change and spends no budget.
+      - RESOLVED(id)  — the one audio item whose `Path` equals this file's path.
+      - NOT_INDEXED   — Jellyfin answered cleanly but has no audio item at this path yet (or
+                        config absent → nothing to resolve against). Keep waiting.
+      - UNREACHABLE   — a network error / non-2xx / non-JSON / malformed body (a match whose
+                        `Id` isn't a usable string). An outage or a broken edge: the caller
+                        defers with no state change and spends no budget.
 
-    A malformed 2xx must **never** become RESOLVED(None) — `ResolveResult`'s invariant makes
-    that unconstructible; here every non-string / empty / missing `Id` maps to UNREACHABLE,
-    never to a resolved item. `Items?Path=` returns `{ "Items": [ { "Id": ... }, ... ] }`; we
-    take the first match (a landed file maps to one library item).
+    **Exact-path match, client-side (T-311).** The live Jellyfin **ignores** the `Items?Path=`
+    filter — it returns the whole recursive library, so T-304's `items[0]` was the library-root
+    *folder*, not the track (proven wrong on first live contact, T-311 spike). So we list the
+    audio items with their `Path` and match exactly ourselves. A landed file maps to one audio
+    item; the library is single-user and small, so the full listing is cheap (a future
+    optimisation could cache it per reconcile pass). A malformed 2xx must **never** become
+    RESOLVED(None) — `ResolveResult`'s invariant makes that unconstructible.
     """
     s = settings or get_settings()
     url = s.jellyfin_url.strip().rstrip("/")
@@ -306,7 +389,7 @@ def resolve_item_id(
         resp = http.get(
             endpoint,
             headers={"X-Emby-Token": key},
-            params={"Recursive": "true", "Path": path, "Fields": "Path"},
+            params={"IncludeItemTypes": "Audio", "Recursive": "true", "Fields": "Path"},
             timeout=timeout,
         )
         resp.raise_for_status()
@@ -321,13 +404,17 @@ def resolve_item_id(
         # A 2xx with a non-dict body is a broken edge, not an empty index → UNREACHABLE.
         return ResolveResult(ResolveStatus.UNREACHABLE)
     items = data.get("Items")
-    if not items:
-        return ResolveResult(ResolveStatus.NOT_INDEXED)  # answered, nothing for this path yet
-    first = items[0]
-    item_id = first.get("Id") if isinstance(first, dict) else None
+    if not isinstance(items, list):
+        return ResolveResult(ResolveStatus.UNREACHABLE)  # malformed 2xx, not an empty index
+    match = next(
+        (it for it in items if isinstance(it, dict) and it.get("Path") == path), None
+    )
+    if match is None:
+        return ResolveResult(ResolveStatus.NOT_INDEXED)  # answered, no audio item at this path yet
+    item_id = match.get("Id")
     if not (isinstance(item_id, str) and item_id):
-        # Present-but-Idless / non-string / non-dict first item: a malformed 2xx. Never a
-        # resolved item (RESOLVED(None) would POST Ids=None → 400 → re-burn) → UNREACHABLE.
+        # Matched the path but the Id is missing/non-string: a malformed 2xx. Never a resolved
+        # item (RESOLVED(None) would POST Ids=None → 400 → re-burn) → UNREACHABLE.
         return ResolveResult(ResolveStatus.UNREACHABLE)
     return ResolveResult(ResolveStatus.RESOLVED, item_id)
 
@@ -346,16 +433,19 @@ def get_playlist_item_ids(
     absent from this set — closing the crash-between-POST-and-stamp window that let T-304
     double-add a track on the next pass.
 
-    `GET /Playlists/{id}/Items` returns `{ "Items": [ { "Id": ... }, ... ] }`; we collect the
-    **library item id** (`Id`), NOT the per-entry `PlaylistItemId` — the append POSTs library
-    ids, so a set keyed on anything else would miss every time and defeat the check.
+    `GET /Playlists/{id}/Items?userId=<uid>` returns `{ "Items": [ { "Id": ... }, ... ] }`; we
+    collect the **library item id** (`Id`), NOT the per-entry `PlaylistItemId` — the append
+    POSTs library ids, so a set keyed on anything else would miss every time and defeat the
+    check. The `userId` is required (T-311): without it the live server returns an empty/odd
+    body, which read back as a bogus empty set and would let a duplicate append through.
 
     Returns:
       - a `set[str]` of item ids on success — **an empty set is a valid answer** (an empty
         playlist), distinct from a failure;
-      - `None` on config absent, a network error, a non-2xx, non-JSON, or a malformed body.
-        The caller treats `None` as UNREACHABLE and defers the whole playlist this pass —
-        it must **never** blind-append when it cannot first read what's already there.
+      - `None` on config absent, an unresolvable user id, a network error, a non-2xx, non-JSON,
+        or a malformed body. The caller treats `None` as UNREACHABLE and defers the whole
+        playlist this pass — it must **never** blind-append when it cannot first read what's
+        already there.
     """
     s = settings or get_settings()
     url = s.jellyfin_url.strip().rstrip("/")
@@ -363,9 +453,18 @@ def get_playlist_item_ids(
     if not (url and key):
         return None  # absent config → can't read membership → defer (never blind-append)
 
+    user_id = resolve_user_id(settings=s, http=http)
+    if not user_id:
+        return None  # can't scope the read → treat as unreadable → defer (never blind-append)
+
     endpoint = f"{url}{_PLAYLISTS_PATH}/{playlist_id}{_ITEMS_PATH}"
     try:
-        resp = http.get(endpoint, headers={"X-Emby-Token": key}, timeout=timeout)
+        resp = http.get(
+            endpoint,
+            headers={"X-Emby-Token": key},
+            params={"userId": user_id},
+            timeout=timeout,
+        )
         resp.raise_for_status()
         data = resp.json()
     except (requests.RequestException, ValueError) as exc:
@@ -399,12 +498,13 @@ def append_to_playlist(
 ) -> bool:
     """Append one resolved item to a Jellyfin playlist. Returns True on success.
 
-    `POST /Playlists/{playlistId}/Items?Ids=<itemId>` (204 No Content). Returns False if
+    `POST /Playlists/{playlistId}/Items?Ids=<itemId>&userId=<uid>` (204 No Content). The
+    `userId` is required (T-311): the live server 400s the append without it. Returns False if
     the Jellyfin config is absent (degrade, not fail — the durable membership row already
     records the intent and the reconcile pass retries when Jellyfin returns). Raises
-    `JellyfinAppendError` if the config was present but the call failed, so the reconcile
-    pass can leave the row pending and count the attempt — a present-but-broken Jellyfin is
-    worth surfacing, unlike a merely absent one.
+    `JellyfinAppendError` if the config was present but the call failed — INCLUDING an
+    unresolvable user id (a `/Users` lookup that fails is a present-but-broken Jellyfin) — so
+    the reconcile pass leaves the row pending, no penalty, and retries next pass (T-313).
 
     Idempotency is the caller's guarantee, not this call's: the reconcile pass pre-checks the
     playlist's current item ids (`get_playlist_item_ids`) and appends only an item that is
@@ -417,12 +517,23 @@ def append_to_playlist(
     if not (url and key):
         return False
 
+    user_id = resolve_user_id(settings=s, http=http)
+    if not user_id:
+        # Config present but no user id → we can't scope the append. This is a
+        # present-but-broken Jellyfin (the /Users lookup failed), not an absent one: raise so
+        # the reconcile pass leaves the row pending and retries, rather than degrading to a
+        # silent False that would look like "absent config" and never retry differently.
+        raise JellyfinAppendError(
+            f"Jellyfin append of {item_id} to playlist {playlist_id} failed: "
+            "could not resolve a user id (GET /Users)"
+        )
+
     endpoint = f"{url}{_PLAYLISTS_PATH}/{playlist_id}{_ITEMS_PATH}"
     try:
         resp = http.post(
             endpoint,
             headers={"X-Emby-Token": key},
-            params={"Ids": item_id},
+            params={"Ids": item_id, "userId": user_id},
             timeout=timeout,
         )
         resp.raise_for_status()

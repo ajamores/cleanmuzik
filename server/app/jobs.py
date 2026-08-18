@@ -310,13 +310,14 @@ def reconcile_pending_appends(
       never created (config absent at expansion). Skip — the member isn't stuck, its container
       is; T-306's create-if-missing backfill owns that recovery.
     - **Pre-check unreadable** (`precheck_fn` → `None`: Jellyfin unreachable, or the stored
-      playlist id is stale/deleted) → skip *every* member of this playlist this pass; we never
-      blind-append when we cannot first read what the playlist already holds (repair 3) — that
-      read is what makes the append idempotent across a crash. BUT a row we've been unable to
-      complete past the wall-clock ceiling is flagged stuck here too, so a *permanently* missing
-      container surfaces (visible, still retried) instead of stranding silently — a transient
-      outage flags then self-clears on recovery, a deleted playlist stays flagged until T-306
-      recreates it.
+      playlist id is stale/deleted) → skip *every* member of this playlist this pass and defer
+      untouched, **no stuck flag** — exactly like resolve-UNREACHABLE. The two `None` causes
+      (transient outage vs. missing container) are indistinguishable at this layer, so flagging
+      here would paint a whole backlog stuck on any multi-minute outage — the very outage/give-up
+      conflation the reframe exists to kill. We never blind-append when we cannot first read the
+      playlist (repair 3). A persistently-unreadable container is logged once per pass; a
+      genuinely missing one is recovered by T-306's create-if-missing, not surfaced as stuck.
+      Only a *reachable-but-unindexed* row (NOT_INDEXED, below) is ever flagged stuck.
     - **Resolve UNREACHABLE** → defer this member untouched: no append, no stuck flag, no
       state change. The pre-check just succeeded, so this is a transient blip on the resolve
       call — an outage must strand nothing and spend no budget (repair 2, bug 3).
@@ -354,25 +355,22 @@ def reconcile_pending_appends(
             past_ceiling = _is_past_stuck_ceiling(member.created_at, now)
 
             # Pre-check the playlist's current members, once per playlist per pass. None means
-            # we can't read the container — Jellyfin is unreachable, or the stored playlist id
-            # is stale (deleted/recreated). Never blind-append. But do not let it strand
-            # *silently*: past the ceiling, flag it stuck so a permanently-missing container is
-            # visible (still retried) rather than deferred forever — a transient outage flags
-            # then self-clears the instant the append lands (T-313, closing the pre-check-None
-            # silent-strand gap the review found).
+            # we can't read the container — Jellyfin is unreachable, or the stored playlist id is
+            # stale. Defer the whole playlist untouched (never blind-append) and — crucially — do
+            # NOT flag stuck: this is indistinguishable from resolve-UNREACHABLE (both are "can't
+            # read"), so flagging would paint the backlog stuck on any outage, the conflation the
+            # reframe kills. Log once per playlist per pass so a persistently-missing container is
+            # still visible in the log (T-306's create-if-missing is its real recovery).
             if jf_playlist_id not in item_ids:
                 item_ids[jf_playlist_id] = precheck_fn(jf_playlist_id, settings=settings)
+                if item_ids[jf_playlist_id] is None:
+                    logger.warning(
+                        "Jellyfin playlist %s unreadable this pass (unreachable, or the stored "
+                        "id is stale) — deferring its pending appends untouched", jf_playlist_id,
+                    )
             current = item_ids[jf_playlist_id]
             if current is None:
-                if past_ceiling:
-                    store.mark_member_stuck(member.id)
-                    logger.warning(
-                        "Jellyfin playlist %s unreadable for %s past the stuck ceiling — "
-                        "flagged visible and still retried (a stale/deleted container surfaces "
-                        "here rather than stranding silently)",
-                        jf_playlist_id, member.youtube_video_id,
-                    )
-                continue
+                continue  # can't read membership → defer, no stuck (like resolve-UNREACHABLE)
 
             result = resolve_fn(member.landed_path, settings=settings)
             if result.status is ResolveStatus.UNREACHABLE:
