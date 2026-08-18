@@ -88,8 +88,8 @@ CREATE TABLE IF NOT EXISTS playlists (
 -- UNIQUE(playlist_id, youtube_video_id) makes a double-add structurally impossible
 -- (ADR-027 seam 4). `jellyfin_item_id` is NULL while the append is PENDING — the
 -- durable home for ADR-027 seam 1's "write membership now, defer the Jellyfin append
--- the next scan reconciles" (never a silent drop). `landed_path` + `append_attempts`
--- (T-304) are NOT in this CREATE — they are added via `_ADDED_COLUMNS` (ALTER), because
+-- the next scan reconciles" (never a silent drop). `landed_path` (T-304) + `stuck_since`
+-- (T-313) are NOT in this CREATE — they are added via `_ADDED_COLUMNS` (ALTER), because
 -- this table SHIPPED in T-300 and already exists on the owner's live DB, where a new
 -- column on the CREATE would be a silent no-op (the exact T-206 lesson).
 CREATE TABLE IF NOT EXISTS playlist_members (
@@ -102,14 +102,6 @@ CREATE TABLE IF NOT EXISTS playlist_members (
     UNIQUE(playlist_id, youtube_video_id)
 );
 """
-
-# How many times the reconcile pass retries resolving a pending append before it gives
-# up *visibly* (a warning; the batch view surfaces it in T-305/T-312). A file Jellyfin
-# can never index (odd chars, a path it won't match) must not be retried forever, nor
-# vanish silently — silent loss is the one failure a walk-away owner cannot catch. With
-# the ~20–30s reconcile tick this is ~10 min of retries, comfortably past any normal
-# scan latency, before the row is declared stuck.
-MAX_APPEND_ATTEMPTS = 20
 
 # Columns added after the first release, as (table, column, DDL type). Applied by
 # `_migrate` on every connect for a DB that predates them — `CREATE TABLE IF NOT
@@ -159,21 +151,29 @@ _ADDED_COLUMNS = [
     # old row (or a REPLACE-resolve landing with no path) reads NULL and is re-processed
     # rather than skipped-without-a-file.
     ("jobs", "landed_path", "TEXT"),
-    # R2 (T-304 / ADR-027 seam-1 amendment). Two columns on the `playlist_members` table,
-    # which SHIPPED in T-300 and is on the owner's live DB — so they go via ALTER, NOT the
+    # R2 (T-304 / ADR-027 seam-1 amendment). `landed_path` on the `playlist_members` table,
+    # which SHIPPED in T-300 and is on the owner's live DB — so it goes via ALTER, NOT the
     # CREATE (a column added to a `CREATE TABLE IF NOT EXISTS` never lands on an existing
-    # table; the T-206 lesson). Both are ALTER-legal: `landed_path` is nullable, and
-    # `append_attempts` is NOT NULL *with a DEFAULT* (SQLite forbids ALTER-ADD of a NOT
-    # NULL column only when it has no default).
+    # table; the T-206 lesson). ALTER-legal because it is nullable with no default.
     #   landed_path — the pending append's re-resolve handle: the drain resolves a
     #     deferred item by its canonical path (`Items?Path=`), so the durable home must
     #     carry it or the row is an unresolvable dead letter. An *operational* handle for
     #     the append machinery — NOT the transient *display* path ADR-015 made non-durable
     #     (different table, different consumer, sole durable copy of the datum).
-    #   append_attempts — bounds the retry (MAX_APPEND_ATTEMPTS) so a never-indexable file
-    #     becomes a visible give-up, not an infinite retry or a silent drop.
     ("playlist_members", "landed_path", "TEXT"),
-    ("playlist_members", "append_attempts", "INTEGER NOT NULL DEFAULT 0"),
+    # R2 (T-313 / ADR-027 seam-1 amendment). `stuck_since` REPLACES the old `append_attempts`
+    # give-up counter, which conflated retry-count with wall-clock: a fast batch burned the
+    # cap in seconds and dropped healthy tracks, and an outage turned every pending row into a
+    # permanent silent give-up (T-304's bugs 1 + 3). The counter is retired — a *dead column*
+    # on pre-T-313 DBs (never read, never dropped; a DROP COLUMN table-rebuild is needless
+    # risk) and simply absent on fresh ones. `stuck_since` is the replacement: NULL = not
+    # stuck; an ISO-8601 UTC timestamp = when a pending row first breached the wall-clock
+    # ceiling (~45 min of *reachable-but-unindexed* passes). It is display-state only — a
+    # stuck row STAYS in the pending set and keeps retrying (visible, never benched), so an
+    # outage victim resurrects the moment Jellyfin returns and a never-indexable file surfaces
+    # visibly instead of vanishing. Nullable, no default → ALTER-legal (same shape as
+    # landed_path). The surface that renders it is T-305/T-310; this ticket ships only the flag.
+    ("playlist_members", "stuck_since", "TEXT"),
 ]
 
 # Sentinel default for `release_review(last_error=...)`. It distinguishes "the caller
@@ -263,7 +263,10 @@ class PlaylistMember:
     created_at: str  # ISO-8601 UTC
     jellyfin_item_id: str | None = None
     landed_path: str | None = None  # re-resolve handle for a pending append (T-304)
-    append_attempts: int = 0  # bounded give-up counter (see MAX_APPEND_ATTEMPTS)
+    # ISO-8601 UTC time a still-pending append first breached the wall-clock stuck ceiling
+    # (T-313), or None. Display-state only: a stuck row stays drainable and keeps retrying —
+    # it replaced the give-up counter, which turned outages into silent permanent drops.
+    stuck_since: str | None = None
 
 
 @dataclass(frozen=True)
@@ -743,23 +746,24 @@ class Store:
             return cur.rowcount > 0
 
     def list_pending_appends(self, limit: int) -> list[PlaylistMember]:
-        """The oldest pending appends the reconcile pass can still act on (T-304).
+        """The oldest pending appends the reconcile pass can still act on (T-304/T-313).
 
         A row is drainable iff its Jellyfin append is still pending (`jellyfin_item_id IS
-        NULL`), it carries a re-resolve handle (`landed_path IS NOT NULL` — a row with no
-        path is unresolvable and must not be handed to the drainer), and it hasn't hit the
-        give-up ceiling (`append_attempts < MAX_APPEND_ATTEMPTS`). Oldest first (by
-        `created_at, rowid`) so the tracks that have had the longest to index — the ones
-        most likely to resolve on the first try — are drained first. `limit` bounds the
-        per-pass cost so the opportunistic on-land drain stays cheap.
+        NULL`) and it carries a re-resolve handle (`landed_path IS NOT NULL` — a row with no
+        path is unresolvable and must not be handed to the drainer). There is **no** give-up
+        ceiling: T-313 retired the `append_attempts` counter (it conflated retry-count with
+        wall-clock and turned outages into silent drops), so a stuck row — one whose
+        `stuck_since` is set — is *still returned here* and keeps retrying (visible, never
+        benched). Oldest first (by `created_at, rowid`) so the tracks that have had the
+        longest to index — the ones most likely to resolve on the first try — are drained
+        first. `limit` bounds the per-pass cost so the opportunistic on-land drain stays cheap.
         """
         with self._connect() as conn:
             rows = conn.execute(
                 "SELECT * FROM playlist_members "
                 "WHERE jellyfin_item_id IS NULL AND landed_path IS NOT NULL "
-                "AND append_attempts < ? "
                 "ORDER BY created_at, rowid LIMIT ?",
-                (MAX_APPEND_ATTEMPTS, limit),
+                (limit,),
             ).fetchall()
         return [_member_from_row(row) for row in rows]
 
@@ -768,37 +772,39 @@ class Store:
 
         Once set, `list_pending_appends` no longer returns the row (the append is done),
         which is what makes the drain idempotent — a member is appended to the Jellyfin
-        playlist exactly once.
+        playlist exactly once. Also clears `stuck_since` in the same UPDATE: a row that
+        finally appends is no longer stuck, whatever it was flagged before (T-313).
         """
         with self._connect() as conn:
             cur = conn.execute(
-                "UPDATE playlist_members SET jellyfin_item_id = ? WHERE id = ?",
+                "UPDATE playlist_members "
+                "SET jellyfin_item_id = ?, stuck_since = NULL WHERE id = ?",
                 (jellyfin_item_id, member_id),
             )
             if cur.rowcount == 0:
                 raise KeyError(f"no playlist_member with id {member_id!r}")
 
-    def bump_append_attempt(self, member_id: str) -> int:
-        """Count one failed resolve of a pending append; return the new total.
+    def mark_member_stuck(self, member_id: str) -> None:
+        """Flag a still-pending append as stuck past the wall-clock ceiling (T-313).
 
-        The reconcile pass calls this when a resolve misses (the file isn't indexed yet).
-        When the count reaches `MAX_APPEND_ATTEMPTS` the row drops out of
-        `list_pending_appends` — a bounded, visible give-up rather than an infinite retry
-        on a file Jellyfin will never index.
+        The replacement for the retired give-up counter: the reconcile pass calls this when
+        a pending row has sat *reachable-but-unindexed* longer than the ceiling
+        (`_STUCK_AFTER_S` in jobs.py). `COALESCE(stuck_since, ?)` preserves the *first* breach
+        time on repeat calls, so the flag records when the row went stuck, not the last pass
+        that noticed. Crucially this does NOT remove the row from `list_pending_appends` — a
+        stuck row stays drainable and keeps retrying; "stuck" is visibility, not a terminal
+        state (a Jellyfin that indexes the file an hour later still appends it, clearing the
+        flag via `mark_member_appended`). Only ever called on a NOT_INDEXED resolve, never on
+        an UNREACHABLE one, so an outage can never mark healthy rows stuck.
         """
         with self._connect() as conn:
             cur = conn.execute(
                 "UPDATE playlist_members "
-                "SET append_attempts = append_attempts + 1 WHERE id = ?",
-                (member_id,),
+                "SET stuck_since = COALESCE(stuck_since, ?) WHERE id = ?",
+                (_now(), member_id),
             )
             if cur.rowcount == 0:
                 raise KeyError(f"no playlist_member with id {member_id!r}")
-            row = conn.execute(
-                "SELECT append_attempts FROM playlist_members WHERE id = ?",
-                (member_id,),
-            ).fetchone()
-        return row["append_attempts"]
 
     def list_members(self, playlist_id: str) -> list[PlaylistMember]:
         """Every membership row for a playlist, in playlist order (T-306/T-312 read this).
@@ -904,7 +910,7 @@ def _member_from_row(row: sqlite3.Row) -> PlaylistMember:
         position=row["position"],
         jellyfin_item_id=row["jellyfin_item_id"],
         landed_path=row["landed_path"],
-        append_attempts=row["append_attempts"],
+        stuck_since=row["stuck_since"],
         created_at=row["created_at"],
     )
 

@@ -292,7 +292,9 @@ integrate onto `main` with the status line flipped in the closing commit, transc
   state durable; supports item 1's "walk away". Stories: US20, US22.)
 
 ### T-313 — Reconcile reframe: retire the give-up tally, split resolve, idempotent append (fix T-304's 3 bugs)
-- **Status:** todo
+- **Status:** done (2026-08-17; merged to `main`, 636 tests green, `/code-review high` clean after 5 findings
+  resolved, reconcile new-code live-verified; the happy-path append observable is blocked by two pre-existing
+  T-304/T-302 live-seam bugs now filed under **T-311**)
 - **Depends on:** T-304 (the seam it hardens; all its machinery shipped). Couples with **T-305/T-310/T-312**
   for the visible stuck-state surface (ship the stuck-state in the SAME change that deletes the counter).
 - **Agent:** back-end
@@ -472,6 +474,26 @@ integrate onto `main` with the status line flipped in the closing commit, transc
 - **Status:** todo
 - **Depends on:** T-302–T-310, T-312 (all)
 - **Agent:** verify
+- **Live findings (2026-08-17, surfaced by T-313's `/verify` against the real Jellyfin — two live seams
+  are non-functional and MUST be fixed here before the end-to-end can pass):**
+  1. **`resolve_item_id`'s `Path=` filter is IGNORED by the live Jellyfin.** `GET /Items?Recursive=true&
+     Path=<canonical path>&Fields=Path` returns the **entire** recursive library (folders + albums + audio),
+     not the one matching file — so `items[0]` is the library-root **`Folder`** (`C:\Users\aj_am\Music\
+     CleanMuzik`), and resolve returns that folder's id for *every* path. This is the exact assumption the
+     jellyfin.py comment flagged as "verified by T-311" — now shown false on first live contact. The fix
+     needs a correct exact-path lookup (candidates to try: `IncludeItemTypes=Audio` + a client-side exact-Path
+     match on the returned `Path`; or the `searchTerm`/`Path` semantics of the running 10.x; or `Items?
+     enableTotalRecordCount` diagnostics) — decide against the real server. **T-313 preserved this query
+     verbatim** (its scope was the reconcile *logic*, not the resolve query); its 3-state mapping is correct
+     regardless of which id the query returns.
+  2. **`create_playlist` (`POST /Playlists`) returns 400** on this server and there are **zero playlists** —
+     the live append path has never completed end-to-end. Likely the `CreatePlaylistDto` shape (a `UserId`
+     may be required; config has no user id — see the same open question). The `GET /Playlists/{id}/Items`
+     pre-check endpoint T-313 added **does** accept API-key auth (a bogus id returns 400 "bad request", not
+     401), so the userId concern is likely limited to *create*, not read — confirm both once a playlist exists.
+  - Net: T-313's reconcile is correct and unit- + partial-live-verified (UNREACHABLE/None/NOT_INDEXED mappings
+    confirmed against the real server), but the **happy-path observable** (a track actually joining a real
+    playlist) cannot run until (1) and (2) are fixed here. These two are the first real work for this ticket.
 - **What:** Drive the **real** flow — a `/verify` run pasting a **small real playlist** end-to-end,
   **offline-isolated** (temp `DB_PATH` + temp beets library; **`pgrep -af uvicorn` first**; see
   `docs/workflow.md` + the `/verify` skill so the run never pollutes the real Jellyfin library) — and observe

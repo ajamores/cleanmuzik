@@ -998,3 +998,17 @@ Format: `- <date> — what went wrong → the correction / rule now in place`
   ALTER-legal iff nullable or NOT-NULL-*with-a-default*. Rule: before editing any `_SCHEMA` CREATE, `git
   log -S "CREATE TABLE ... <name>"` — if that table shipped in ANY prior commit, the new column goes in
   `_ADDED_COLUMNS`, full stop. Caught by cold-review, not tests (tests build the full schema fresh).
+- 2026-08-17 — (T-313 `/verify`, mistake) **A live-Jellyfin API assumption written from docs was wrong on
+  first real contact: `GET /Items?Path=<canonical path>` does NOT filter to the one matching file.** The
+  running Jellyfin **ignores the `Path` param** and returns the entire recursive library; `resolve_item_id`
+  took `items[0]`, which is the library-root **`Folder`**, so resolve-by-path returned a folder id for every
+  path (and `create_playlist`'s `POST /Playlists` 400s — no playlist has ever been created live). Neither is
+  a T-313 regression — T-313 changed the resolve *return shape*, not the query, and its 3-state/idempotent/
+  stuck logic is correct regardless. The lesson is about the **DoD's `/verify` step earning its place**: a
+  seam written against API docs (`resolve_item_id`/`create_playlist`, T-304/T-302) passed every unit test
+  (fake `http`) and every code-review, yet was **non-functional against the real server** — exactly what
+  step 3 ("watch the real side effect, not 'looks right'") exists to catch, and exactly why it was docketed
+  to T-311. Rule: a function whose only contract is an external HTTP API is **not done at green tests** —
+  its live receipt is load-bearing, and "the fake-http test passes" is the weakest possible evidence for an
+  API-shape assumption. When a live seam can't be exercised yet, say so loudly and keep the ticket open
+  (T-311), never let unit-green stand in for a live API contract.

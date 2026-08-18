@@ -44,6 +44,7 @@ import shutil
 import tempfile
 import threading
 from dataclasses import dataclass, replace
+from datetime import datetime, timezone
 from pathlib import Path
 
 import acoustid
@@ -51,7 +52,6 @@ from mediafile import MediaFile
 
 from app.config import Settings, get_settings
 from app.db import (
-    MAX_APPEND_ATTEMPTS,
     REVIEW_REJECTED,
     REVIEW_RESOLVED,
     Review,
@@ -70,7 +70,9 @@ from app.import_seam import (
 from app.jellyfin import (
     JellyfinAppendError,
     JellyfinScanError,
+    ResolveStatus,
     append_to_playlist,
+    get_playlist_item_ids,
     resolve_item_id,
     trigger_scan,
 )
@@ -244,6 +246,37 @@ _ON_LAND_DRAIN_LIMIT = 5
 # they eventually join the playlist. Still bounded so one pass can't monopolise the worker.
 _TICK_DRAIN_LIMIT = 50
 
+# How long a pending append may sit un-completed before it is flagged stuck (T-313). This
+# replaced the give-up *counter*, which conflated retry-count with wall-clock: a fast batch
+# burned a 20-try cap in seconds (dropping healthy tracks) and an outage's retries counted
+# toward it too (a permanent silent drop). The replacement is a plain wall-clock bound: real
+# time elapsed since the row was written at land time. It is measured from `created_at`, so a
+# long outage's downtime *does* count toward it — but unlike the old counter that is harmless,
+# because "stuck" is non-fatal: the row stays drainable and keeps retrying, and the flag is
+# CLEARED the moment the append finally lands (`mark_member_appended`). So a track merely
+# waiting out an outage may flash stuck on recovery and then un-flag itself the instant it
+# indexes; only a genuinely never-completing row (never-indexable file, or a stale/deleted
+# container) stays flagged — which is exactly the visibility we want. Comfortably past any
+# normal scan latency. The flag is visibility, never a give-up (the surface is T-305/T-310).
+_STUCK_AFTER_S = 45 * 60
+
+
+def _is_past_stuck_ceiling(created_at: str, now: datetime) -> bool:
+    """True if a pending row written at `created_at` has waited past `_STUCK_AFTER_S` (T-313).
+
+    `created_at` is the ISO-8601 UTC string `_now()` writes. A malformed OR tz-naive value
+    can't come from our own writes; if one somehow does — the parse fails, or the aware/naive
+    subtraction raises `TypeError` — treat it as not-yet-stuck (never flag on data we can't
+    trust), so the row keeps retrying rather than being marked on bad data. Both the parse and
+    the subtraction are inside the guard so neither escapes to the caller's per-member handler.
+    """
+    try:
+        started = datetime.fromisoformat(created_at)
+        elapsed = (now - started).total_seconds()
+    except (ValueError, TypeError):
+        return False
+    return elapsed > _STUCK_AFTER_S
+
 
 def reconcile_pending_appends(
     store: Store,
@@ -252,28 +285,49 @@ def reconcile_pending_appends(
     limit: int,
     resolve_fn=resolve_item_id,
     append_fn=append_to_playlist,
+    precheck_fn=get_playlist_item_ids,
 ) -> int:
-    """Drain up to `limit` pending Jellyfin appends; return how many landed this pass.
+    """Drain pending Jellyfin appends; return how many pending members it cleared this pass.
 
-    The heart of ADR-027 seam 1 (as amended by T-304): a track's membership row was
-    written durably at land time with `jellyfin_item_id = NULL` + its `landed_path`, but
-    the Jellyfin append was deferred because a just-landed file isn't indexed yet. This
-    pass resolves each pending member's path → its Jellyfin item id and appends it, once
-    Jellyfin has caught up. Runs on the worker thread only (opportunistically after a
-    land, on the background tick, and at boot), so it never contends with the sequential
-    pipeline for the SQLite write lock (ADR-001's single-writer spirit).
+    The return counts every member that reached the *appended* state this pass — real POSTs
+    **plus** crash-recovery stamps (a row whose item the pre-check found already in the
+    playlist, stamped without a re-POST). It is "rows cleared from the pending set", not "POSTs
+    issued"; the two differ by the crash-recovered rows (repair 3, bug 2).
 
-    Per member, in order:
-    - No `jellyfin_playlist_id` on the parent playlist → the Jellyfin playlist itself was
-      never created (config was absent at expansion). Skip WITHOUT counting an attempt —
-      the member isn't stuck, its container is; T-306's create-if-missing backfill owns
-      that recovery. Counting attempts here would burn the give-up budget on a healthy row.
-    - `resolve_fn` misses (not indexed yet, or Jellyfin unreachable) → count one attempt
-      and leave it pending; a later pass retries until it resolves or hits the give-up cap.
-    - `resolve_fn` hits → append; on success stamp the item id (the row leaves the pending
-      set — idempotent by construction). A present-but-failed append raises
-      `JellyfinAppendError`, caught here per member: count an attempt, leave pending, and
-      keep going, so one bad append never stops the batch (ADR-003).
+    The heart of ADR-027 seam 1 (as amended by T-304, reframed by T-313): a track's
+    membership row was written durably at land time with `jellyfin_item_id = NULL` + its
+    `landed_path`, but the Jellyfin append was deferred because a just-landed file isn't
+    indexed yet. This pass resolves each pending member's path → its Jellyfin item id and
+    appends it, once Jellyfin has caught up. Runs on the worker thread only (opportunistically
+    after a land, on the background tick, and at boot), so it never contends with the
+    sequential pipeline for the SQLite write lock (ADR-001's single-writer spirit).
+
+    T-313 retired the give-up *counter* that made this "a retry tally used as a clock" — the
+    root of T-304's three shipped bugs. The pass now branches on a 3-state resolve and a
+    per-pass pre-check of each playlist's current members. Per member, in order:
+
+    - **No `jellyfin_playlist_id`** on the parent playlist → the Jellyfin playlist itself was
+      never created (config absent at expansion). Skip — the member isn't stuck, its container
+      is; T-306's create-if-missing backfill owns that recovery.
+    - **Pre-check unreadable** (`precheck_fn` → `None`: Jellyfin unreachable, or the stored
+      playlist id is stale/deleted) → skip *every* member of this playlist this pass; we never
+      blind-append when we cannot first read what the playlist already holds (repair 3) — that
+      read is what makes the append idempotent across a crash. BUT a row we've been unable to
+      complete past the wall-clock ceiling is flagged stuck here too, so a *permanently* missing
+      container surfaces (visible, still retried) instead of stranding silently — a transient
+      outage flags then self-clears on recovery, a deleted playlist stays flagged until T-306
+      recreates it.
+    - **Resolve UNREACHABLE** → defer this member untouched: no append, no stuck flag, no
+      state change. The pre-check just succeeded, so this is a transient blip on the resolve
+      call — an outage must strand nothing and spend no budget (repair 2, bug 3).
+    - **Resolve NOT_INDEXED** → keep waiting; if the row has sat past the wall-clock ceiling
+      (`_STUCK_AFTER_S`) flag it stuck (visible, still retried — repair 5). Never a drop.
+    - **Resolve RESOLVED** → if the item is already in the pre-checked set, the POST already
+      happened (a crash between POST and stamp, or a prior run): stamp without re-POSTing
+      (repair 3, bug 2). Otherwise append; on success stamp and add the id to the per-pass set
+      (so two rows resolving to the same item can't double-POST). A present-but-failed append
+      (`JellyfinAppendError`) or a degraded no-op leaves the row pending with no penalty and no
+      stuck flag (repair 4) — the disease must not survive on the append organ.
 
     Never raises: a reconcile failure must not kill the worker loop or a job that landed
     fine. Individual members degrade; the pass returns the count that succeeded.
@@ -282,6 +336,8 @@ def reconcile_pending_appends(
     if not pending:
         return 0
     playlists: dict[str, object] = {}  # cache: one get_playlist per playlist per pass
+    item_ids: dict[str, set[str] | None] = {}  # cache: one pre-check GET per playlist per pass
+    now = datetime.now(timezone.utc)
     appended = 0
     for member in pending:
         # Each member is isolated: a store error on one (e.g. a row deleted out from under
@@ -295,36 +351,76 @@ def reconcile_pending_appends(
             if not jf_playlist_id:
                 continue  # container not created yet — T-306's backfill, not a member fault
 
-            item_id = resolve_fn(member.landed_path, settings=settings)
-            if not item_id:
-                attempts = store.bump_append_attempt(member.id)
-                if attempts >= MAX_APPEND_ATTEMPTS:
+            past_ceiling = _is_past_stuck_ceiling(member.created_at, now)
+
+            # Pre-check the playlist's current members, once per playlist per pass. None means
+            # we can't read the container — Jellyfin is unreachable, or the stored playlist id
+            # is stale (deleted/recreated). Never blind-append. But do not let it strand
+            # *silently*: past the ceiling, flag it stuck so a permanently-missing container is
+            # visible (still retried) rather than deferred forever — a transient outage flags
+            # then self-clears the instant the append lands (T-313, closing the pre-check-None
+            # silent-strand gap the review found).
+            if jf_playlist_id not in item_ids:
+                item_ids[jf_playlist_id] = precheck_fn(jf_playlist_id, settings=settings)
+            current = item_ids[jf_playlist_id]
+            if current is None:
+                if past_ceiling:
+                    store.mark_member_stuck(member.id)
                     logger.warning(
-                        "giving up on the Jellyfin append for %s (%s) after %d tries — the "
-                        "file landed but Jellyfin never indexed its path; surfaced in the "
-                        "batch view, not retried further",
-                        member.youtube_video_id, member.landed_path, attempts,
+                        "Jellyfin playlist %s unreadable for %s past the stuck ceiling — "
+                        "flagged visible and still retried (a stale/deleted container surfaces "
+                        "here rather than stranding silently)",
+                        jf_playlist_id, member.youtube_video_id,
                     )
+                continue
+
+            result = resolve_fn(member.landed_path, settings=settings)
+            if result.status is ResolveStatus.UNREACHABLE:
+                continue  # transient blip on the resolve call — defer untouched, spend nothing
+            if result.status is ResolveStatus.NOT_INDEXED:
+                # Answered, but the file isn't indexed yet. Keep waiting — but if it has sat
+                # past the ceiling, flag it stuck so a never-indexable file is *visible*
+                # (still retried), never a silent drop.
+                if past_ceiling:
+                    store.mark_member_stuck(member.id)
+                    logger.warning(
+                        "Jellyfin append for %s (%s) is stuck — landed but not indexed past "
+                        "the ceiling; flagged visible and still retried, not dropped",
+                        member.youtube_video_id, member.landed_path,
+                    )
+                continue
+
+            item_id = result.item_id
+            if item_id in current:
+                # Already in the playlist — the POST landed on a prior pass but its stamp was
+                # lost to a crash (bug 2), or a prior run appended it. Stamp without re-POSTing;
+                # transport/timing-independent, so no double-add.
+                store.mark_member_appended(member.id, item_id)
+                appended += 1
                 continue
 
             try:
                 ok = append_fn(jf_playlist_id, item_id, settings=settings)
             except JellyfinAppendError as exc:
-                store.bump_append_attempt(member.id)
+                # A present-but-failed append (5xx / 401) — an outage on the *append* organ.
+                # Leave pending, no penalty, no stuck; a later pass retries (repair 4, bug 3).
                 logger.warning(
                     "Jellyfin append failed for %s (item %s) — left pending: %s",
                     member.youtube_video_id, item_id, exc,
                 )
                 continue
             if not ok:
-                # Append degraded to a no-op (config went absent between the resolve and
-                # the append). Do NOT stamp it done — that would drop the track from the
-                # playlist while marking it added (silent loss). Leave it pending and count
-                # the attempt so a persistent degrade reaches the visible give-up.
-                store.bump_append_attempt(member.id)
+                # Append degraded to a no-op (config went absent between the resolve and the
+                # append). Do NOT stamp it done — that would drop the track from the playlist
+                # while marking it added (silent loss). Leave it pending, no penalty.
+                logger.warning(
+                    "Jellyfin append degraded to a no-op for %s (item %s) — left pending",
+                    member.youtube_video_id, item_id,
+                )
                 continue
             store.mark_member_appended(member.id, item_id)
-            appended += 1
+            current.add(item_id)  # per-pass refresh: a later row resolving to the same item
+            appended += 1        # must see it as present and not double-POST
         except Exception as exc:  # noqa: BLE001 — one bad member must not abort the pass
             logger.warning(
                 "reconcile: skipping member %s after an unexpected error: %s",
