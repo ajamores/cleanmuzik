@@ -21,45 +21,41 @@ CleanMuzik — personal YouTube → Jellyfin music tool. Purpose, stack, constra
 
 ## Current State (2026-08-17)
 
-- **On `main`. Nothing in flight.** R2 (Playlists) `in-build`, 613 tests green. Uncommitted: this board
-  + the T-313 ticket work (about to commit + push).
-- **T-303 done + shipped** — exact-video dedup (skip an owned video, add its file, `track.skipped`).
-  Added `jobs.landed_path` (ADR-027 seam-2 amendment; narrows ADR-015).
-- **T-304 has 3 live bugs** (found via `/code-review high` on T-303, then two councils vs. the shipped
-  code): (1) fast batch burns the 20-try give-up counter → drops tracks; (2) append-before-stamp →
-  double-add on crash; (3) resolve can't tell "not-indexed" from "Jellyfin down" → outage strands healthy
-  tracks. **Root: a retry tally used as a clock.**
-- **Design settled — councils decided the fix (T-313):** keep polling + **incremental fill**; retire the
-  tally (all 3 sites), 3-state resolve, idempotent append, no-penalty append path, durable visible
-  "stuck" state. **Rejected:** push/WebSocket (kills only 2 of 3; half-open socket = the plugin's ghost)
-  and **batch-at-end** (adversarially reviewed → no-go: kills 0 extra bugs, adds real liabilities).
-- **Live gap found:** `run_resolve` writes no playlist membership → a **parked batch member approved
-  later never joins its playlist**. That fix is **T-306** (already todo, buildable now).
+- **On `main`, nothing in flight, tree clean.** R2 (Playlists) `in-build`, **635 tests green on main**.
+- **T-313 done + merged** — the reconcile reframe that fixes T-304's 3 bugs. Retired the give-up tally
+  (dead column), 3-state `resolve_item_id` (RESOLVED/NOT_INDEXED/UNREACHABLE, `RESOLVED(None)`
+  unconstructible), idempotent append via per-pass pre-check (`get_playlist_item_ids`), no-penalty on the
+  append organ, and `playlist_members.stuck_since` (wall-clock, visible+retried). Carries the ADR-027
+  seam-1 amendment; supersedes backlog T-047. `/code-review high` clean after 5 findings resolved.
+- **⚠ Live discovery (now the first work of T-311):** T-313's `/verify` was the first real look at the
+  Jellyfin append path and **two pre-existing T-304/T-302 seams are non-functional** — (1)
+  `resolve_item_id`'s `Path=` filter is **ignored** by the live server (returns the whole library →
+  `items[0]` is the library-root Folder id, not the track); (2) `create_playlist` **400s** and zero
+  playlists exist. Filed with evidence + fix candidates on **T-311**; a learning is in `learnings.md`.
+  **Not a T-313 regression** — its reconcile logic is correct regardless of which id resolve returns, and
+  its own new-code mappings (UNREACHABLE/None/NOT_INDEXED) ARE live-verified.
 
-## ⟹ NEXT — fix T-304's live bugs BEFORE layering T-305 on the seam
+## ⟹ NEXT
 
-1. **T-313 — reconcile reframe** (fixes the 3 bugs; supersedes T-047; carries an ADR-027 seam-1
-   amendment). Backend correctness + a durable "stuck" flag land now; the on-screen surface follows
-   with the batch UI (T-310) — no silent loss in the gap.
-2. **T-306** — resolve-path membership write; rides T-313's idempotent append, closes the live
-   review-approve silent loss.
-3. **T-305 — batch-scoped SSE** (one stream/batch + `batch.queued`/`batch.progress`/`track.skipped`).
-   *After* T-313, so its tally reports truthful counts, not a broken seam's.
-4. **T-312** durable batch state; **T-310** batch card (renders T-313's stuck state); **T-308**
-   (Phase D, ADR-028) alongside — `git mv docs/backlog/T-037.md docs/r2/` on start.
+1. **T-306** — resolve-path membership write (the live review-approve silent gap); rides T-313's
+   idempotent append. Buildable now.
+2. **T-311's two live-seam fixes** — the `Path=` exact-lookup + `create_playlist` 400 (userId?). These
+   now gate the end-to-end happy-path observable; owner may want them pulled early since the append path
+   is currently non-functional live. Evidence is already on the ticket.
+3. **T-305 — batch-scoped SSE** (truthful counts now the seam is fixed) → **T-312** durable batch state →
+   **T-310** batch card (renders `stuck_since`) → **T-308** (`git mv docs/backlog/T-037.md docs/r2/`).
 
 ## Recent sessions (rolling — last 2–3)
 
-- **2026-08-17 (this session)** — Shipped **T-303**. Review + 2 councils on T-304's reconcile: settled the
-  fix as **T-313** (ledger reframe on incremental fill), rejected push + batch-at-end, found the
-  review-approve membership gap (→ T-306). Promoted T-047 → T-313.
-- **2026-08-17 (earlier)** — Shipped **T-304** defer-first Jellyfin playlist seam (the one now being
-  hardened). Fixed a cold-review migration blocker. ADR-027 seam-1 amendment.
-- **2026-08-16** — Settled T-304 push-vs-poll → poll. Shipped **T-302** (accept + expand + create_playlist).
+- **2026-08-17 (this session)** — Built + merged **T-313** (Fable planned, Opus executed). 5 review
+  findings resolved; live `/verify` surfaced the two T-304/T-302 seam bugs → filed on T-311.
+- **2026-08-17 (earlier)** — Shipped **T-303** (exact-video dedup). Two councils settled T-304's fix as
+  T-313; rejected push + batch-at-end; found the review-approve membership gap (→ T-306).
+- **2026-08-17 (earlier)** — Shipped **T-304** defer-first Jellyfin playlist seam (the one T-313 hardened).
 
 ## Where the rest of the context lives
 
-`docs/roadmap.md` (R2 `in-build`) · `docs/r2/spec.md` + **`tickets.md`** (T-300/301/302/303/304 done;
-**T-313** reconcile reframe; T-306 council note) · `docs/r1/adr.md` (**ADR-027 seam-2 last filed**;
-seam-1 amendment pending in T-313) · `docs/learnings.md` · `docs/workflow.md` · `docs/backlog/` (T-047
-superseded by T-313; T-037 → git-mv on T-308; T-045/T-046). Business → `/graft`.
+`docs/roadmap.md` (R2 `in-build`) · `docs/r2/spec.md` + **`tickets.md`** (T-300–304 + **T-313** done;
+**T-311** carries the two live-seam findings; T-306 buildable now) · `docs/r1/adr.md` (**ADR-027 seam-1
+amendment last filed**, T-313) · `docs/learnings.md` (T-313 live-API lesson) · `docs/workflow.md` ·
+`docs/backlog/` (T-047 superseded). Business → `/graft`.
