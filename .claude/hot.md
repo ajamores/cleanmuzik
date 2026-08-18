@@ -21,41 +21,43 @@ CleanMuzik — personal YouTube → Jellyfin music tool. Purpose, stack, constra
 
 ## Current State (2026-08-17)
 
-- **On `main`, nothing in flight, tree clean.** R2 (Playlists) `in-build`, **635 tests green on main**.
-- **T-313 done + merged** — the reconcile reframe that fixes T-304's 3 bugs. Retired the give-up tally
-  (dead column), 3-state `resolve_item_id` (RESOLVED/NOT_INDEXED/UNREACHABLE, `RESOLVED(None)`
-  unconstructible), idempotent append via per-pass pre-check (`get_playlist_item_ids`), no-penalty on the
-  append organ, and `playlist_members.stuck_since` (wall-clock, visible+retried). Carries the ADR-027
-  seam-1 amendment; supersedes backlog T-047. `/code-review high` clean after 5 findings resolved.
-- **⚠ Live discovery (now the first work of T-311):** T-313's `/verify` was the first real look at the
-  Jellyfin append path and **two pre-existing T-304/T-302 seams are non-functional** — (1)
-  `resolve_item_id`'s `Path=` filter is **ignored** by the live server (returns the whole library →
-  `items[0]` is the library-root Folder id, not the track); (2) `create_playlist` **400s** and zero
-  playlists exist. Filed with evidence + fix candidates on **T-311**; a learning is in `learnings.md`.
-  **Not a T-313 regression** — its reconcile logic is correct regardless of which id resolve returns, and
-  its own new-code mappings (UNREACHABLE/None/NOT_INDEXED) ARE live-verified.
+- **On `main`, nothing in flight, tree clean.** R2 (Playlists) `in-build`, **646 tests green on main**.
+- **The playlist append path now WORKS LIVE** — for the first time a real track landed in a real Jellyfin
+  playlist through the app code (`/verify`). This closed a feature that had never once functioned against a
+  real server (built on API-docs guesses + fake-http tests).
+- **T-313 done + merged** — reconcile reframe fixing T-304's 3 bugs (retired the give-up tally, 3-state
+  resolve, idempotent append via pre-check, `stuck_since` wall-clock flag).
+- **T-314 done + merged** — the two live-seam fixes T-313's `/verify` surfaced: (1) **all playlist ops are
+  user-scoped** — `resolve_user_id` auto-discovers the Jellyfin user (`GET /Users`, cached; owner chose
+  auto-discover over a `JELLYFIN_USER_ID` setting) and create/append/pre-check now send it; (2)
+  **`Items?Path=` is ignored by the live server** — resolve now lists audio items and matches the path
+  client-side. `/code-review high` clean after fixing the load-bearing finding (pre-check-`None` no longer
+  flags stuck — it's indistinguishable from an outage). ADR-027 seam-1 amended; two concrete Jellyfin API
+  facts filed in `learnings.md`.
 
 ## ⟹ NEXT
 
-1. **T-306** — resolve-path membership write (the live review-approve silent gap); rides T-313's
-   idempotent append. Buildable now.
-2. **T-311's two live-seam fixes** — the `Path=` exact-lookup + `create_playlist` 400 (userId?). These
-   now gate the end-to-end happy-path observable; owner may want them pulled early since the append path
-   is currently non-functional live. Evidence is already on the ticket.
-3. **T-305 — batch-scoped SSE** (truthful counts now the seam is fixed) → **T-312** durable batch state →
-   **T-310** batch card (renders `stuck_since`) → **T-308** (`git mv docs/backlog/T-037.md docs/r2/`).
+1. **T-306** — resolve-path membership write (the live review-approve silent gap); rides T-313's idempotent
+   append. Buildable now, and the seam under it now actually works.
+2. **T-305 — batch-scoped SSE** → **T-312** durable batch state → **T-310** batch card (renders
+   `stuck_since`) → **T-308** (`git mv docs/backlog/T-037.md docs/r2/`).
+3. **T-311** — the FULL end-to-end `/verify` (whole acceptance checklist); needs the batch spine above. Its
+   two live findings are now RESOLVED by T-314.
+- **Two tracked follow-ups on T-314** (deferred from review, not lost): a per-pass resolve cache (resolve
+  lists the audio library per member), and Phase-1 path-remap robustness (exact `Path==` match only holds
+  while app + Jellyfin share the same absolute path — Phase 0 localhost).
 
 ## Recent sessions (rolling — last 2–3)
 
-- **2026-08-17 (this session)** — Built + merged **T-313** (Fable planned, Opus executed). 5 review
-  findings resolved; live `/verify` surfaced the two T-304/T-302 seam bugs → filed on T-311.
-- **2026-08-17 (earlier)** — Shipped **T-303** (exact-video dedup). Two councils settled T-304's fix as
-  T-313; rejected push + batch-at-end; found the review-approve membership gap (→ T-306).
-- **2026-08-17 (earlier)** — Shipped **T-304** defer-first Jellyfin playlist seam (the one T-313 hardened).
+- **2026-08-17 (this session)** — Built + merged **T-313** then **T-314** (Fable planned T-313; live spike
+  cracked the real Jellyfin API shapes). Playlist append works live for the first time. A history-audit
+  agent confirmed the feature had never been live-tested.
+- **2026-08-17 (earlier)** — Shipped **T-303** (exact-video dedup). Councils settled T-304's fix as T-313.
+- **2026-08-17 (earlier)** — Shipped **T-304** defer-first Jellyfin playlist seam (hardened by T-313/T-314).
 
 ## Where the rest of the context lives
 
-`docs/roadmap.md` (R2 `in-build`) · `docs/r2/spec.md` + **`tickets.md`** (T-300–304 + **T-313** done;
-**T-311** carries the two live-seam findings; T-306 buildable now) · `docs/r1/adr.md` (**ADR-027 seam-1
-amendment last filed**, T-313) · `docs/learnings.md` (T-313 live-API lesson) · `docs/workflow.md` ·
+`docs/roadmap.md` (R2 `in-build`) · `docs/r2/spec.md` + **`tickets.md`** (T-300–304 + **T-313, T-314** done;
+T-311 findings resolved; T-306 buildable) · `docs/r1/adr.md` (**ADR-027 seam-1: T-313 + T-314 amendments**) ·
+`docs/learnings.md` (T-313 live-API lesson + T-314 Jellyfin API facts) · `docs/workflow.md` ·
 `docs/backlog/` (T-047 superseded). Business → `/graft`.
