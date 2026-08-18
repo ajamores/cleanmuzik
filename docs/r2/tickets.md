@@ -39,8 +39,10 @@ nothing downstream can be mocked or built until the association *and its six sea
 the Jellyfin seam (T-304) lands **before** dedup (T-303), because T-303's skip path *adds the existing file
 to the playlist* through T-304's append (they are **not** parallel — cold-review correction).
 
-- **T-302** accept + expand → **T-304** Jellyfin playlist seam → **T-303** exact-video dedup → **T-305**
-  batch-scoped SSE + new events → **T-312** durable batch state + reconnect.
+- **T-302** accept + expand → **T-304** Jellyfin playlist seam → **T-303** exact-video dedup → **T-313**
+  reconcile reframe (fix T-304's 3 shipped bugs) → **T-305** batch-scoped SSE + new events → **T-312** durable
+  batch state + reconnect. **T-306** (resolve→playlist membership write) is buildable now and may be pulled
+  forward — it closes a live silent gap (see its council note).
 
 **Phase C — compose the batch behaviours.** Backfill and idempotent re-paste sit on top of the seams.
 
@@ -289,13 +291,70 @@ integrate onto `main` with the status line flipped in the closing commit, transc
   derived from SQLite — the card rebuilds without any in-memory event history. (Acceptance item 7 — terminal
   state durable; supports item 1's "walk away". Stories: US20, US22.)
 
+### T-313 — Reconcile reframe: retire the give-up tally, split resolve, idempotent append (fix T-304's 3 bugs)
+- **Status:** todo
+- **Depends on:** T-304 (the seam it hardens; all its machinery shipped). Couples with **T-305/T-310/T-312**
+  for the visible stuck-state surface (ship the stuck-state in the SAME change that deletes the counter).
+- **Agent:** back-end
+- **What:** T-304's defer-first reconcile shipped **three bugs**, confirmed by two councils against the
+  *shipped code* (a design council + an adversarial council). Root cause: a per-track retry **tally used as a
+  clock**, plus a `resolve_item_id` that can't tell "not indexed yet" from "Jellyfin unreachable." Fix **in
+  place, keeping incremental fill** (append each track as it lands — do NOT defer to end-of-batch; batch-at-end
+  was adversarially reviewed and **rejected**, see below). Five surgical repairs:
+  1. **Delete the give-up tally at all THREE sites**, or bug 1 returns *worse* via the 25s tick (~200 races,
+     not 20): the `list_pending_appends` filter (`db.py` `WHERE append_attempts < MAX_APPEND_ATTEMPTS`,
+     `db.py:~112/759-762`), the NOT_INDEXED bump (`jobs.py:~300`), and the append-fail / no-op-degrade bumps
+     (`jobs.py:~313/324`). **Bug 1 dies:** with no counter, the number of resolve attempts is irrelevant.
+  2. **Make `resolve_item_id` 3-state** (RESOLVED / NOT_INDEXED / UNREACHABLE) and map **every** current
+     `None` path (`jellyfin.py:241/253-258/260/261-262/264`): only a real string Id → RESOLVED; empty-Items /
+     config-absent → NOT_INDEXED; HTTP error/401/5xx/non-JSON / non-dict body / present-but-Idless →
+     UNREACHABLE. UNREACHABLE spends no budget; a malformed 2xx must **never** become RESOLVED(None) (it would
+     POST `Ids=None` → 400 → re-enter the burn). **Bug 3 dies** on the resolve path.
+  3. **Idempotent append:** pre-check the playlist's current ItemIds before POST, append only if absent, then
+     stamp — closes the crash-between-POST-and-stamp window (`jobs.py:311` before the stamp at `326`). Treat a
+     failed pre-check GET as UNREACHABLE → defer (never blind-append), and refresh the per-pass ItemIds set
+     after each in-pass append (else two rows resolving to the same item double-add). **Bug 2 dies** —
+     transport/timing-independent.
+  4. **Extend the no-penalty/defer treatment to the append path** (`JellyfinAppendError` at `jobs.py:312-313`
+     and the no-op degrade at `319-324`), or bug 3's disease survives on the append organ (a Jellyfin that
+     resolves fine but 5xx's on append still strands).
+  5. **Durable wall-clock "stuck" state** replaces the deleted counter: a row un-appended past a ceiling
+     (~30–60 min) flips to a **visible, retryable** stuck state in the tally (T-305) / batch card (T-310) —
+     never a silent drop, never an eternal *invisible* retry. Ship this **in lockstep** with the deletion.
+  - Keep the incremental `_drain_after_land` + ~25s tick + boot sweep — the council confirmed these are the
+    real correctness floor (tail / restart / late-park safety net). Keep R1 byte-for-byte (`playlist_id IS
+    NULL` early-returns everywhere). Optional efficiency-only tweak: coalesce N per-land `POST /Library/Refresh`
+    into fewer scans — **but do not defer the appends**.
+  - **Related:** the review-resolve membership write (a parked batch member joining its playlist on resolve) is
+    **T-306** — its append must ride *this* ticket's idempotent append.
+- **Done when:** a fast 50-track batch of cached videos lands with **no track dropped from the playlist**
+  (bug 1); a crash between append and stamp does **not** double-add on the next pass (bug 2); a multi-minute
+  Jellyfin outage mid-batch strands **no** healthy track and burns no budget, on **both** the resolve and the
+  append path (bug 3); a genuinely never-indexable file surfaces as a **visible stuck** row, not a silent drop
+  or infinite invisible retry; R1 single-song paste is byte-for-byte unchanged. **`/verify` the real side
+  effects.** Supersedes backlog **T-047**. Carries an **ADR-027 seam-1 amendment** (the poll *target* and
+  give-up *mechanism* change; "poll not push" stands).
+- **Rejected alternatives (both councilled against the shipped code):** **(a) switch to a push/WebSocket** —
+  kills only 2 of 3 bugs (the double-add is a transactional bug orthogonal to the readiness signal), and the
+  half-open socket reintroduces the exact silent-stop failure ADR-027 rejected the *Webhook plugin* for; the
+  first-party `LibraryChanged` WebSocket is docketed as a *future accelerator over the same ledger*, not built
+  for R2. **(b) batch-at-end** (defer all appends to one end-of-batch pass) — **no-go**: kills **zero** bugs the
+  reframe doesn't already kill on incremental fill, and adds an empty-playlist window, a worker-stalling
+  completion gate, a coalesced-refresh liveness regression, and a fragile batch-done trigger resting on an
+  unverified Jellyfin `ScheduledTasks` contract.
+
 ---
 
 ## Phase C — compose the batch behaviours
 
 ### T-306 — Backfill: a resolved parked track appends to its playlist
 - **Status:** todo
-- **Depends on:** T-304, T-302
+- **Depends on:** T-304, T-302 (its append should ride **T-313**'s idempotent append once that lands)
+- **Council note (2026-08-17):** this membership write is **currently absent from `run_resolve`** in shipped
+  code (verified: `_record_pending_membership`/`add_member` are called only from `run_pipeline`/the dedup-skip,
+  never the resolve path) — so a **parked batch member resolved today never joins its playlist** (a live silent
+  gap, surfaced by the T-313 adversarial council). This ticket is the fix; deps are done, so it is **buildable
+  now and can be pulled ahead of Phase C** if the live gap should close before the rest of the batch spine.
 - **Agent:** back-end
 - **What:** Walk the locked chain **`review → job → playlist → jellyfin_playlist_id`**. When a parked track
   is resolved through the **existing** `/api/reviews` resolve path (`reviews.py` → `resolve_import`) and
