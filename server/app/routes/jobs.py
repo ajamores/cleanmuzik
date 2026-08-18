@@ -1,6 +1,6 @@
 """Job routes — paste a URL, get a job; stream its progress; poll its snapshot (T-012/13, spec §6).
 
-Three routes:
+Four routes:
 
 - `POST /api/jobs {url, intent?}` → create the `jobs` row(s), hand them to the
   worker, and return `{ job_id }` (one song) or `{ playlist_id, job_ids }` (an
@@ -9,6 +9,9 @@ Three routes:
 - `GET /api/jobs/{job_id}/events` → the **SSE stream** (T-013): the spec §6 event
   catalogue for that job, replayed-then-live off `app.state.worker.bus`. No polling
   (ADR/spec).
+- `GET /api/playlists/{playlist_id}/events` → a batch's ONE stream (R2/T-305): the
+  batch events plus every member's stamped `track.*`, so a 50-track batch never
+  opens 50 EventSources.
 - `GET /api/jobs/{job_id}` → the reconnect / SSE-fallback snapshot: the durable row
   overlaid with the worker's live stage / error / review id.
 
@@ -24,6 +27,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
 from app.db import get_store
+from app.events import BATCH_DONE, batch_channel, batch_progress_payload
 
 router = APIRouter()
 
@@ -187,7 +191,14 @@ def _expand_and_enqueue(url: str, request: Request) -> dict:
             store.set_jellyfin_playlist_id(playlist.id, jellyfin_playlist_id)
 
     worker = request.app.state.worker
-    job_ids: list[str] = []
+
+    # Create every member row FIRST, announce the batch, THEN submit (T-305): the
+    # worker may start job 1 the instant it is submitted, and its stamped `track.*`
+    # events must not reach the batch stream before `batch.queued` has opened it (the
+    # replay buffer preserves emit order for late subscribers). The slightly wider
+    # created-but-unsubmitted window is already covered — a crash here leaves `queued`
+    # rows the boot reconcile settles, exactly as before.
+    members: list[tuple[str, str]] = []  # (job_id, url) in playlist order
     for position, entry in enumerate(expanded.entries, start=1):
         job = store.create_job(
             entry.url,
@@ -195,10 +206,36 @@ def _expand_and_enqueue(url: str, request: Request) -> dict:
             position=position,
             youtube_video_id=entry.video_id,
         )
-        worker.submit(job.id, entry.url)
-        job_ids.append(job.id)
+        members.append((job.id, entry.url))
 
-    return {"playlist_id": playlist.id, "job_ids": job_ids}
+    # The batch's ONE stream (T-305). `pin` exempts the channel from cap eviction while
+    # the batch's 50 short member channels churn past it. `reopen` starts a fresh
+    # *episode* per paste — a re-pasted playlist's channel may be closed (its last
+    # grind settled, and `publish` drops into a closed channel), and clearing the
+    # previous episode's buffer stops a new subscriber replaying a stale `state: done`
+    # tally before this grind's own events.
+    bus = worker.bus
+    key = batch_channel(playlist.id)
+    bus.pin(key)
+    bus.reopen(key)
+    bus.publish(key, "batch.queued", {
+        "playlist_id": playlist.id,
+        "title": playlist.title,
+        "total": len(members),
+    })
+    # An opening tally so the card renders counts before the first member settles —
+    # recomputed from the rows just written, the same durable read every later
+    # `batch.progress` rides (never an in-memory accumulator).
+    bus.publish(
+        key,
+        "batch.progress",
+        batch_progress_payload(playlist.id, store.count_jobs_by_status(playlist.id)),
+    )
+
+    for job_id, entry_url in members:
+        worker.submit(job_id, entry_url)
+
+    return {"playlist_id": playlist.id, "job_ids": [job_id for job_id, _ in members]}
 
 
 @router.get("/jobs/{job_id}/events")
@@ -219,6 +256,52 @@ async def stream_job_events(job_id: str, request: Request) -> StreamingResponse:
     bus = request.app.state.worker.bus
     return StreamingResponse(
         bus.stream(job_id, terminal=job.status in _TERMINAL_STATUSES),
+        media_type="text/event-stream",
+        headers=_SSE_HEADERS,
+    )
+
+
+@router.get("/playlists/{playlist_id}/events")
+async def stream_batch_events(playlist_id: str, request: Request) -> StreamingResponse:
+    """A batch's ONE SSE stream (T-305): `batch.queued` / `batch.progress` /
+    `track.skipped` plus every member's stamped `track.*`, on a single connection.
+
+    One stream per batch, never one per track — a 50-track batch against the
+    browser's ~6-per-origin `EventSource` cap would leave 44 dead streams. 404s an
+    unknown playlist, matching the per-job stream's contract.
+
+    The `terminal` hint mirrors the per-job route's: the batch channel is pinned
+    against eviction but does not survive a restart, and reconnecting to a *settled*
+    batch whose channel is gone must close at once rather than fabricate a fresh
+    channel and ping forever (the 2026-07-16 eviction lesson). "Settled" is derived
+    from the durable tally — the same `count_jobs_by_status` read `batch.progress`
+    rides — and deliberately excludes "waiting on you": a parked member's resolve
+    will still emit here, so that stream stays open for the tail.
+    """
+    store = get_store()
+    playlist = store.get_playlist(playlist_id)
+    if playlist is None:
+        raise HTTPException(status_code=404, detail=f"No playlist {playlist_id}.")
+    settled = (
+        batch_progress_payload(
+            playlist_id, store.count_jobs_by_status(playlist_id)
+        )["state"]
+        == BATCH_DONE
+    )
+    bus = request.app.state.worker.bus
+    key = batch_channel(playlist_id)
+    if settled:
+        # Self-heal (T-305 review finding): a batch that settled through a path bypassing
+        # `_BatchScopedBus` — the worker-loop backstop, or a tally-read failure at the
+        # final member — can leave this channel open and pinned, and a `terminal` hint
+        # alone doesn't retire an existing-but-open channel. The durable tally is the
+        # truth: it says settled, so close + unpin here. Idempotent on the normal path
+        # (already closed). The stream then replays the buffer and ends cleanly rather
+        # than pinging forever.
+        bus.close(key)
+        bus.unpin(key)
+    return StreamingResponse(
+        bus.stream(key, terminal=settled),
         media_type="text/event-stream",
         headers=_SSE_HEADERS,
     )

@@ -252,7 +252,12 @@ integrate onto `main` with the status line flipped in the closing commit, transc
   US11, US12, US13.)
 
 ### T-305 — Batch-scoped SSE: one stream per batch + new events; terminal "waiting on you"
-- **Status:** todo
+- **Status:** done (2026-08-18; merged to `main`, 670 tests green, `/code-review high` — 2 correctness
+  findings fixed, 3 triaged below; live-verified over a real socket: the new `GET /api/playlists/{id}/events`
+  404s an unknown id, closes cleanly for a settled batch — no eternal ping — and stays open while parked > 0.
+  The rich event contract — stamped `track.*`, the durable tally, the waiting→done flip — is proven by the
+  suite driving the real `run_pipeline` through the real ASGI route; the full live batch grind with real
+  downloads is **T-311**'s deferred e2e.)
 - **Depends on:** T-302
 - **Agent:** back-end
 - **What:** A 50-track batch must **not** open 50 `EventSource`s (browsers cap ~6/origin → 44 dead streams).
@@ -273,6 +278,19 @@ integrate onto `main` with the status line flipped in the closing commit, transc
   churn; the tally matches the real land/park/skip/fail counts; a forced track failure leaves the rest of the
   batch running; terminal state is "waiting on you" while parked > 0. (Acceptance items 1, 7. Stories: US15,
   US16, US17, US18, US19.)
+- **`/code-review high` (2026-08-18) — 5 findings, 2 fixed / 3 deferred:**
+  - **Fixed (correctness):** a batch's *final* member settling through a path that bypasses `_BatchScopedBus`
+    — the worker-loop backstop, or a tally-read failure at that member — left the batch channel open + pinned,
+    hanging a reconnecting client on pings. Fix: one shared `_settle_batch_after_member` helper called from
+    both the wrapper's `close` and the backstop, plus a reconnect self-heal in `stream_batch_events` (a
+    durably-settled batch closes + unpins the orphaned channel). Regression tests added.
+  - **Deferred #3 — unbounded batch replay buffer:** the pinned batch channel retains ~7 dicts/track for the
+    grind's life (per-job channels no longer bound it). Negligible at single-user scale; T-312's durable
+    projection supersedes the batch buffer as the reconnect truth, so bounding it belongs with T-312/T-310.
+  - **Deferred #5 — double DB read on the stream reconnect route** (`get_playlist` + `count_jobs_by_status`,
+    building the full payload to read one field): single-user-negligible micro-efficiency.
+  - **#4 (status-literal coupling)** addressed by a guard test pinning `batch_progress_payload`'s buckets to
+    the real `STATUS_*` constants.
 
 ### T-312 — Durable batch state + reconnect (walk-away survives a restart)
 - **Status:** todo
