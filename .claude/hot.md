@@ -28,9 +28,11 @@ CleanMuzik — personal YouTube → Jellyfin music tool. Purpose, stack, constra
   reconcile pass gained a **create-if-missing** branch (NULL container → create + persist, double-create
   guarded). **Live-verified 9/9 against real Jellyfin** — a parked member's durable row auto-created a
   real playlist and landed the track in it, idempotent across a simulated restart.
-- Four out-of-scope `/code-review` findings filed as **T-306 deferred follow-ups** (`tickets.md`): stale
-  non-null playlist-id never recovered; stuck-ceiling measured from `created_at`; stuck-row drain
-  starvation (T-313 lineage); `resolve_user_id` cache has no invalidation (T-314 lineage).
+- Four out-of-scope `/code-review` findings from T-306 triaged. #1 **stale/deleted non-null playlist-id
+  never recovered** promoted to its own R2 ticket **T-315** (`tickets.md`, Phase C, todo) — it's a
+  robustness gap in a shipped R2 feature, so it rides R2 per the active-release-bugs rule. #2–#4 stay as
+  T-306 deferred follow-ups (cosmetic / latent / single-user-negligible): stuck-ceiling measured from
+  `created_at`; stuck-row drain starvation (T-313 lineage); `resolve_user_id` cache no invalidation (T-314).
 
 ## ⟹ NEXT
 
@@ -51,5 +53,5 @@ CleanMuzik — personal YouTube → Jellyfin music tool. Purpose, stack, constra
 ## Where the rest of the context lives
 
 `docs/roadmap.md` (R2 `in-build`) · `docs/r2/spec.md` + **`tickets.md`** (T-300–304, T-313, T-314, **T-306**
-done; T-305/T-312/T-310/T-308/T-307/T-311 open) · `docs/r1/adr.md` (**ADR-027 seam-1**; create-if-missing
+done; T-305/T-312/T-310/T-308/T-307/T-311/**T-315** open) · `docs/r1/adr.md` (**ADR-027 seam-1**; create-if-missing
 is the settled null-case guard) · `docs/learnings.md` · `docs/workflow.md` · `docs/backlog/` (T-037). Business → `/graft`.

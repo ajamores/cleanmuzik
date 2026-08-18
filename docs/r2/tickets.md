@@ -46,7 +46,8 @@ to the playlist* through T-304's append (they are **not** parallel — cold-revi
 
 **Phase C — compose the batch behaviours.** Backfill and idempotent re-paste sit on top of the seams.
 
-- **T-306** backfill (review→playlist) · **T-307** idempotent re-paste.
+- **T-306** backfill (review→playlist) · **T-307** idempotent re-paste · **T-315** recover a stale/deleted
+  playlist id (T-306 follow-up).
 
 **Phase D — T-037.** Independent of the batch spine; can run alongside Phase B once ADR-028 (T-301) lands.
 
@@ -408,8 +409,8 @@ integrate onto `main` with the status line flipped in the closing commit, transc
   1. **Stale/deleted non-null playlist id is never recovered.** create-if-missing guards a **NULL** id only;
      a non-null-but-stale id (owner deleted the playlist in Jellyfin) reaches the pre-check, returns `None`,
      and defers every pass — logged once/pass, but never stuck-flagged and never re-created. Silent (log-only)
-     permanent defer. A stale-id recovery (re-create, or surface it) is its own ticket; the docstring claim was
-     corrected to stop implying create-if-missing covers it.
+     permanent defer. A stale-id recovery (re-create, or surface it) is its own ticket — **now T-315**; the
+     docstring claim was corrected to stop implying create-if-missing covers it.
   2. **Stuck ceiling is measured from `created_at`.** A row whose container was absent for a long time is
      already past the wall-clock ceiling the instant create-if-missing backfills the container, so its first
      reachable NOT_INDEXED pass flags it stuck even though it just became resolvable. Display-only and
@@ -458,6 +459,30 @@ integrate onto `main` with the status line flipped in the closing commit, transc
   playlist is **added exactly once**, and the Jellyfin playlist is the **same** one (not duplicated); a
   video already in both library and playlist does **not** double-add. (Acceptance items 5, 9-adjacent (re-add
   path); item 11 (already-have still added). Stories: US9, US10, US11.)
+
+### T-315 — Recover a stale/deleted playlist id (create-if-missing only guards NULL)
+- **Status:** todo
+- **Depends on:** T-306, T-304
+- **Why (T-306 follow-up #1):** T-306's **create-if-missing** reconcile branch only guards a **NULL**
+  `jellyfin_playlist_id`. A **non-null-but-stale** id — the owner deleted the playlist in Jellyfin after it
+  was created — reaches the reconcile pre-check, returns `None`, and **defers every pass forever**: logged
+  once per pass, never stuck-flagged, never re-created. A silent, permanent defer of every future append to
+  that playlist. This is a robustness gap in a **shipped R2 feature** (the parked→resolved→appends path,
+  acceptance item 4), so it rides R2, not the backlog.
+- **Agent:** back-end
+- **What:** In the reconcile pass, distinguish **"never created" (NULL)** from **"created then vanished"
+  (non-null id that Jellyfin no longer knows)**. On a confirmed-absent non-null id, treat it like the NULL
+  case: **re-create the container, persist the new id, and re-point the pending memberships at it** (the same
+  create-if-missing machinery, double-create-guarded per T-306). Distinguish *deleted* from *transiently
+  unreachable* — a network blip or a down Jellyfin must **not** trigger a re-create (that would orphan a
+  still-live playlist); only a positive "does not exist" answer does. If that distinction can't be made
+  cheaply/safely, **surface the stuck row** rather than silently deferring (the current failure the fix
+  removes). No new landing path — reuse T-306's reconcile branch.
+- **Done when:** a playlist whose `jellyfin_playlist_id` is non-null but **deleted in Jellyfin** is
+  re-created on the next reconcile pass and its pending appends land in the new playlist — proven by playlist
+  membership across a restart, **not** by reading the `playlists` table; and a **transiently unreachable**
+  Jellyfin (id still valid) does **not** spawn a duplicate playlist. (Robustness of acceptance item 4.
+  Stories: US7, US8.)
 
 ---
 
