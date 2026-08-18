@@ -36,14 +36,17 @@ CleanMuzik — personal YouTube → Jellyfin music tool. Purpose, stack, constra
 - **Live gap found:** `run_resolve` writes no playlist membership → a **parked batch member approved
   later never joins its playlist**. That fix is **T-306** (already todo, buildable now).
 
-## ⟹ NEXT
+## ⟹ NEXT — fix T-304's live bugs BEFORE layering T-305 on the seam
 
-1. **T-305 — batch-scoped SSE** (one stream/batch + `batch.queued`/`batch.progress`/`track.skipped`).
-2. **T-313 — reconcile reframe** (the fix above; supersedes backlog T-047; carries an ADR-027 seam-1
-   amendment). Ship its "stuck" state in lockstep with T-310/T-312.
-3. **T-306** can be **pulled forward** to close the live review-approve gap before the rest.
-4. **T-312** durable batch state; **T-308** (Phase D, ADR-028) alongside — `git mv docs/backlog/T-037.md
-   docs/r2/` on start.
+1. **T-313 — reconcile reframe** (fixes the 3 bugs; supersedes T-047; carries an ADR-027 seam-1
+   amendment). Backend correctness + a durable "stuck" flag land now; the on-screen surface follows
+   with the batch UI (T-310) — no silent loss in the gap.
+2. **T-306** — resolve-path membership write; rides T-313's idempotent append, closes the live
+   review-approve silent loss.
+3. **T-305 — batch-scoped SSE** (one stream/batch + `batch.queued`/`batch.progress`/`track.skipped`).
+   *After* T-313, so its tally reports truthful counts, not a broken seam's.
+4. **T-312** durable batch state; **T-310** batch card (renders T-313's stuck state); **T-308**
+   (Phase D, ADR-028) alongside — `git mv docs/backlog/T-037.md docs/r2/` on start.
 
 ## Recent sessions (rolling — last 2–3)
 
