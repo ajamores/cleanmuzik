@@ -21,37 +21,38 @@ CleanMuzik — personal YouTube → Jellyfin music tool. Purpose, stack, constra
 
 ## Current State (2026-08-18)
 
-- **On `main`, tree clean, pushed. 650 tests green.** R2 (Playlists) `in-build`.
-- **T-306 done + pushed** — the last silent gap in the append seam is closed: a batch member that
-  **parked at import and is resolved later** via `/api/reviews` now joins its playlist. `run_resolve`'s
-  landed branch records a pending membership (path, NULL item id) exactly as `run_pipeline` does; the
-  reconcile pass gained a **create-if-missing** branch (NULL container → create + persist, double-create
-  guarded). **Live-verified 9/9 against real Jellyfin** — a parked member's durable row auto-created a
-  real playlist and landed the track in it, idempotent across a simulated restart.
-- Four out-of-scope `/code-review` findings from T-306 triaged. #1 **stale/deleted non-null playlist-id
-  never recovered** promoted to its own R2 ticket **T-315** (`tickets.md`, Phase C, todo) — it's a
-  robustness gap in a shipped R2 feature, so it rides R2 per the active-release-bugs rule. #2–#4 stay as
-  T-306 deferred follow-ups (cosmetic / latent / single-user-negligible): stuck-ceiling measured from
-  `created_at`; stuck-row drain starvation (T-313 lineage); `resolve_user_id` cache no invalidation (T-314).
+- **On `main`, tree clean. 670 tests green. Merged but NOT pushed** (origin is behind by the T-305
+  feat + merge — push is yours to call). R2 (Playlists) `in-build`.
+- **T-305 done + merged** — the batch spine's first stone: a batch drives **one** playlist-scoped SSE
+  stream, not one-per-track (dual-publish via `_BatchScopedBus`; `batch.queued`/`batch.progress`; tally
+  recomputed from SQLite; "waiting on you" while parked > 0; channel pinned against eviction). Full
+  mechanism + the 2 fixed `/code-review` findings (batch channel orphaned open+pinned when the final
+  member bypassed the wrapper) + the 3 triaged ones are in `tickets.md` T-305 and commit `a908c4c`.
+- Live-verified over a real socket (isolated DB): 404 on unknown, clean close for a settled batch, stays
+  open while parked. The full live batch grind with real downloads is **T-311**'s e2e.
 
 ## ⟹ NEXT
 
-1. **The batch spine (Phase C→E), in order:** **T-305** batch-scoped SSE → **T-312** durable batch
-   state + reconnect → **T-310** batch card (renders `stuck_since`) → **T-308** (`git mv
-   docs/backlog/T-037.md docs/r2/`).
-2. **T-307** — idempotent re-paste (rides T-303 + T-304's idempotent append; buildable).
-3. **T-311** — the FULL end-to-end `/verify` (whole acceptance checklist). Needs the batch spine above;
-   item 4 (parked→resolved→appends) is now separately live-proven by T-306.
+1. **T-312** — durable batch state + reconnect (`GET /api/playlists/{id}`). **Now unblocked** (depended
+   on T-305). Reuses `count_jobs_by_status` + `batch_progress_payload` as its **exact** projection source.
+2. **T-310** — batch card (aggregate view). **Design gate first** (ADR-016: flat HTML scenario screens,
+   incl. ugly states, signed off before component code). Renders `stuck_since`; client closes its
+   EventSource on `state != running` (the batch edition of the EventSource-close rule).
+3. **T-308** — `git mv docs/backlog/T-037.md docs/r2/` (artist-credit normalisation; ADR-028 already filed).
+4. **T-307** — idempotent re-paste (buildable; rides T-303/T-304's idempotent append).
+5. **T-311** — the FULL end-to-end `/verify` (whole acceptance checklist). Needs the spine above.
 
 ## Recent sessions (rolling — last 2–3)
 
-- **2026-08-18 (this session)** — Built + pushed **T-306** directly on `main`. Live `/verify` proved
-  create-if-missing against real Jellyfin. Review findings triaged (1 fixed in code, 4 filed).
-- **2026-08-17** — Built + merged **T-313** then **T-314**; playlist append works live for the first time
-  (real track in a real Jellyfin playlist). Shipped **T-303** (exact-video dedup) earlier.
+- **2026-08-18 (this session)** — Built **T-305** via a fable agent in a worktree; owned the DoD (review,
+  acceptance, live `/verify`, integration). Fixed 2 review findings, merged to `main`, 670 green.
+- **2026-08-18 (earlier)** — Built + pushed **T-306** (parked→resolved appends to its playlist); filed
+  **T-315** from a review finding.
+- **2026-08-17** — Merged **T-313** then **T-314**; playlist append works live for the first time.
 
 ## Where the rest of the context lives
 
-`docs/roadmap.md` (R2 `in-build`) · `docs/r2/spec.md` + **`tickets.md`** (T-300–304, T-313, T-314, **T-306**
-done; T-305/T-312/T-310/T-308/T-307/T-311/**T-315** open) · `docs/r1/adr.md` (**ADR-027 seam-1**; create-if-missing
-is the settled null-case guard) · `docs/learnings.md` · `docs/workflow.md` · `docs/backlog/` (T-037). Business → `/graft`.
+`docs/roadmap.md` (R2 `in-build`) · `docs/r2/spec.md` + **`tickets.md`** (T-300–304, T-313, T-314, T-306,
+**T-305** done; T-312/T-310/T-308/T-307/T-311/T-315 open) · `docs/r1/adr.md` (**ADR-027 seam-1**;
+create-if-missing = settled null-case guard) · `docs/learnings.md` · `docs/workflow.md` ·
+`docs/backlog/` (T-037). Business → `/graft`.
