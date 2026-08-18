@@ -17,20 +17,39 @@ real Jellyfin is T-311. One class per "Done when" clause:
 """
 
 import sqlite3
+from datetime import datetime, timedelta, timezone
 
 import pytest
 import requests
 
 from app.config import Settings
-from app.db import MAX_APPEND_ATTEMPTS, Store
+from app.db import Store
 from app.import_seam import Outcome
 from app.jellyfin import (
     JellyfinAppendError,
+    ResolveResult,
+    ResolveStatus,
     append_to_playlist,
+    get_playlist_item_ids,
     resolve_item_id,
 )
 from app.jobs import JobRegistry, reconcile_pending_appends, run_pipeline
 from app.source_signals import SourceSignals
+
+
+def _resolved(item_id):
+    """A resolve_fn that always RESOLVES to `item_id` (T-313 3-state test helper)."""
+    return lambda path, settings=None: ResolveResult(ResolveStatus.RESOLVED, item_id)
+
+
+def _resolve_status(status):
+    """A resolve_fn that always returns `status` with no item id (NOT_INDEXED / UNREACHABLE)."""
+    return lambda path, settings=None: ResolveResult(status)
+
+
+def _empty_precheck(pl_id, settings=None):
+    """A precheck_fn for a reachable, currently-empty playlist (the common case)."""
+    return set()
 
 
 def _store(tmp_path):
@@ -86,26 +105,98 @@ class _Http:
 
 
 class TestResolveItemId:
-    def test_hit_returns_first_item_id(self):
+    """The 3-state resolve (T-313, repair 2). Every current `None` path maps to exactly one
+    of RESOLVED / NOT_INDEXED / UNREACHABLE — the split that lets the reconcile pass tell
+    'wait for the index' from 'Jellyfin is down' and stops an outage stranding healthy rows."""
+
+    def test_hit_returns_resolved_with_first_item_id(self):
         http = _Http(get_resp=_Resp(json_body={"Items": [{"Id": "item-9"}]}))
-        assert resolve_item_id("/lib/A/x.mp3", settings=_cfg(), http=http) == "item-9"
+        result = resolve_item_id("/lib/A/x.mp3", settings=_cfg(), http=http)
+        assert result == ResolveResult(ResolveStatus.RESOLVED, "item-9")
         endpoint, kw = http.get_call
         assert endpoint == "http://jf:8096/Items"
         assert kw["params"]["Path"] == "/lib/A/x.mp3"
         assert kw["headers"]["X-Emby-Token"] == "key"
 
-    def test_miss_empty_items_is_none_not_error(self):
+    def test_empty_items_is_not_indexed(self):
         http = _Http(get_resp=_Resp(json_body={"Items": []}))
-        assert resolve_item_id("/lib/A/x.mp3", settings=_cfg(), http=http) is None
+        result = resolve_item_id("/lib/A/x.mp3", settings=_cfg(), http=http)
+        assert result.status is ResolveStatus.NOT_INDEXED and result.item_id is None
 
-    def test_absent_config_degrades_to_none_without_calling(self):
+    def test_absent_config_is_not_indexed_without_calling(self):
         http = _Http(get_resp=_Resp(json_body={"Items": [{"Id": "no"}]}))
-        assert resolve_item_id("/lib/A/x.mp3", settings=_ABSENT, http=http) is None
+        result = resolve_item_id("/lib/A/x.mp3", settings=_ABSENT, http=http)
+        assert result.status is ResolveStatus.NOT_INDEXED
         assert http.get_call is None  # never touched the network
 
-    def test_request_failure_degrades_to_none(self):
+    def test_request_failure_is_unreachable(self):
         http = _Http(get_resp=_Resp(raise_exc=requests.RequestException("boom")))
-        assert resolve_item_id("/lib/A/x.mp3", settings=_cfg(), http=http) is None
+        result = resolve_item_id("/lib/A/x.mp3", settings=_cfg(), http=http)
+        assert result.status is ResolveStatus.UNREACHABLE
+
+    def test_non_json_body_is_unreachable(self):
+        http = _Http(get_resp=_Resp(json_body=ValueError("not json")))
+        result = resolve_item_id("/lib/A/x.mp3", settings=_cfg(), http=http)
+        assert result.status is ResolveStatus.UNREACHABLE
+
+    def test_non_dict_body_is_unreachable(self):
+        http = _Http(get_resp=_Resp(json_body=["not", "a", "dict"]))
+        result = resolve_item_id("/lib/A/x.mp3", settings=_cfg(), http=http)
+        assert result.status is ResolveStatus.UNREACHABLE
+
+    def test_present_but_idless_first_item_is_unreachable_never_resolved_none(self):
+        """The load-bearing case: a 2xx whose first item has no usable Id must NOT become
+        RESOLVED(None) (that would POST Ids=None → 400 → re-enter the retry burn, bug 3)."""
+        http = _Http(get_resp=_Resp(json_body={"Items": [{"Name": "no id here"}]}))
+        result = resolve_item_id("/lib/A/x.mp3", settings=_cfg(), http=http)
+        assert result.status is ResolveStatus.UNREACHABLE
+
+    def test_empty_string_id_is_unreachable(self):
+        http = _Http(get_resp=_Resp(json_body={"Items": [{"Id": ""}]}))
+        result = resolve_item_id("/lib/A/x.mp3", settings=_cfg(), http=http)
+        assert result.status is ResolveStatus.UNREACHABLE
+
+    def test_resolved_none_is_unconstructible(self):
+        """The invariant behind the whole repair — enforced at construction."""
+        with pytest.raises(ValueError):
+            ResolveResult(ResolveStatus.RESOLVED, None)
+        with pytest.raises(ValueError):
+            ResolveResult(ResolveStatus.NOT_INDEXED, "leaked-id")
+
+
+class TestGetPlaylistItemIds:
+    """The pre-check GET behind the idempotent append (T-313, repair 3)."""
+
+    def test_returns_the_set_of_library_item_ids(self):
+        http = _Http(get_resp=_Resp(json_body={"Items": [{"Id": "a"}, {"Id": "b"}]}))
+        got = get_playlist_item_ids("pl-1", settings=_cfg(), http=http)
+        assert got == {"a", "b"}
+        endpoint, _ = http.get_call
+        assert endpoint == "http://jf:8096/Playlists/pl-1/Items"
+
+    def test_empty_playlist_is_an_empty_set_not_none(self):
+        """A valid answer distinct from failure — an empty playlist means 'append freely'."""
+        http = _Http(get_resp=_Resp(json_body={"Items": []}))
+        assert get_playlist_item_ids("pl-1", settings=_cfg(), http=http) == set()
+
+    def test_absent_config_is_none(self):
+        http = _Http(get_resp=_Resp(json_body={"Items": []}))
+        assert get_playlist_item_ids("pl-1", settings=_ABSENT, http=http) is None
+        assert http.get_call is None
+
+    def test_request_failure_is_none(self):
+        http = _Http(get_resp=_Resp(raise_exc=requests.RequestException("boom")))
+        assert get_playlist_item_ids("pl-1", settings=_cfg(), http=http) is None
+
+    def test_non_dict_body_is_none(self):
+        http = _Http(get_resp=_Resp(json_body=["nope"]))
+        assert get_playlist_item_ids("pl-1", settings=_cfg(), http=http) is None
+
+    def test_malformed_items_entries_are_skipped(self):
+        http = _Http(get_resp=_Resp(
+            json_body={"Items": [{"Id": "a"}, {"Name": "no id"}, "junk", {"Id": ""}]}
+        ))
+        assert get_playlist_item_ids("pl-1", settings=_cfg(), http=http) == {"a"}
 
 
 class TestAppendToPlaylist:
@@ -131,14 +222,13 @@ class TestAppendToPlaylist:
 
 
 class TestMigration:
-    def test_alter_adds_columns_to_a_shipped_t300_playlist_members(self, tmp_path):
-        """The two T-304 columns land on a T-300-era `playlist_members` (no CREATE change).
+    def test_alter_adds_t313_columns_to_a_shipped_t300_playlist_members(self, tmp_path):
+        """`landed_path` (T-304) + `stuck_since` (T-313) land on a T-300-era table via ALTER.
 
         The table shipped in T-300 without these columns and is on the owner's live DB, so
-        they must arrive via `_ADDED_COLUMNS`'s ALTER — not the `CREATE TABLE IF NOT
-        EXISTS`, which no-ops on the existing table. Simulate that DB: create the table in
-        its shipped shape, then `init_schema` must ALTER the columns in and `add_member`
-        with a `landed_path` must work.
+        they must arrive via `_ADDED_COLUMNS`'s ALTER — not the `CREATE TABLE IF NOT EXISTS`,
+        which no-ops on the existing table. `append_attempts` is NOT added — it was retired by
+        T-313 and only survives as a dead column on DBs that already had it (below).
         """
         db_path = tmp_path / "jobs.db"
         conn = sqlite3.connect(db_path)
@@ -146,7 +236,7 @@ class TestMigration:
             "CREATE TABLE jobs (id TEXT PRIMARY KEY, url TEXT, status TEXT, created_at TEXT);"
             "CREATE TABLE playlists (id TEXT PRIMARY KEY, youtube_playlist_id TEXT UNIQUE,"
             " title TEXT, jellyfin_playlist_id TEXT, created_at TEXT);"
-            # T-300 shape: NO landed_path, NO append_attempts.
+            # T-300 shape: NO landed_path, NO append_attempts, NO stuck_since.
             "CREATE TABLE playlist_members (id TEXT PRIMARY KEY, playlist_id TEXT,"
             " youtube_video_id TEXT, position INTEGER, jellyfin_item_id TEXT, created_at TEXT,"
             " UNIQUE(playlist_id, youtube_video_id));"
@@ -155,16 +245,43 @@ class TestMigration:
         conn.close()
 
         store = Store(db_path)
-        store.init_schema()  # must ALTER the two columns in
+        store.init_schema()  # must ALTER landed_path + stuck_since in
 
         cols = {row[1] for row in  # PRAGMA table_info: col 1 is the name
                 sqlite3.connect(db_path).execute("PRAGMA table_info(playlist_members)")}
-        assert {"landed_path", "append_attempts"} <= cols
+        assert {"landed_path", "stuck_since"} <= cols
+        assert "append_attempts" not in cols  # retired — never added on a fresh/T-300 DB
 
         pl = store.upsert_playlist("PL", "P")
         store.add_member(pl.id, "vidA", position=1, landed_path="/lib/a.mp3")
         (m,) = store.list_pending_appends(10)
-        assert m.landed_path == "/lib/a.mp3" and m.append_attempts == 0
+        assert m.landed_path == "/lib/a.mp3" and m.stuck_since is None
+
+    def test_migration_leaves_a_pre_t313_append_attempts_column_as_a_dead_column(self, tmp_path):
+        """A T-304-era DB (already has append_attempts) keeps it — no DROP — and gains
+        stuck_since. The old column is simply never read again."""
+        db_path = tmp_path / "jobs.db"
+        conn = sqlite3.connect(db_path)
+        conn.executescript(
+            "CREATE TABLE jobs (id TEXT PRIMARY KEY, url TEXT, status TEXT, created_at TEXT);"
+            "CREATE TABLE playlists (id TEXT PRIMARY KEY, youtube_playlist_id TEXT UNIQUE,"
+            " title TEXT, jellyfin_playlist_id TEXT, created_at TEXT);"
+            # T-304 shape: HAS landed_path + append_attempts, NO stuck_since.
+            "CREATE TABLE playlist_members (id TEXT PRIMARY KEY, playlist_id TEXT,"
+            " youtube_video_id TEXT, position INTEGER, jellyfin_item_id TEXT, created_at TEXT,"
+            " landed_path TEXT, append_attempts INTEGER NOT NULL DEFAULT 0,"
+            " UNIQUE(playlist_id, youtube_video_id));"
+        )
+        conn.commit()
+        conn.close()
+
+        store = Store(db_path)
+        store.init_schema()  # must ALTER stuck_since in, leave append_attempts alone
+
+        cols = {row[1] for row in
+                sqlite3.connect(db_path).execute("PRAGMA table_info(playlist_members)")}
+        assert "stuck_since" in cols
+        assert "append_attempts" in cols  # dead, not dropped — a rebuild would be needless risk
 
 
 class TestPendingAppendDAO:
@@ -173,29 +290,68 @@ class TestPendingAppendDAO:
         pl = store.upsert_playlist("PL", "P")
         store.add_member(pl.id, "vidA", position=1, landed_path="/lib/A/x.mp3")
         (m,) = store.list_pending_appends(10)
-        assert (m.landed_path, m.jellyfin_item_id, m.append_attempts) == (
-            "/lib/A/x.mp3", None, 0,
+        assert (m.landed_path, m.jellyfin_item_id, m.stuck_since) == (
+            "/lib/A/x.mp3", None, None,
         )
 
-    def test_queue_excludes_resolved_pathless_and_capped(self, tmp_path):
+    def test_queue_excludes_resolved_and_pathless_only(self, tmp_path):
+        """Drainable = pending + has a path. No give-up ceiling any more (T-313)."""
         store = _store(tmp_path)
         pl = store.upsert_playlist("PL", "P")
-        # drainable
         store.add_member(pl.id, "vidPending", position=1, landed_path="/lib/p.mp3")
         # already appended → excluded
         store.add_member(pl.id, "vidDone", position=2,
                          jellyfin_item_id="it", landed_path="/lib/d.mp3")
         # no path → unresolvable, excluded (never handed to the drainer)
         store.add_member(pl.id, "vidNoPath", position=3)
-        # at the give-up ceiling → excluded
-        store.add_member(pl.id, "vidCapped", position=4, landed_path="/lib/c.mp3")
-        capped = [m for m in store.list_pending_appends(10)
-                  if m.youtube_video_id == "vidCapped"][0]
-        for _ in range(MAX_APPEND_ATTEMPTS):
-            store.bump_append_attempt(capped.id)
 
         pending = store.list_pending_appends(10)
         assert [m.youtube_video_id for m in pending] == ["vidPending"]
+
+    def test_a_stuck_row_is_still_drainable(self, tmp_path):
+        """'Stuck' is visibility, not benching — the row stays in the pending set (bug 1/3)."""
+        store = _store(tmp_path)
+        pl = store.upsert_playlist("PL", "P")
+        store.add_member(pl.id, "vidStuck", position=1, landed_path="/lib/s.mp3")
+        (m,) = store.list_pending_appends(10)
+        store.mark_member_stuck(m.id)
+        still = store.list_pending_appends(10)
+        assert [x.youtube_video_id for x in still] == ["vidStuck"]
+        assert still[0].stuck_since is not None
+
+    def test_legacy_capped_row_resurrects_when_the_filter_is_gone(self, tmp_path):
+        """Bug-1 backfill regression: a row the OLD cap benched (append_attempts high) must
+        re-enter the pending set now the counter filter is deleted — it was an outage victim,
+        not a genuine give-up. Simulated on a DB that carries the dead append_attempts column."""
+        db_path = tmp_path / "jobs.db"
+        conn = sqlite3.connect(db_path)
+        conn.executescript(
+            "CREATE TABLE jobs (id TEXT PRIMARY KEY, url TEXT, status TEXT, created_at TEXT);"
+            "CREATE TABLE playlists (id TEXT PRIMARY KEY, youtube_playlist_id TEXT UNIQUE,"
+            " title TEXT, jellyfin_playlist_id TEXT, created_at TEXT);"
+            "CREATE TABLE playlist_members (id TEXT PRIMARY KEY, playlist_id TEXT,"
+            " youtube_video_id TEXT, position INTEGER, jellyfin_item_id TEXT, created_at TEXT,"
+            " landed_path TEXT, append_attempts INTEGER NOT NULL DEFAULT 0,"
+            " UNIQUE(playlist_id, youtube_video_id));"
+        )
+        conn.execute(
+            "INSERT INTO playlists (id, youtube_playlist_id, title, created_at) "
+            "VALUES ('pl', 'PL', 'P', '2026-01-01T00:00:00+00:00')"
+        )
+        conn.execute(
+            "INSERT INTO playlist_members "
+            "(id, playlist_id, youtube_video_id, position, jellyfin_item_id, created_at,"
+            " landed_path, append_attempts) "
+            "VALUES ('m', 'pl', 'vidBenched', 1, NULL, '2026-01-01T00:00:00+00:00',"
+            " '/lib/benched.mp3', 999)"
+        )
+        conn.commit()
+        conn.close()
+
+        store = Store(db_path)
+        store.init_schema()
+        pending = store.list_pending_appends(10)
+        assert [m.youtube_video_id for m in pending] == ["vidBenched"]  # resurrected
 
     def test_queue_is_oldest_first_and_limited(self, tmp_path):
         store = _store(tmp_path)
@@ -205,21 +361,25 @@ class TestPendingAppendDAO:
         first_two = store.list_pending_appends(2)
         assert [m.youtube_video_id for m in first_two] == ["vid0", "vid1"]
 
-    def test_mark_appended_removes_from_queue(self, tmp_path):
+    def test_mark_appended_removes_from_queue_and_clears_stuck(self, tmp_path):
         store = _store(tmp_path)
         pl = store.upsert_playlist("PL", "P")
         store.add_member(pl.id, "vidA", position=1, landed_path="/lib/a.mp3")
         (m,) = store.list_pending_appends(10)
-        store.mark_member_appended(m.id, "item-1")
+        store.mark_member_stuck(m.id)  # flagged stuck first...
+        store.mark_member_appended(m.id, "item-1")  # ...then finally appends
         assert store.list_pending_appends(10) == []
+        assert store.list_members(pl.id)[0].stuck_since is None  # flag cleared
 
-    def test_bump_returns_running_total(self, tmp_path):
+    def test_mark_member_stuck_preserves_the_first_breach_time(self, tmp_path):
         store = _store(tmp_path)
         pl = store.upsert_playlist("PL", "P")
         store.add_member(pl.id, "vidA", position=1, landed_path="/lib/a.mp3")
         (m,) = store.list_pending_appends(10)
-        assert store.bump_append_attempt(m.id) == 1
-        assert store.bump_append_attempt(m.id) == 2
+        store.mark_member_stuck(m.id)
+        first = store.list_members(pl.id)[0].stuck_since
+        store.mark_member_stuck(m.id)  # a later pass notices it's still stuck
+        assert store.list_members(pl.id)[0].stuck_since == first  # first time kept, not bumped
 
 
 # --- 3. reconcile orchestration ---------------------------------------------
@@ -234,44 +394,102 @@ def _playlist_with_pending(tmp_path, *, jellyfin_playlist_id="jf-pl"):
     return store, pl
 
 
+def _backdate(store, member_id, *, minutes):
+    """Push a member's created_at into the past so the wall-clock stuck ceiling is crossed."""
+    old = (datetime.now(timezone.utc) - timedelta(minutes=minutes)).isoformat()
+    with store._connect() as conn:  # noqa: SLF001 — white-box test setup
+        conn.execute(
+            "UPDATE playlist_members SET created_at = ? WHERE id = ?", (old, member_id)
+        )
+
+
 class TestReconcile:
     def test_hit_appends_with_stored_jellyfin_playlist_id_and_stamps(self, tmp_path):
         store, _ = _playlist_with_pending(tmp_path)
         appends = []
         n = reconcile_pending_appends(
             store, limit=10,
-            resolve_fn=lambda path, settings=None: "item-42",
+            resolve_fn=_resolved("item-42"),
             append_fn=lambda pl_id, item_id, settings=None: (
                 appends.append((pl_id, item_id)) or True
             ),
+            precheck_fn=_empty_precheck,
         )
         assert n == 1
         assert appends == [("jf-pl", "item-42")]  # the id T-302 stored
         assert store.list_pending_appends(10) == []  # stamped → drained
 
-    def test_miss_defers_without_dropping(self, tmp_path):
+    def test_not_indexed_defers_without_dropping_or_flagging(self, tmp_path):
         store, _ = _playlist_with_pending(tmp_path)
         n = reconcile_pending_appends(
             store, limit=10,
-            resolve_fn=lambda path, settings=None: None,  # not indexed yet
+            resolve_fn=_resolve_status(ResolveStatus.NOT_INDEXED),
             append_fn=lambda *a, **k: pytest.fail("must not append on a miss"),
+            precheck_fn=_empty_precheck,
         )
         assert n == 0
         (m,) = store.list_pending_appends(10)
-        assert m.append_attempts == 1  # counted, still pending — no silent drop
+        assert m.jellyfin_item_id is None and m.stuck_since is None  # pending, not yet stuck
 
-    def test_uncreated_container_is_skipped_without_burning_attempts(self, tmp_path):
+    def test_uncreated_container_is_skipped(self, tmp_path):
         store, _ = _playlist_with_pending(tmp_path, jellyfin_playlist_id=None)
         n = reconcile_pending_appends(
             store, limit=10,
             resolve_fn=lambda *a, **k: pytest.fail("must not resolve a container-less row"),
             append_fn=lambda *a, **k: pytest.fail("must not append"),
+            precheck_fn=lambda *a, **k: pytest.fail("must not pre-check a container-less row"),
         )
         assert n == 0
         (m,) = store.list_pending_appends(10)
-        assert m.append_attempts == 0  # the container's fault, not the member's (T-306)
+        assert m.stuck_since is None  # the container's fault, not the member's (T-306)
 
-    def test_failed_append_leaves_it_pending(self, tmp_path):
+    # --- bug 3: an outage strands nothing and spends no budget, on BOTH organs ---------
+
+    def test_resolve_unreachable_defers_untouched(self, tmp_path):
+        """Jellyfin down on the resolve path: no append, no stuck — even past the ceiling."""
+        store, _ = _playlist_with_pending(tmp_path)
+        (m0,) = store.list_pending_appends(10)
+        _backdate(store, m0.id, minutes=120)  # would be 'stuck' if we mistook down for unindexed
+        n = reconcile_pending_appends(
+            store, limit=10,
+            resolve_fn=_resolve_status(ResolveStatus.UNREACHABLE),
+            append_fn=lambda *a, **k: pytest.fail("must not append during an outage"),
+            precheck_fn=_empty_precheck,
+        )
+        assert n == 0
+        (m,) = store.list_pending_appends(10)
+        assert m.jellyfin_item_id is None and m.stuck_since is None  # untouched
+
+    def test_precheck_unreachable_defers_the_whole_playlist_never_blind_appends(self, tmp_path):
+        """Can't read current members → never append. The read is what makes it idempotent."""
+        store, _ = _playlist_with_pending(tmp_path)
+        n = reconcile_pending_appends(
+            store, limit=10,
+            resolve_fn=lambda *a, **k: pytest.fail("must not resolve when membership unreadable"),
+            append_fn=lambda *a, **k: pytest.fail("must not blind-append"),
+            precheck_fn=lambda pl_id, settings=None: None,  # unreachable
+        )
+        assert n == 0
+        (m,) = store.list_pending_appends(10)
+        assert m.jellyfin_item_id is None and m.stuck_since is None
+
+    def test_precheck_unreadable_past_ceiling_flags_stuck_not_silent_strand(self, tmp_path):
+        """A stale/deleted container (pre-check None) past the ceiling must surface as stuck,
+        not defer forever invisibly — closes the silent-strand gap the review caught."""
+        store, _ = _playlist_with_pending(tmp_path)
+        (m0,) = store.list_pending_appends(10)
+        _backdate(store, m0.id, minutes=61)
+        n = reconcile_pending_appends(
+            store, limit=10,
+            resolve_fn=lambda *a, **k: pytest.fail("must not resolve when membership unreadable"),
+            append_fn=lambda *a, **k: pytest.fail("must not blind-append"),
+            precheck_fn=lambda pl_id, settings=None: None,  # unreadable / stale container
+        )
+        assert n == 0
+        (m,) = store.list_pending_appends(10)  # still pending + retryable...
+        assert m.stuck_since is not None       # ...but now visible, not a silent strand
+
+    def test_failed_append_leaves_it_pending_no_penalty(self, tmp_path):
         store, _ = _playlist_with_pending(tmp_path)
 
         def boom(pl_id, item_id, settings=None):
@@ -279,24 +497,107 @@ class TestReconcile:
 
         n = reconcile_pending_appends(
             store, limit=10,
-            resolve_fn=lambda path, settings=None: "item-42",
-            append_fn=boom,
+            resolve_fn=_resolved("item-42"), append_fn=boom, precheck_fn=_empty_precheck,
         )
         assert n == 0
         (m,) = store.list_pending_appends(10)
-        assert m.jellyfin_item_id is None and m.append_attempts == 1
+        assert m.jellyfin_item_id is None and m.stuck_since is None  # pending, unpenalised
 
     def test_degraded_append_is_not_stamped_as_done(self, tmp_path):
         """append_fn returning False (degraded) must leave the member pending, not stamped."""
         store, _ = _playlist_with_pending(tmp_path)
         n = reconcile_pending_appends(
             store, limit=10,
-            resolve_fn=lambda path, settings=None: "item-42",
+            resolve_fn=_resolved("item-42"),
             append_fn=lambda pl_id, item_id, settings=None: False,  # degraded no-op
+            precheck_fn=_empty_precheck,
         )
         assert n == 0
         (m,) = store.list_pending_appends(10)
-        assert m.jellyfin_item_id is None and m.append_attempts == 1  # pending, counted
+        assert m.jellyfin_item_id is None and m.stuck_since is None  # pending, unpenalised
+
+    # --- bug 2: idempotent append across a crash between POST and stamp ----------------
+
+    def test_already_in_playlist_stamps_without_reposting(self, tmp_path):
+        """The POST landed on a prior pass but its stamp was lost to a crash — the pre-check
+        sees the item already present, so we stamp WITHOUT a second POST (no double-add)."""
+        store, _ = _playlist_with_pending(tmp_path)
+        n = reconcile_pending_appends(
+            store, limit=10,
+            resolve_fn=_resolved("item-42"),
+            append_fn=lambda *a, **k: pytest.fail("must not re-POST an already-present item"),
+            precheck_fn=lambda pl_id, settings=None: {"item-42"},  # already there
+        )
+        assert n == 1
+        assert store.list_pending_appends(10) == []  # stamped
+
+    def test_two_rows_same_item_in_one_pass_post_once(self, tmp_path):
+        """The per-pass set refresh: two members resolving to the same item must POST once."""
+        store = _store(tmp_path)
+        pl = store.upsert_playlist("PL", "P")
+        store.set_jellyfin_playlist_id(pl.id, "jf-pl")
+        store.add_member(pl.id, "vidA", position=1, landed_path="/lib/a.mp3")
+        store.add_member(pl.id, "vidB", position=2, landed_path="/lib/b.mp3")
+        posts = []
+        n = reconcile_pending_appends(
+            store, limit=10,
+            resolve_fn=_resolved("same-item"),  # both rows resolve to the same library item
+            append_fn=lambda pl_id, item_id, settings=None: posts.append(item_id) or True,
+            precheck_fn=_empty_precheck,
+        )
+        assert posts == ["same-item"]  # POSTed exactly once...
+        assert n == 2  # ...but both rows stamped
+        assert store.list_pending_appends(10) == []
+
+    # --- bug 5: a genuinely never-indexable file surfaces as visible-stuck, not dropped -
+
+    def test_past_ceiling_not_indexed_flags_stuck_but_keeps_retrying(self, tmp_path):
+        store, _ = _playlist_with_pending(tmp_path)
+        (m0,) = store.list_pending_appends(10)
+        _backdate(store, m0.id, minutes=61)  # waited past the 45-min ceiling, Jellyfin reachable
+        n = reconcile_pending_appends(
+            store, limit=10,
+            resolve_fn=_resolve_status(ResolveStatus.NOT_INDEXED),
+            append_fn=lambda *a, **k: pytest.fail("nothing to append yet"),
+            precheck_fn=_empty_precheck,
+        )
+        assert n == 0
+        (m,) = store.list_pending_appends(10)  # STILL pending — visible, not benched
+        assert m.stuck_since is not None
+
+    def test_fresh_not_indexed_is_not_flagged_stuck(self, tmp_path):
+        store, _ = _playlist_with_pending(tmp_path)  # created just now, well under the ceiling
+        reconcile_pending_appends(
+            store, limit=10,
+            resolve_fn=_resolve_status(ResolveStatus.NOT_INDEXED),
+            append_fn=lambda *a, **k: None,
+            precheck_fn=_empty_precheck,
+        )
+        (m,) = store.list_pending_appends(10)
+        assert m.stuck_since is None
+
+    def test_a_stuck_row_appends_and_clears_when_jellyfin_recovers(self, tmp_path):
+        store, _ = _playlist_with_pending(tmp_path)
+        (m0,) = store.list_pending_appends(10)
+        _backdate(store, m0.id, minutes=61)
+        # pass 1: still not indexed, past ceiling → flagged stuck, still pending
+        reconcile_pending_appends(
+            store, limit=10,
+            resolve_fn=_resolve_status(ResolveStatus.NOT_INDEXED),
+            append_fn=lambda *a, **k: None, precheck_fn=_empty_precheck,
+        )
+        assert store.list_pending_appends(10)[0].stuck_since is not None
+        # pass 2: Jellyfin finally indexed it → appends, drains, clears the flag
+        n = reconcile_pending_appends(
+            store, limit=10,
+            resolve_fn=_resolved("item-late"),
+            append_fn=lambda *a, **k: True, precheck_fn=_empty_precheck,
+        )
+        assert n == 1
+        assert store.list_pending_appends(10) == []
+        assert store.list_members(store.get_playlist(m0.playlist_id).id)[0].stuck_since is None
+
+    # --- ADR-003 isolation + idempotency across passes --------------------------------
 
     def test_one_bad_member_does_not_abort_the_pass(self, tmp_path):
         """A store error on one member is isolated — the others still drain (never-raises)."""
@@ -308,8 +609,9 @@ class TestReconcile:
         appended = []
 
         def resolve(path, settings=None):
-            # vidA's path resolves fine; simulate a transient blow-up only for vidA's append
-            return "item-A" if path == "/lib/a.mp3" else "item-B"
+            return ResolveResult(
+                ResolveStatus.RESOLVED, "item-A" if path == "/lib/a.mp3" else "item-B"
+            )
 
         def append(pl_id, item_id, settings=None):
             if item_id == "item-A":
@@ -317,15 +619,18 @@ class TestReconcile:
             appended.append(item_id)
             return True
 
-        n = reconcile_pending_appends(store, limit=10, resolve_fn=resolve, append_fn=append)
+        n = reconcile_pending_appends(
+            store, limit=10, resolve_fn=resolve, append_fn=append, precheck_fn=_empty_precheck,
+        )
         assert n == 1 and appended == ["item-B"]  # vidB drained despite vidA blowing up
 
     def test_drain_is_idempotent_across_passes(self, tmp_path):
         store, _ = _playlist_with_pending(tmp_path)
         calls = []
         kw = dict(
-            resolve_fn=lambda path, settings=None: "item-42",
+            resolve_fn=_resolved("item-42"),
             append_fn=lambda pl_id, item_id, settings=None: calls.append(item_id) or True,
+            precheck_fn=_empty_precheck,
         )
         reconcile_pending_appends(store, limit=10, **kw)
         reconcile_pending_appends(store, limit=10, **kw)  # second pass: nothing pending

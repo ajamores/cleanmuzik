@@ -820,6 +820,35 @@ Format: `ADR-NNN — decision. Rationale. [date]`
      out of scope here** — a mid-batch crash still errors un-run tracks (T-104); "walk away, come back across
      a restart" for *unprocessed* tracks is T-312. What T-304 guarantees restart-safe is the **pending
      append**: its row is durable and carries its path, so the boot sweep drains it.
+     - **Amendment [2026-08-17, T-313 build — two councils vs. the shipped code, owner-approved]: the
+       give-up *counter* is retired; the poll *target* gains the playlist's own membership.** T-304's
+       `append_attempts` (cap 20) was **a retry tally used as a clock**, and it shipped three bugs: a
+       fast batch of cached videos burned the cap in seconds and **dropped healthy tracks**; the
+       append-before-stamp window **double-added** on a crash; and a `resolve_item_id` that returned a
+       bare `None` **could not tell "not indexed yet" from "Jellyfin unreachable,"** so an outage spent
+       the whole budget and stranded everything. The reframe, keeping incremental fill (append each
+       track as it lands — **batch-at-end was adversarially reviewed and rejected**):
+         - **`resolve_item_id` is now 3-state** — `RESOLVED` / `NOT_INDEXED` / `UNREACHABLE` (a
+           `ResolveResult` whose invariant makes `RESOLVED(None)` unconstructible, so a malformed 2xx
+           can never POST `Ids=None`). UNREACHABLE defers untouched and spends nothing.
+         - **The append is pre-checked and idempotent** — the reconcile pass reads the playlist's
+           current item ids once per pass (`get_playlist_item_ids` → `GET /Playlists/{id}/Items`) and
+           appends only an absent item, then stamps. The stamp is now a record of *observed*
+           membership, not the sole idempotency guard, so a crash between POST and stamp cannot
+           double-add. An unreadable pre-check (`None`) defers the whole playlist — **never a
+           blind-append.** The no-penalty/defer treatment extends to the append organ (`JellyfinAppendError`
+           / degraded no-op), or bug 3 survives there.
+         - **`append_attempts` → `playlist_members.stuck_since` (nullable TEXT).** The counter is
+           **retired**: a dead column on pre-T-313 DBs (never read, never dropped — a rebuild is
+           needless risk), absent on fresh ones; benched rows re-enter the pending set by design (they
+           were outage victims). Its replacement is a **wall-clock** ceiling (~45 min of
+           *reachable-but-unindexed* passes) that flags a row **visible-and-still-retried**, never
+           benched. UNREACHABLE passes spend nothing, so an outage can never mark a healthy row stuck,
+           and a never-indexable file surfaces (the surface itself is T-305/T-310) instead of vanishing.
+       **"Poll not push" stands.** The first-party `LibraryChanged` websocket remains a *future
+       accelerator over this same ledger* (kills only 2 of the 3 bugs — the double-add is transactional,
+       orthogonal to the readiness signal — and a half-open socket reintroduces the silent-stop the
+       Webhook plugin was rejected for), **not** built for R2. Supersedes backlog **T-047**.
   2. **Landed-video dedup store + predicate (T-303).** One store — the `jobs` row's `youtube_video_id`,
      written at **enqueue** (T-302) — and the exact, status-filtered test
      **`EXISTS(job WHERE youtube_video_id = ? AND status = 'done')`**. The `status='done'` filter is

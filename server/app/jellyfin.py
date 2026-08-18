@@ -22,7 +22,9 @@ shows up within seconds — no manual "Scan Library" click.
 `http` is injectable so tests exercise both paths without a live Jellyfin.
 """
 
+import enum
 import logging
+from dataclasses import dataclass
 
 import requests
 
@@ -53,6 +55,10 @@ _CREATE_TIMEOUT = 10
 _ITEMS_PATH = "/Items"
 _RESOLVE_TIMEOUT = 10
 _APPEND_TIMEOUT = 10
+# Pre-check GET of a playlist's current members (R2, T-313's idempotent append). Reading
+# `GET /Playlists/{id}/Items` before every POST closes the crash-between-POST-and-stamp
+# window: append only an item the playlist doesn't already hold. Bounded like the rest.
+_PRECHECK_TIMEOUT = 10
 
 
 class JellyfinAppendError(Exception):
@@ -71,6 +77,48 @@ class JellyfinScanError(Exception):
     no exception). See the module docstring for the full degrade-vs-raise contract;
     the caller turns this into a `track.error` with `stage="scan"`.
     """
+
+
+class ResolveStatus(enum.Enum):
+    """The three outcomes of resolving a landed file to its Jellyfin item (T-313).
+
+    T-304 collapsed all of these into a bare `None`, which is the root of two of its three
+    shipped bugs: "not indexed yet" (wait, keep retrying) and "Jellyfin is unreachable"
+    (an outage — do NOT spend any give-up budget, defer untouched) are *different* and must
+    be told apart. The reconcile pass branches on this:
+      - RESOLVED     — a real item id; append it.
+      - NOT_INDEXED  — Jellyfin answered, but the file isn't in its index yet. Keep the row
+                       pending; flag it stuck once it has waited past the wall-clock ceiling.
+      - UNREACHABLE  — Jellyfin errored, was absent, or returned a malformed body. Defer with
+                       no state change and no stuck flag — an outage must strand nothing.
+    """
+
+    RESOLVED = "resolved"
+    NOT_INDEXED = "not_indexed"
+    UNREACHABLE = "unreachable"
+
+
+@dataclass(frozen=True)
+class ResolveResult:
+    """The outcome of `resolve_item_id`: a status and, iff RESOLVED, a non-empty item id.
+
+    The invariant is load-bearing (T-313, repair 2): `item_id` is a non-empty `str` **iff**
+    `status is RESOLVED`. `__post_init__` enforces it, so a `ResolveResult(RESOLVED, None)` is
+    unconstructible — a malformed 2xx (a 200 with no usable Id) can never masquerade as a
+    resolved item, POST `Ids=None`, 400, and re-enter the retry burn that was T-304's bug 3.
+    """
+
+    status: ResolveStatus
+    item_id: str | None = None
+
+    def __post_init__(self) -> None:
+        resolved = self.status is ResolveStatus.RESOLVED
+        has_id = isinstance(self.item_id, str) and bool(self.item_id)
+        if resolved != has_id:
+            raise ValueError(
+                f"ResolveResult invariant violated: status={self.status} item_id={self.item_id!r} "
+                "(a non-empty item_id iff RESOLVED)"
+            )
 
 
 def trigger_scan(
@@ -219,26 +267,39 @@ def resolve_item_id(
     settings: Settings | None = None,
     timeout: int = _RESOLVE_TIMEOUT,
     http=requests,
-) -> str | None:
-    """Find the Jellyfin item id for a landed file by its canonical `path`, or `None`.
+) -> ResolveResult:
+    """Resolve a landed file's canonical `path` to its Jellyfin item, as a 3-state result.
 
     A **single, non-blocking attempt** — never a poll-until-timeout loop. The retry is the
     reconcile pass calling this again on a later tick (ADR-027 seam-1 amendment, T-304): a
     just-landed file's own index is the least-settled thing in the system, so we never sit
     and wait for it on the worker; we defer and let a *later* pass resolve it once Jellyfin
-    has indexed it. Returns the item id on a hit, `None` on a miss (not indexed yet) OR on
-    an absent/failed Jellyfin — a miss is not an error here, it just means "still pending,
-    try next pass". `Items?Path=` returns `{ "Items": [ { "Id": ... }, ... ] }`; we take
-    the first match (a landed file maps to one library item).
+    has indexed it.
+
+    Returns a `ResolveResult` distinguishing the three outcomes T-304 wrongly collapsed to
+    `None` (T-313, repair 2 — this split is what kills the outage-strands-everything bug on
+    the resolve path):
+      - RESOLVED(id)  — a real, non-empty item id.
+      - NOT_INDEXED   — Jellyfin answered cleanly but has no item for this path yet (empty
+                        `Items`, or config absent → nothing to resolve against). Keep waiting.
+      - UNREACHABLE   — a network error / non-2xx / non-JSON / malformed body (a 2xx whose
+                        first item has no usable string `Id`). An outage or a broken edge:
+                        the caller defers with no state change and spends no budget.
+
+    A malformed 2xx must **never** become RESOLVED(None) — `ResolveResult`'s invariant makes
+    that unconstructible; here every non-string / empty / missing `Id` maps to UNREACHABLE,
+    never to a resolved item. `Items?Path=` returns `{ "Items": [ { "Id": ... }, ... ] }`; we
+    take the first match (a landed file maps to one library item).
     """
     s = settings or get_settings()
     url = s.jellyfin_url.strip().rstrip("/")
     key = s.jellyfin_api_key.strip()
     if not (url and key):
-        # Absent config → nothing to resolve against. The track still landed on disk; the
-        # pending row waits for a Jellyfin that's configured later (same degrade contract
-        # as the scan/create). Quiet — the create already warned once for this batch.
-        return None
+        # Absent config → nothing to resolve against, but this is not an *outage*: there is
+        # no Jellyfin to be down. Treat it as NOT_INDEXED (the pass-level pre-check GET, which
+        # also returns UNREACHABLE on absent config, defers the whole playlist before we ever
+        # reach here). Quiet — the create already warned once for this batch.
+        return ResolveResult(ResolveStatus.NOT_INDEXED)
 
     endpoint = f"{url}{_ITEMS_PATH}"
     try:
@@ -251,17 +312,81 @@ def resolve_item_id(
         resp.raise_for_status()
         data = resp.json()
     except (requests.RequestException, ValueError) as exc:
-        # A resolve is best-effort: a miss and a transient failure are the same outcome
-        # here (leave the append pending, retry next pass), so we degrade to None rather
-        # than raise. Warn so a persistently-unreachable Jellyfin is visible in the log.
+        # Jellyfin was configured but did not answer cleanly — an outage or a stale key, NOT
+        # "not indexed yet". UNREACHABLE so the caller defers without spending give-up budget.
         logger.warning("Jellyfin item resolve failed (%s) for %s: %s", endpoint, path, exc)
+        return ResolveResult(ResolveStatus.UNREACHABLE)
+
+    if not isinstance(data, dict):
+        # A 2xx with a non-dict body is a broken edge, not an empty index → UNREACHABLE.
+        return ResolveResult(ResolveStatus.UNREACHABLE)
+    items = data.get("Items")
+    if not items:
+        return ResolveResult(ResolveStatus.NOT_INDEXED)  # answered, nothing for this path yet
+    first = items[0]
+    item_id = first.get("Id") if isinstance(first, dict) else None
+    if not (isinstance(item_id, str) and item_id):
+        # Present-but-Idless / non-string / non-dict first item: a malformed 2xx. Never a
+        # resolved item (RESOLVED(None) would POST Ids=None → 400 → re-burn) → UNREACHABLE.
+        return ResolveResult(ResolveStatus.UNREACHABLE)
+    return ResolveResult(ResolveStatus.RESOLVED, item_id)
+
+
+def get_playlist_item_ids(
+    playlist_id: str,
+    *,
+    settings: Settings | None = None,
+    timeout: int = _PRECHECK_TIMEOUT,
+    http=requests,
+) -> set[str] | None:
+    """The library item ids currently in a Jellyfin playlist, or `None` if unreadable (T-313).
+
+    The pre-check half of the idempotent append (repair 3): the reconcile pass reads a
+    playlist's current members **once per pass** and appends a resolved item only if it is
+    absent from this set — closing the crash-between-POST-and-stamp window that let T-304
+    double-add a track on the next pass.
+
+    `GET /Playlists/{id}/Items` returns `{ "Items": [ { "Id": ... }, ... ] }`; we collect the
+    **library item id** (`Id`), NOT the per-entry `PlaylistItemId` — the append POSTs library
+    ids, so a set keyed on anything else would miss every time and defeat the check.
+
+    Returns:
+      - a `set[str]` of item ids on success — **an empty set is a valid answer** (an empty
+        playlist), distinct from a failure;
+      - `None` on config absent, a network error, a non-2xx, non-JSON, or a malformed body.
+        The caller treats `None` as UNREACHABLE and defers the whole playlist this pass —
+        it must **never** blind-append when it cannot first read what's already there.
+    """
+    s = settings or get_settings()
+    url = s.jellyfin_url.strip().rstrip("/")
+    key = s.jellyfin_api_key.strip()
+    if not (url and key):
+        return None  # absent config → can't read membership → defer (never blind-append)
+
+    endpoint = f"{url}{_PLAYLISTS_PATH}/{playlist_id}{_ITEMS_PATH}"
+    try:
+        resp = http.get(endpoint, headers={"X-Emby-Token": key}, timeout=timeout)
+        resp.raise_for_status()
+        data = resp.json()
+    except (requests.RequestException, ValueError) as exc:
+        logger.warning(
+            "Jellyfin playlist pre-check failed (%s) for playlist %s: %s",
+            endpoint, playlist_id, exc,
+        )
         return None
 
-    items = data.get("Items") if isinstance(data, dict) else None
-    if not items:
-        return None  # not indexed yet — still pending
-    first = items[0]
-    return first.get("Id") if isinstance(first, dict) else None
+    if not isinstance(data, dict):
+        return None
+    items = data.get("Items")
+    if items is None:
+        return None  # a well-formed response always carries an Items array; its absence is broken
+    if not isinstance(items, list):
+        return None
+    return {
+        it["Id"]
+        for it in items
+        if isinstance(it, dict) and isinstance(it.get("Id"), str) and it["Id"]
+    }
 
 
 def append_to_playlist(
@@ -281,10 +406,10 @@ def append_to_playlist(
     pass can leave the row pending and count the attempt — a present-but-broken Jellyfin is
     worth surfacing, unlike a merely absent one.
 
-    Idempotency is the caller's guarantee, not this call's: the reconcile pass only appends
-    a member whose `jellyfin_item_id IS NULL` and stamps it immediately after, so a given
-    (playlist, item) is POSTed exactly once even though Jellyfin's endpoint would itself
-    happily double-add.
+    Idempotency is the caller's guarantee, not this call's: the reconcile pass pre-checks the
+    playlist's current item ids (`get_playlist_item_ids`) and appends only an item that is
+    absent, so a given (playlist, item) is POSTed exactly once even across a crash between the
+    POST and its stamp (T-313, repair 3) — Jellyfin's own endpoint would happily double-add.
     """
     s = settings or get_settings()
     url = s.jellyfin_url.strip().rstrip("/")
