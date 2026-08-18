@@ -58,7 +58,13 @@ from app.db import (
     Store,
 )
 from app.download import curated_list_kind, download_song
-from app.events import EventBus, candidate_row
+from app.events import (
+    BATCH_DONE,
+    EventBus,
+    batch_channel,
+    batch_progress_payload,
+    candidate_row,
+)
 from app.import_seam import (
     ResolveError,
     get_library,
@@ -506,12 +512,104 @@ def _drain_after_land(store: Store, job_id: str, *, settings: Settings | None) -
         logger.warning("post-land drain failed for job %s (%s)", job_id, exc)
 
 
+def _settle_batch_after_member(bus: EventBus, store: Store, playlist_id: str) -> None:
+    """Recompute a batch's tally from SQLite and publish it; retire the channel if done.
+
+    The one place the batch-terminal logic lives, so every path a member can settle
+    through emits the same event and cleans up the same way: `_BatchScopedBus.close`
+    (the normal terminal) and the worker-loop backstop (a runner escaping its
+    never-raises contract — T-305 review finding). The tally is read fresh from
+    `count_jobs_by_status`, never an in-memory accumulator, so a mid-batch restart
+    loses nothing. When the derived state is `done` (nothing queued, running, or
+    parked — a failure never blocks done, ADR-002) the batch channel is closed and
+    unpinned so subscribers get a clean end-of-stream instead of pings forever, and the
+    eviction exemption is released. Best-effort: the caller must not let a failed tally
+    read hold a member's own channel hostage, so this swallows and logs (the reconnect
+    route reconciles a batch whose final member left the channel un-retired).
+    """
+    try:
+        counts = store.count_jobs_by_status(playlist_id)
+        payload = batch_progress_payload(playlist_id, counts)
+        key = batch_channel(playlist_id)
+        bus.publish(key, "batch.progress", payload)
+        if payload["state"] == BATCH_DONE:
+            bus.close(key)
+            bus.unpin(key)
+    except Exception:  # noqa: BLE001 — the tally must never hold a stream hostage
+        logger.exception("could not settle batch.progress for playlist %s", playlist_id)
+
+
+class _BatchScopedBus:
+    """The T-305 dual-publish seam: a member's bus that also feeds its batch's one stream.
+
+    `events.py` keys channels by arbitrary strings — all job ids until T-305 — so a
+    50-track batch would need 50 `EventSource`s against the browser's ~6-per-origin cap.
+    Instead every member's emits are mirrored onto ONE playlist-scoped channel
+    (`batch_channel`), and this wrapper is how, without touching an emit site: it
+    exposes `publish`/`close` with `EventBus`'s exact signatures, so `run_pipeline` /
+    `run_resolve` swap it in at the top for a batch member and every downstream emit —
+    the stage mirrors beside `registry.set_stage`, `_emit_review_required`, `_finish`'s
+    terminals, the `track.skipped` skip — dual-publishes by construction rather than by
+    a dozen call sites each remembering to. A single-song R1 job never constructs one
+    (the `playlist_id IS NULL` gate), so the R1 stream stays byte-for-byte.
+
+    The batch copy rides **unchanged plus the stamp** — the member's `position` and
+    `job_id` — so the batch card can attribute each event to its track row without a
+    lookup. The job channel's copy is the original payload, untouched.
+    """
+
+    def __init__(self, bus: EventBus, store: Store, job) -> None:
+        self._bus = bus
+        self._store = store
+        self._playlist_id = job.playlist_id
+        self._position = job.position
+        self._key = batch_channel(job.playlist_id)
+        # Pin on every construction, not only at expansion time: the expansion pinned
+        # the channel once, but a restart clears the bus, and the member work that can
+        # still run afterwards (a parked member's resolve tail) recreates the channel —
+        # which must be just as evict-proof. Idempotent; released when the batch settles.
+        bus.pin(self._key)
+
+    def publish(self, job_id: str, event: str, data: dict) -> None:
+        self._bus.publish(job_id, event, data)
+        # `job_id` is stamped, not assumed: today's §6 payloads all carry it, but the
+        # stamp contract must hold for every event that will ever ride this stream.
+        self._bus.publish(
+            self._key, event, {**data, "job_id": job_id, "position": self._position}
+        )
+
+    def close(self, job_id: str) -> None:
+        """A member's terminal: emit the recomputed tally, then close ONLY the member.
+
+        `_finish` fires `close` on every terminal path, which makes this the one choke
+        point where a member's durable status has just changed — so this is where
+        `batch.progress` is recomputed from SQLite (`count_jobs_by_status` — never an
+        in-memory accumulator, so a mid-batch restart loses no tally) and published to
+        the batch stream. The batch channel itself closes only when the derived state
+        says the whole grind is settled (`done`: nothing queued, running, or parked): a
+        park is "waiting on you", and its eventual resolve still emits here, so the
+        channel must stay open across it — while a settled batch closes so subscribers
+        get a clean end-of-stream instead of pings forever (a re-paste reopens it as a
+        fresh episode at expansion time). Best-effort: a tally read that fails must not
+        stop the member channel from closing — a hung stream is worse than a stale tally.
+
+        The residual that failure leaves — the *final* member's tally read failing, so
+        the settled batch channel is never closed/unpinned here (there is no later
+        terminal to re-emit it) — is caught by the reconnect route
+        (`stream_batch_events`): a client reaching a durably-settled batch retires the
+        orphaned channel. The worker-loop backstop settles the batch the same way when a
+        runner escapes its never-raises contract.
+        """
+        _settle_batch_after_member(self._bus, self._store, self._playlist_id)
+        self._bus.close(job_id)
+
+
 def _try_skip_duplicate(
     job,
     *,
     store: Store,
     registry: JobRegistry,
-    bus: EventBus,
+    bus: EventBus | _BatchScopedBus,
     settings: Settings | None,
 ) -> JobState | None:
     """Exact-video dedup: skip an already-owned playlist entry, add its file instead (T-303).
@@ -603,13 +701,24 @@ def run_pipeline(
     *skip* has no §6 event, so the sentinel — not an event name — is what ends the
     stream). `bus` defaults to a throwaway `EventBus`: a caller with no SSE (the offline
     orchestration tests) simply never subscribes, so emission is a harmless no-op and
-    every call site stays unconditional.
+    every call site stays unconditional. For a batch member the bus is swapped for
+    `_BatchScopedBus` up front (T-305), so every one of these emits also rides the
+    playlist's single batch stream, stamped — with no emit site knowing or caring.
 
     Precondition: `job_id` names a row already created via `store.create_job` — the
     seam parks reviews against it as a foreign key.
     """
     s = settings or get_settings()
     bus = bus or EventBus()  # no subscribers ⇒ emission just buffers into a discarded bus
+    # Batch scoping (T-305): a member's every emit below must ALSO ride its playlist's
+    # one batch stream, so the bus is swapped for the dual-publishing wrapper before the
+    # first publish — `job.queued` included, so the batch card sees each track enter the
+    # grind. The row fetched here also feeds the T-303 dedup gate further down. Gated on
+    # `playlist_id IS NOT NULL`: a single-song R1 paste keeps the plain bus and its
+    # exact R1 stream (acceptance item 11).
+    job = store.get_job(job_id)
+    if job is not None and job.playlist_id is not None:
+        bus = _BatchScopedBus(bus, store, job)
     # `list_kind` rides the opening event (T-026): "album" / "playlist" / None, so the
     # card can tell the owner the other tracks weren't taken. Computed from the URL, so
     # it must ride EVERY `job.queued` — the resolve-reopen one too (see `submit_resolve`)
@@ -627,7 +736,6 @@ def run_pipeline(
     # entirely and runs byte-for-byte (acceptance item 11). Per-entry order is membership-check
     # → video-dedup → process (ADR-027 seam 4); the membership-check is `add_member`'s own
     # UNIQUE guard, applied inside the skip. A hit ends the job here as `skipped`.
-    job = store.get_job(job_id)
     if job is not None and job.playlist_id is not None and job.youtube_video_id:
         skipped = _try_skip_duplicate(
             job, store=store, registry=registry, bus=bus, settings=s,
@@ -914,6 +1022,15 @@ def run_resolve(
     staging_path: Path | None = None
 
     try:
+        # Batch scoping (T-305), mirroring run_pipeline: a parked member's resolve tail
+        # (`track.tagging` / `track.done`, and above all the terminal tally that flips
+        # the batch away from "waiting on you") must ride the batch stream too. Inside
+        # the try so a store failure here settles through `_finish` with the plain bus,
+        # like any other pre-commit failure — never an escape from "never raises".
+        job = store.get_job(job_id)
+        if job is not None and job.playlist_id is not None:
+            bus = _BatchScopedBus(bus, store, job)
+
         registry.start(job_id, stage=STAGE_LAND)
 
         review = store.get_review(review_id)
@@ -1224,7 +1341,7 @@ def _repark_after_release(
     job_id: str,
     review_id: str,
     *,
-    bus: EventBus,
+    bus: EventBus | _BatchScopedBus,
     stage: str | None,
     error: str,
 ) -> JobState:
@@ -1386,7 +1503,7 @@ def _finish(
     registry: JobRegistry,
     job_id: str,
     *,
-    bus: EventBus,
+    bus: EventBus | _BatchScopedBus,
     status: str = STATUS_DONE,
     stage: str | None = None,
     review_id: str | None = None,
@@ -1460,7 +1577,7 @@ def _finish_scan_failed(
     registry: JobRegistry,
     job_id: str,
     *,
-    bus: EventBus,
+    bus: EventBus | _BatchScopedBus,
     path: str | None,
     tags: dict | None,
     exc: Exception,
@@ -1488,7 +1605,7 @@ def _id_only_candidates(candidate_ids: list[str]) -> list[dict]:
 
 
 def _emit_review_required(
-    bus: EventBus,
+    bus: EventBus | _BatchScopedBus,
     job_id: str,
     *,
     review_id: str,
@@ -1790,5 +1907,19 @@ class JobWorker:
                         _set_status(self._store, job_id, STATUS_ERROR)
                     except Exception:  # noqa: BLE001
                         logger.exception("backstop: could not error-set job %s", job_id)
+                    # Batch member (T-305): settle its batch channel too. `_BatchScopedBus`
+                    # is bypassed on this escape path, so without this the batch stream is
+                    # left open and pinned — and if this was the LAST member, no later
+                    # terminal ever retires it, hanging a reconnecting client on pings.
+                    # After the error-set above, the tally read reflects it. Guarded and
+                    # last, so the backstop's core (unhang + error-set) never depends on it.
+                    try:
+                        errored = self._store.get_job(job_id)
+                        if errored is not None and errored.playlist_id is not None:
+                            _settle_batch_after_member(
+                                self.bus, self._store, errored.playlist_id
+                            )
+                    except Exception:  # noqa: BLE001
+                        logger.exception("backstop: could not settle batch for %s", job_id)
             finally:
                 self._queue.task_done()

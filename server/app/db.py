@@ -474,6 +474,30 @@ class Store:
             ).fetchone()
         return row["landed_path"] if row else None
 
+    def count_jobs_by_status(self, playlist_id: str) -> dict[str, int]:
+        """The batch tally source: this playlist's job statuses, grouped (ADR-027 seam 5).
+
+        Feeds `batch.progress` (T-305) and the reconnect projection (T-312), which both
+        *recompute* from this read at every emit — the tally is never accumulated in
+        memory, so a mid-batch restart loses nothing.
+
+        Counts only the **newest attempt per position**: a re-paste creates a second
+        generation of job rows against the same playlist (the first paste's `done` rows
+        plus the re-paste's `skipped` ones), and counting every generation would double
+        the batch — a 50-track list tallying 100. `MAX(rowid)` per position is the
+        newest attempt for that slot, so a re-paste's tally describes *this* grind
+        (all-skipped reads as skipped, not as landed twice).
+        """
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT status, COUNT(*) AS n FROM jobs "
+                "WHERE playlist_id = ? AND rowid IN ("
+                "    SELECT MAX(rowid) FROM jobs WHERE playlist_id = ? GROUP BY position"
+                ") GROUP BY status",
+                (playlist_id, playlist_id),
+            ).fetchall()
+        return {row["status"]: row["n"] for row in rows}
+
     # --- reviews ----------------------------------------------------------
 
     def create_review(

@@ -51,6 +51,19 @@ and close again *instantly*, leaving the card stuck at "Needs review" forever �
 exact hang the reopen exists to prevent. So each episode's buffer holds only its own
 events, and the replay is what saves the tail from the gap between the POST returning
 and the subscriber connecting.
+
+## The batch channel (T-305)
+
+A batch drives ONE extra channel, keyed `batch_channel(playlist_id)`, that every member
+job's events are mirrored onto (stamped with the member's `position`/`job_id`) plus the
+batch-level `batch.queued` / `batch.progress` — so a 50-track batch costs one
+`EventSource`, not 50 against the browser's ~6-per-origin cap. The mirroring itself
+lives in `app.jobs._BatchScopedBus` (it needs the job row); this module only supplies
+the key, the `batch.progress` payload shape, and `pin` — the eviction exemption that
+keeps the long-lived batch channel alive while its member channels churn through the
+cap. Each paste of a playlist is an *episode* of its batch channel, via the same
+`reopen` the resolve path uses: the expansion route reopens it, so a re-paste's
+subscribers don't replay the previous grind's terminal tally.
 """
 
 import asyncio
@@ -69,6 +82,65 @@ _CHANNEL_CAP = 256
 # Internal sentinel pushed to live subscribers to close their stream. Deliberately a
 # unique object (not None, not a spec event) so it can never collide with real data.
 _CLOSE = object()
+
+# Derived batch states carried on `batch.progress` (T-305). "waiting_on_you" — not
+# "done" — while any member is parked in review: a finished grind with parked tracks is
+# the owner's turn, and reporting "done" would bury the reviews (US17). A failed member
+# never blocks "done" (ADR-002: one failure continues the batch) — it stays visible in
+# the `failed` count instead of poisoning the state.
+BATCH_RUNNING = "running"
+BATCH_WAITING = "waiting_on_you"
+BATCH_DONE = "done"
+
+
+def batch_channel(playlist_id: str) -> str:
+    """The bus key for a batch's ONE playlist-scoped stream (T-305).
+
+    Channels are keyed by arbitrary strings and were all job ids until T-305. The
+    batch stream shares the same bus, so its key is namespaced with a prefix no
+    uuid-hex job id can collide with — and a reader of a channel dump can tell the
+    one long-lived batch channel from its 50 member channels at a glance. Lives here
+    (not `app.jobs`) so the import-light routes can subscribe without pulling beets.
+    """
+    return f"batch:{playlist_id}"
+
+
+def batch_progress_payload(playlist_id: str, counts: dict[str, int]) -> dict:
+    """The single `batch.progress` event shape: the durable tally + the derived state.
+
+    `counts` is `Store.count_jobs_by_status`'s status → count map, recomputed from
+    SQLite at every emit — never accumulated in memory — so a mid-batch restart
+    cannot lose or skew the tally (T-312 rebuilds from the same read). Every place
+    that emits or serves the tally goes through here, exactly like `candidate_row`,
+    so the contract's key set lives in one spot.
+
+    The status names are `app.jobs`' STATUS_* values kept as local literals for the
+    same reason as the routes' terminal set — importing `app.jobs` from here would
+    drag beets onto the import-light path. `running` folds into `queued`: from the
+    batch's walk-away view a mid-pipeline track is simply "not finished yet", and
+    the stamped `track.*` events already carry the finer live state.
+    """
+    landed = counts.get("done", 0)
+    in_review = counts.get("review", 0)
+    failed = counts.get("error", 0)
+    skipped = counts.get("skipped", 0)
+    queued = counts.get("queued", 0) + counts.get("running", 0)
+    if queued:
+        state = BATCH_RUNNING
+    elif in_review:
+        state = BATCH_WAITING
+    else:
+        state = BATCH_DONE
+    return {
+        "playlist_id": playlist_id,
+        "landed": landed,
+        "in_review": in_review,
+        "failed": failed,
+        "skipped": skipped,
+        "queued": queued,
+        "total": landed + in_review + failed + skipped + queued,
+        "state": state,
+    }
 
 
 class _JobChannel:
@@ -144,6 +216,10 @@ class EventBus:
         self._channels: dict[str, _JobChannel] = {}
         self._lock = threading.Lock()
         self._cap = cap
+        # Channel keys exempt from cap eviction (T-305) — see `pin`. A set of keys,
+        # not a flag on `_JobChannel`, so a pin survives the channel being absent
+        # (pinned-then-recreated after a restart) without special-casing creation.
+        self._pinned: set[str] = set()
         # The loop `publish` schedules onto. Bound once at startup (lifespan runs on
         # the loop) or lazily by the first subscriber — a subscriber only ever exists
         # on the loop, so by the time live delivery is needed the loop is bound.
@@ -195,6 +271,25 @@ class EventBus:
             subscribers = list(channel.subscribers)
             loop = self._loop
         self._dispatch(loop, subscribers, _CLOSE)
+
+    def pin(self, key: str) -> None:
+        """Exempt a channel from cap eviction — for the long-lived batch channel (T-305).
+
+        A 50-track batch churns 50 short member channels through the cap while its own
+        channel must outlive every one of them; without the pin the batch channel is
+        exactly the "oldest subscriber-less channel" `_evict_locked` reaps first,
+        taking the replay buffer (and a pre-subscribe `batch.queued`) with it.
+        Idempotent, and re-applied on every member emit so a post-restart resume
+        re-pins the recreated channel. Released via `unpin` when the batch settles, so
+        pins are bounded by the batches actually in flight, not the process lifetime.
+        """
+        with self._lock:
+            self._pinned.add(key)
+
+    def unpin(self, key: str) -> None:
+        """Release a pin so a settled batch's channel ages out like any other."""
+        with self._lock:
+            self._pinned.discard(key)
 
     def reopen(self, job_id: str) -> None:
         """Start a fresh episode on a closed channel so a resumed job can stream again.
@@ -300,13 +395,16 @@ class EventBus:
 
     def _evict_locked(self) -> None:
         # Drop oldest channels past the cap. A channel with live subscribers is skipped
-        # so an in-flight stream is never yanked out from under a connected client.
+        # so an in-flight stream is never yanked out from under a connected client, and
+        # a pinned channel is skipped so a batch's one long-lived stream survives its
+        # 50 member channels churning past it (T-305).
         while len(self._channels) > self._cap:
             for job_id, channel in self._channels.items():
-                if not channel.subscribers:
+                if not channel.subscribers and job_id not in self._pinned:
                     del self._channels[job_id]
                     break
             else:
-                # Every remaining channel has a live subscriber — nothing safe to
-                # evict. Stop rather than loop forever; the cap is soft under load.
+                # Every remaining channel has a live subscriber or a pin — nothing
+                # safe to evict. Stop rather than loop forever; the cap is soft
+                # under load.
                 return
