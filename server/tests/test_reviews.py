@@ -27,6 +27,7 @@ from fastapi.testclient import TestClient
 
 import app.jobs as jobs_mod
 import app.reviews as reviews_mod
+from app.config import Settings
 from app.db import Store
 from app.events import EventBus
 from app.import_seam import Outcome
@@ -561,6 +562,53 @@ def test_resolve_landing_announces_the_path_on_track_done(tmp_path):
     done = dict(_events(bus, job.id))["track.done"]
     assert done["path"] == "/lib/Band/Song.mp3"
     assert done["tags"] == {"title": "Song"}
+
+
+def test_resolving_a_parked_batch_member_records_its_playlist_membership(tmp_path):
+    # T-306, the silent gap: a batch member parked at import and resolved later via
+    # /api/reviews must JOIN its playlist. run_resolve now records a pending membership
+    # (canonical path, NULL jellyfin_item_id) on the landed branch, exactly as run_pipeline
+    # does — the reconcile pass drains it once Jellyfin indexes the file. Before this fix the
+    # resolve path recorded nothing, so a parked member resolved days later never appeared in
+    # its playlist. `settings` is absent so the opportunistic drain touches no network.
+    store = _store(tmp_path)
+    pl = store.upsert_playlist("PL", "P")
+    store.set_jellyfin_playlist_id(pl.id, "jf-pl")
+    job = store.create_job(
+        "https://youtu.be/abc", playlist_id=pl.id, position=1, youtube_video_id="vidX",
+    )
+    store.update_job_status(job.id, "review")
+    staging_dir = tmp_path / "cleanmuzik-batch"
+    staging_dir.mkdir()
+    mp3 = staging_dir / "song.mp3"
+    mp3.write_bytes(b"mp3")
+    review = store.create_review(
+        job_id=job.id, staging_path=str(mp3), query="artist title",
+        candidate_ids=["rec-A"], rec="medium",
+    )
+    state, _ = _run_resolve(
+        store, review, ResolveRequest("rec-A", recording_id="rec-A"),
+        settings=Settings(jellyfin_url="", jellyfin_api_key=""),
+    )
+    assert state.status == "done"
+    (m,) = store.list_members(pl.id)
+    assert m.youtube_video_id == "vidX"
+    assert m.landed_path == "/lib/Band/Song.mp3"
+    assert m.jellyfin_item_id is None  # pending — the reconcile pass owns the append
+
+
+def test_resolving_a_single_song_review_records_no_membership(tmp_path):
+    # R1 non-regression (acceptance item 11): a null-playlist resolve writes no membership.
+    store = _store(tmp_path)
+    job, review, _ = _parked(store, tmp_path)  # single-song job — playlist_id is NULL
+    state, _ = _run_resolve(
+        store, review, ResolveRequest("rec-A", recording_id="rec-A"),
+        settings=Settings(jellyfin_url="", jellyfin_api_key=""),
+    )
+    assert state.status == "done"
+    with store._connect() as conn:  # noqa: SLF001 — white-box count, offline test
+        (count,) = conn.execute("SELECT COUNT(*) FROM playlist_members").fetchone()
+    assert count == 0
 
 
 def test_keep_both_passes_the_suffix_to_the_import(tmp_path):

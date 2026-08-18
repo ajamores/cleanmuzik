@@ -395,8 +395,32 @@ integrate onto `main` with the status line flipped in the closing commit, transc
 ## Phase C — compose the batch behaviours
 
 ### T-306 — Backfill: a resolved parked track appends to its playlist
-- **Status:** todo
+- **Status:** done (2026-08-18) — `run_resolve`'s landed branch now records a pending membership
+  (`_record_pending_membership`, canonical path, NULL item id) exactly as `run_pipeline` does, closing the
+  silent gap; the reconcile pass gained the **create-if-missing** branch (NULL container → create + persist,
+  double-create-guarded by a per-pass cache refresh). Unit-tested (member-land membership, create-if-missing
+  hit / still-failing / two-members-create-once, R1 non-regression) **and** live-verified against real
+  Jellyfin (`/verify`, 9/9): a parked member's durable on-disk row auto-created a real playlist, landed the
+  track in it, idempotent across a simulated restart. `main`, 650 tests green.
 - **Depends on:** T-304, T-302 (its append should ride **T-313**'s idempotent append once that lands)
+- **Deferred follow-ups (from `/code-review high` on the T-306 diff, out-of-scope for this fix, tracked
+  here):**
+  1. **Stale/deleted non-null playlist id is never recovered.** create-if-missing guards a **NULL** id only;
+     a non-null-but-stale id (owner deleted the playlist in Jellyfin) reaches the pre-check, returns `None`,
+     and defers every pass — logged once/pass, but never stuck-flagged and never re-created. Silent (log-only)
+     permanent defer. A stale-id recovery (re-create, or surface it) is its own ticket; the docstring claim was
+     corrected to stop implying create-if-missing covers it.
+  2. **Stuck ceiling is measured from `created_at`.** A row whose container was absent for a long time is
+     already past the wall-clock ceiling the instant create-if-missing backfills the container, so its first
+     reachable NOT_INDEXED pass flags it stuck even though it just became resolvable. Display-only and
+     self-clears on append; consider measuring the ceiling from *container-created* (or first-reachable) time.
+  3. **Permanently-stuck rows can starve the drain.** T-313 keeps stuck rows in the oldest-first, `LIMIT`ed
+     `list_pending_appends` window (deliberately — "visible, never benched"); if enough rows are permanently
+     NOT_INDEXED they fill the window and newer healthy appends are never fetched. Latent (needs ≥limit
+     never-indexable rows); revisit if a real backlog ever forms. (Lineage: T-313's reframe, surfaced here.)
+  4. **`resolve_user_id` positive-cache has no invalidation** (`jellyfin.py`) — a rotated key / demoted admin
+     serves a stale user id until restart. Low impact single-user; `_clear_user_id_cache()` exists for tests.
+     (Lineage: T-314.) The **per-pass resolve cache** finding is already tracked under T-314's follow-ups (#1).
 - **Council note (2026-08-17):** this membership write is **currently absent from `run_resolve`** in shipped
   code (verified: `_record_pending_membership`/`add_member` are called only from `run_pipeline`/the dedup-skip,
   never the resolve path) — so a **parked batch member resolved today never joins its playlist** (a live silent

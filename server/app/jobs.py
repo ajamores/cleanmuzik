@@ -72,6 +72,7 @@ from app.jellyfin import (
     JellyfinScanError,
     ResolveStatus,
     append_to_playlist,
+    create_playlist,
     get_playlist_item_ids,
     resolve_item_id,
     trigger_scan,
@@ -286,6 +287,7 @@ def reconcile_pending_appends(
     resolve_fn=resolve_item_id,
     append_fn=append_to_playlist,
     precheck_fn=get_playlist_item_ids,
+    create_fn=create_playlist,
 ) -> int:
     """Drain pending Jellyfin appends; return how many pending members it cleared this pass.
 
@@ -307,17 +309,23 @@ def reconcile_pending_appends(
     per-pass pre-check of each playlist's current members. Per member, in order:
 
     - **No `jellyfin_playlist_id`** on the parent playlist → the Jellyfin playlist itself was
-      never created (config absent at expansion). Skip — the member isn't stuck, its container
-      is; T-306's create-if-missing backfill owns that recovery.
+      never created (config absent at expansion, or the create POST degraded). **Create it now**
+      (T-306 create-if-missing) so a parked-then-resolved member can still join, and persist the
+      new id (refreshing the per-pass cache so a second member of the same playlist reuses it and
+      cannot double-create). If the create still fails (Jellyfin absent/flaky), defer the member
+      untouched — no stuck flag: the container's fault, not the member's — and retry next pass.
     - **Pre-check unreadable** (`precheck_fn` → `None`: Jellyfin unreachable, or the stored
       playlist id is stale/deleted) → skip *every* member of this playlist this pass and defer
       untouched, **no stuck flag** — exactly like resolve-UNREACHABLE. The two `None` causes
       (transient outage vs. missing container) are indistinguishable at this layer, so flagging
       here would paint a whole backlog stuck on any multi-minute outage — the very outage/give-up
       conflation the reframe exists to kill. We never blind-append when we cannot first read the
-      playlist (repair 3). A persistently-unreadable container is logged once per pass; a
-      genuinely missing one is recovered by T-306's create-if-missing, not surfaced as stuck.
-      Only a *reachable-but-unindexed* row (NOT_INDEXED, below) is ever flagged stuck.
+      playlist (repair 3). A persistently-unreadable container is logged once per pass. Note the
+      recovery split: a **NULL** id (never created) is fixed by T-306 create-if-missing *above*,
+      before the pre-check runs; a **stale/deleted non-null** id reaches here and is only
+      deferred+logged — create-if-missing does NOT fire for it (that guards NULL only). Auto-
+      recovering a stale id is a tracked follow-up, not this pass's job. Only a
+      *reachable-but-unindexed* row (NOT_INDEXED, below) is ever flagged stuck.
     - **Resolve UNREACHABLE** → defer this member untouched: no append, no stuck flag, no
       state change. The pre-check just succeeded, so this is a transient blip on the resolve
       call — an outage must strand nothing and spend no budget (repair 2, bug 3).
@@ -350,7 +358,21 @@ def reconcile_pending_appends(
             playlist = playlists[member.playlist_id]
             jf_playlist_id = getattr(playlist, "jellyfin_playlist_id", None)
             if not jf_playlist_id:
-                continue  # container not created yet — T-306's backfill, not a member fault
+                # T-306 create-if-missing: the container was never created (config absent at
+                # expansion, or the create POST degraded — both leave a NULL id). Create it now
+                # so a parked-then-resolved member can join, rather than skipping its container
+                # forever. A still-absent/-flaky Jellyfin returns None: defer untouched (no stuck
+                # — the container's fault, not the member's), retried next pass.
+                title = getattr(playlist, "title", None)
+                if not title:
+                    continue  # no name to create the playlist under — nothing to recover here
+                jf_playlist_id = create_fn(title, settings=settings)
+                if not jf_playlist_id:
+                    continue  # create still failing — defer, retry a later pass
+                store.set_jellyfin_playlist_id(member.playlist_id, jf_playlist_id)
+                # Refresh the per-pass cache so a later member of THIS playlist reads the new
+                # id and does not create a second container (the double-create guard).
+                playlists[member.playlist_id] = store.get_playlist(member.playlist_id)
 
             past_ceiling = _is_past_stuck_ceiling(member.created_at, now)
 
@@ -1021,6 +1043,15 @@ def run_resolve(
         store.update_review_status(review_id, REVIEW_RESOLVED)
         committed = True
 
+        # T-306: a parked playlist member has just been resolved — record its membership NOW,
+        # durably, with the canonical path and a NULL jellyfin_item_id, exactly as
+        # run_pipeline's land branch does (6a). This was the silent gap: the resolve path
+        # never recorded membership, so a parked batch member resolved later never joined its
+        # playlist. Tied to the LAND (this commit), not the scan below, so the slot survives a
+        # scan failure and the reconcile pass drains it whenever Jellyfin catches up. A
+        # single-song (null-playlist) resolve writes nothing here — the R1 path is untouched.
+        _record_pending_membership(store, job_id, final_path)
+
         registry.set_stage(job_id, STAGE_SCAN)
         try:
             scan_fn(settings=s)
@@ -1038,6 +1069,11 @@ def run_resolve(
             )
 
         logger.info("review %s resolved as %s — landed at %s", review_id, request.choice, final_path)
+        # T-306: opportunistically drain a few pending appends now the member is recorded —
+        # symmetric with run_pipeline's 6c. The just-resolved file isn't indexed yet, so this
+        # mostly clears OLDER members Jellyfin has caught up on; this member's own row drains on
+        # a later pass. Best-effort, bounded, and never on the R1 (null-playlist) path.
+        _drain_after_land(store, job_id, settings=s)
         # Announce the landing on the resolve path too. `final_path` reflects a REPLACE
         # choice; `landed=True` (not a non-None path) marks the landing, so even a REPLACE
         # whose moved item yields no path still announces track.done (ADR-015).

@@ -10,8 +10,8 @@ real Jellyfin is T-311. One class per "Done when" clause:
    queue filters and orders correctly; a resolved member leaves the queue; a bounded
    give-up drops a never-indexable one.
 3. **Reconcile orchestration** — resolve→append→stamp; a miss defers (no silent drop); an
-   uncreated container is skipped without burning the give-up budget; a failed append is
-   left pending; the drain is idempotent.
+   uncreated container is created-if-missing (T-306) then drained, or deferred if the create
+   still fails; a failed append is left pending; the drain is idempotent.
 4. **Land-path integration** — a landed member records a pending membership with its path
    (item id NULL); a single-song R1 land records nothing (acceptance item 11).
 """
@@ -525,17 +525,64 @@ class TestReconcile:
         (m,) = store.list_pending_appends(10)
         assert m.jellyfin_item_id is None and m.stuck_since is None  # pending, not yet stuck
 
-    def test_uncreated_container_is_skipped(self, tmp_path):
+    def test_uncreated_container_is_created_then_drained(self, tmp_path):
+        """T-306 create-if-missing: a NULL-id container is created now, its id persisted, and
+        the member appends — not skipped forever."""
+        store, pl = _playlist_with_pending(tmp_path, jellyfin_playlist_id=None)
+        creates, appends = [], []
+        n = reconcile_pending_appends(
+            store, limit=10,
+            create_fn=lambda name, settings=None: creates.append(name) or "jf-new",
+            resolve_fn=_resolved("item-42"),
+            append_fn=lambda pl_id, item_id, settings=None: (
+                appends.append((pl_id, item_id)) or True
+            ),
+            precheck_fn=_empty_precheck,
+        )
+        assert n == 1
+        assert creates == ["P"]  # created under the playlist's derived title
+        assert appends == [("jf-new", "item-42")]  # appended to the just-created container
+        assert store.get_playlist(pl.id).jellyfin_playlist_id == "jf-new"  # id persisted
+        assert store.list_pending_appends(10) == []  # stamped → drained
+
+    def test_uncreated_container_create_still_failing_defers_untouched(self, tmp_path):
+        """Jellyfin still absent/flaky at drain time → create returns None → defer, no stuck,
+        no resolve/append attempted (the container's fault, not the member's)."""
         store, _ = _playlist_with_pending(tmp_path, jellyfin_playlist_id=None)
         n = reconcile_pending_appends(
             store, limit=10,
-            resolve_fn=lambda *a, **k: pytest.fail("must not resolve a container-less row"),
+            create_fn=lambda name, settings=None: None,  # create still failing
+            resolve_fn=lambda *a, **k: pytest.fail("must not resolve without a container"),
             append_fn=lambda *a, **k: pytest.fail("must not append"),
             precheck_fn=lambda *a, **k: pytest.fail("must not pre-check a container-less row"),
         )
         assert n == 0
         (m,) = store.list_pending_appends(10)
         assert m.stuck_since is None  # the container's fault, not the member's (T-306)
+
+    def test_two_members_of_an_uncreated_container_create_it_once(self, tmp_path):
+        """The double-create guard: two pending members of the same NULL-id playlist create
+        exactly one Jellyfin container (the per-pass cache refresh), and both append to it."""
+        store = _store(tmp_path)
+        pl = store.upsert_playlist("PL", "P")  # no jellyfin_playlist_id
+        store.add_member(pl.id, "vidA", position=1, landed_path="/lib/a.mp3")
+        store.add_member(pl.id, "vidB", position=2, landed_path="/lib/b.mp3")
+        creates, appends = [], []
+        n = reconcile_pending_appends(
+            store, limit=10,
+            create_fn=lambda name, settings=None: creates.append(name) or "jf-once",
+            resolve_fn=lambda path, settings=None: ResolveResult(
+                ResolveStatus.RESOLVED, f"item-{path[-5]}"
+            ),
+            append_fn=lambda pl_id, item_id, settings=None: (
+                appends.append((pl_id, item_id)) or True
+            ),
+            precheck_fn=_empty_precheck,
+        )
+        assert n == 2
+        assert creates == ["P"]  # created ONCE, not once per member
+        assert {pl_id for pl_id, _ in appends} == {"jf-once"}
+        assert store.get_playlist(pl.id).jellyfin_playlist_id == "jf-once"
 
     # --- bug 3: an outage strands nothing and spends no budget, on BOTH organs ---------
 
