@@ -267,6 +267,7 @@
       <li><b>Album art on landed rows only.</b> Parked / gone / queued rows carry <b>no</b> art placeholder — they’d be asserting a cover that doesn’t exist yet (819f22c removed a swatch for exactly this reason).</li>
       <li><b>“Needs you” hoisted to the top.</b> The bucket that wants a decision leads; landed / gone / already-here sit below.</li>
       <li><b>Parked &gt; 0 ⇒ “waiting on you”, never “done”.</b> A month isn’t finished while messy tracks are unfiled.</li>
+      <li><b>Zero of zero is “never started”, never “done”.</b> A crash between the row-upsert and the enqueue leaves an empty batch the durable projection calls finished; the card renders the honest state — no green, no red — and points at the safe re-paste.</li>
       <li><b>Survives reload &amp; restart.</b> The card rebuilds from durable batch state (T-312), not from replayed memory.</li>
     </ul>
   </div>
@@ -652,6 +653,48 @@
     </div>
   </div>
 
+  <!-- ============ SCREEN 7 — zero-track reconnect: never got off the ground ============ -->
+  <div class="caprow">
+    <span class="capnum">07</span>
+    <span class="captxt">The ugly state: a batch that never got off the ground
+      <small>A crash between saving the playlist and queuing its tracks leaves a batch with <b>zero of zero</b>. The durable projection sees nothing pending and calls it <span style="font-family:var(--mono)">done</span> — but nothing landed either. The card refuses the phantom: <b>no green “Done” over an empty batch</b>, and no alarm — a quiet “never got off the ground” that points at the safe re-paste. Distinct from screen 01 on sight: there the queue is full and the card is waking up; here there was never anything to wake.</small>
+    </span>
+  </div>
+  <div class="frame">
+    <div class="fbar"><i></i><i></i><i></i><span class="u">cleanmuzik · localhost:5173 · reopened after a crash mid-paste</span></div>
+    <div class="scr">
+      <aside class="rail">
+        <div class="rail__brand"><div class="rail__seal"></div><div class="rail__wm">CleanMuzik</div><p class="rail__tag">Paste a YouTube URL and it lands, tagged, in your library.</p></div>
+        <div class="rail__form"><div class="rail__in">youtube.com/playlist?list=PL…aug</div><div class="rail__go">Go</div></div>
+        <div class="rail__path"><span class="rail__stage">Download</span><span class="rail__stage">Transcode</span><span class="rail__stage">Identify</span><span class="rail__stage">Tag</span><span class="rail__stage">Land</span></div>
+      </aside>
+      <main class="deck">
+        <div class="deck__head"><h2 class="deck__title">Batch</h2><span class="deck__count">1</span></div>
+        <div class="batch">
+          <div class="batch__top">
+            <div class="batch__id"><h3 class="batch__title">August 2026 — night drives</h3><p class="batch__src">youtube.com/playlist?list=PL8u…&nbsp;·&nbsp;0 tracks queued&nbsp;·&nbsp;restored from durable state</p></div>
+            <span class="pill" style="color:var(--text);border:1px solid var(--border)">Never started</span>
+          </div>
+          <div class="agg">
+            <div class="agg__bar"></div>
+            <div class="agg__meta"><span class="agg__count">0 of 0 — nothing was queued</span><span class="agg__pct">—</span></div>
+          </div>
+          <div class="tally">
+            <div class="tally__cell tally__cell--landed tally__cell--zero"><span class="tally__n">0</span><span class="tally__k">Landed</span></div>
+            <div class="tally__cell tally__cell--review tally__cell--zero"><span class="tally__n">0</span><span class="tally__k">In review</span></div>
+            <div class="tally__cell tally__cell--failed tally__cell--zero"><span class="tally__n">0</span><span class="tally__k">Gone</span></div>
+            <div class="tally__cell tally__cell--skipped tally__cell--zero"><span class="tally__n">0</span><span class="tally__k">Skipped</span></div>
+            <div class="tally__cell tally__cell--zero"><span class="tally__n">0</span><span class="tally__k">Queued</span></div>
+          </div>
+          <div class="bucket">
+            <div class="ready"><p class="ready__t">Nothing got queued.</p><p class="ready__s">The paste was cut short before any tracks joined. Paste the playlist again — it picks up where it left off, nothing doubled.</p></div>
+          </div>
+          <div class="foot-note">An empty batch is not a finished one. Zero of zero is honest — the card says <b>never started</b>, not “done”, and a re-paste is safe (T-307).</div>
+        </div>
+      </main>
+    </div>
+  </div>
+
   <!-- ================================================================
        PART 2 — THE ACQUIRE DIAL (added 2026-08-16 from the design council)
        ================================================================ -->
@@ -805,8 +848,9 @@
     Multi·soon — as the acquire-intent control; (7) the <b>dial is the intent</b>: a song+list paste on Single just lands
     the one song (no prompt — a quiet line points to Playlist), and Playlist mode expands; (8) <b>Multi shown-but-inert</b> now,
     built later. Single-song R1 acquire keeps its existing card, unchanged, in the same deck.
+    <br><br><b>Amendment 2026-08-18:</b> screen <b>07</b> added (zero-track reconnect). Sign-off sought on <b>07 only</b> — 01–06 and D1–D4 stand approved as of 2026-08-16.
     <div class="signoff">
-      <span>◻ Batch card — shape + copy approved</span><span>◻ “Gone” not red — approved</span><span>◻ Art-on-landed-only — approved</span><span>◻ The dial (Single/Playlist/Multi·soon) — approved</span><span>◻ Dial-is-intent (song+list → just the song, no prompt) — approved</span><span>◻ Changes requested (see notes)</span>
+      <span>◻ Batch card — shape + copy approved</span><span>◻ “Gone” not red — approved</span><span>◻ Art-on-landed-only — approved</span><span>◻ The dial (Single/Playlist/Multi·soon) — approved</span><span>◻ Dial-is-intent (song+list → just the song, no prompt) — approved</span><span>◻ 07 · empty batch is “never started”, not done — approved</span><span>◻ Changes requested (see notes)</span>
     </div>
   </div>
 </div>

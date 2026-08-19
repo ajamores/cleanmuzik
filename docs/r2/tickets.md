@@ -568,6 +568,10 @@ integrate onto `main` with the status line flipped in the closing commit, transc
   published for owner sign-off.
   Runs *ahead of* the DoD, not inside it. The mockups **encode ADR-027/028** — writing them before those ADRs
   land means re-mocking (why the design gate depends on Phase A). **Gate artifact: `docs/r2/design/t310-batch-view.html`.**
+  - **Gate signed off 2026-08-19.** Screens 01–06 + D1–D4 approved 2026-08-16; **screen 07 (zero-track /
+    partially-enqueued reconnect — `total=0` renders "never started", not "done")** added + signed off 2026-08-19.
+    Component build is now unblocked. Builder note: screen 07 implies `batch_progress_payload` grows a derived
+    state for the all-zero case — that fix lands with the shared payload semantics, decided at build.
   - **Added 2026-08-16 (ADR-029): the acquire dial screens (D1–D4).** The gate also covers the acquire-intent
     control that feeds the batch — the round detented **Single / Playlist / Multi·soon** selector: its three
     resting stops, the `watch?v=X&list=PL…`-on-Single **quiet note** (no prompt — the dial is the intent, ADR-029), and the **Multi "soon"** state. The
