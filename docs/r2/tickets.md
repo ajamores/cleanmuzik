@@ -561,7 +561,7 @@ integrate onto `main` with the status line flipped in the closing commit, transc
   out of the shared queue and App partitions the top-level inbox on a null `playlist_id`; (3) per-track
   landed/gone **row detail is live-only** (ADR-027 seam 5 reserves no durable per-track read) — after a true
   restart the tally is durable but rows show a durable count summary, not redrawn detail; the *card* survives,
-  the row *detail* is best-effort; (4) a batch-scoped review **reconstructs its card on reload** even with an
+  the row *detail* is best-effort (durable per-track rows are follow-up **T-048** in `docs/backlog/`); (4) a batch-scoped review **reconstructs its card on reload** even with an
   empty deck (a `/code-review` finding — otherwise the park was filtered out of the inbox with no card to
   host it, unseen and unresolvable). Cold-load gates the SSE open on the snapshot state (settled ⇒ never open,
   killing the reconnect race). Suites: 679 server + 91 client green; live-verified over a real socket
