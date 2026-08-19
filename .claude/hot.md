@@ -29,15 +29,9 @@ CleanMuzik — personal YouTube → Jellyfin music tool. Purpose, stack, constra
   durable review inbox hoisted on top, art on landed rows only, warmth-not-alarms. Plus the **acquire dial**
   (ADR-029: Single default / Playlist / Multi·soon inert). Reused the shipped console skin + review-inbox
   resolve seam; single-song R1 card unchanged.
-- **Build decisions** (settled at build): (1) `never_started` batch state for the `total==0` phantom (screen
-  07); (2) **Option 2 review-scoping** — review payload carries `playlist_id`+`position` (one bulk
-  `membership_for_jobs` query) so the card owns its parked tracks; (3) per-track **row detail is live-only**
-  (ADR-027 seam 5) — tally durable, row detail best-effort after a restart.
-- **`/code-review` caught two subtle traps, both fixed + tested + filed to `learnings.md`:** a batch park was
-  orphaned on reload (filtered from the inbox with no card to host it) → App now recovers a card from the
-  review; and an async cold-load raced the SSE open → the stream now opens only once the snapshot says the
-  batch is still live. Live-verified over a real socket (never_started, review membership, settled stream
-  closes cleanly).
+- Build decisions + the two `/code-review` traps (reload-orphaned park; async cold-load racing the SSE open)
+  are filed — see the T-310 close note in `docs/r2/tickets.md` and `docs/learnings.md` (2026-08-19).
+  Live-verified over a real socket (never_started, review membership, settled stream closes).
 
 ## ⟹ NEXT
 
