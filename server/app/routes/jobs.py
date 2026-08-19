@@ -1,6 +1,6 @@
 """Job routes — paste a URL, get a job; stream its progress; poll its snapshot (T-012/13, spec §6).
 
-Four routes:
+Five routes:
 
 - `POST /api/jobs {url, intent?}` → create the `jobs` row(s), hand them to the
   worker, and return `{ job_id }` (one song) or `{ playlist_id, job_ids }` (an
@@ -14,6 +14,9 @@ Four routes:
   opens 50 EventSources.
 - `GET /api/jobs/{job_id}` → the reconnect / SSE-fallback snapshot: the durable row
   overlaid with the worker's live stage / error / review id.
+- `GET /api/playlists/{playlist_id}` → a batch's reconnect snapshot (R2/T-312): the
+  aggregate tally + terminal state rebuilt purely from SQLite, so "walk away and come
+  back after a restart" survives an empty bus.
 
 Kept deliberately import-light. The heavy pipeline (beets, yt-dlp, ffmpeg) lives in
 `app.jobs`, reached through `app.state.worker` set up in the lifespan — so importing
@@ -305,6 +308,37 @@ async def stream_batch_events(playlist_id: str, request: Request) -> StreamingRe
         media_type="text/event-stream",
         headers=_SSE_HEADERS,
     )
+
+
+@router.get("/playlists/{playlist_id}")
+def get_playlist_state(playlist_id: str) -> dict:
+    """Durable batch snapshot for reconnect after a restart (T-312; US20, US22).
+
+    The batch mirror of `get_job`'s reconnect role — but deliberately with **no
+    live-registry or bus overlay**: the tally and terminal state are rebuilt purely
+    from SQLite (`count_jobs_by_status` through `batch_progress_payload`, the exact
+    read every `batch.progress` emit rides), so the answer is correct against an
+    empty in-memory bus — i.e. after a backend restart mid-batch (acceptance item 7).
+    The T-310 card rebuilds from this, then re-subscribes to the batch stream for
+    anything still in flight.
+
+    Aggregate-only by decision (ADR-027 seam 5): the per-track ordered read belongs
+    to the membership store's backfill path (T-306), not this projection. What rides
+    alongside the tally is the playlist's durable *identity* — `youtube_playlist_id`,
+    `jellyfin_playlist_id`, `created_at` — the same way `get_job` surfaces the row's
+    `url`/`created_at`.
+    """
+    store = get_store()
+    playlist = store.get_playlist(playlist_id)
+    if playlist is None:
+        raise HTTPException(status_code=404, detail=f"No playlist {playlist_id}.")
+    snapshot = batch_progress_payload(
+        playlist_id, store.count_jobs_by_status(playlist_id)
+    )
+    snapshot["youtube_playlist_id"] = playlist.youtube_playlist_id
+    snapshot["jellyfin_playlist_id"] = playlist.jellyfin_playlist_id
+    snapshot["created_at"] = playlist.created_at
+    return snapshot
 
 
 @router.get("/jobs/{job_id}")

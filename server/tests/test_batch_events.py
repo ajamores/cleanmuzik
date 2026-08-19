@@ -533,6 +533,77 @@ def test_stream_route_self_heals_an_orphaned_open_channel(client):
     assert key not in bus._pinned
 
 
+# --- 8. the durable snapshot (T-312) -----------------------------------------
+# `GET /api/playlists/{id}` rebuilds a batch's aggregate state purely from SQLite.
+# Every test seeds rows directly in the store and publishes NOTHING to the bus — the
+# `client` fixture's bus is empty, which is exactly the post-restart condition the
+# route exists for (US20/US22, acceptance item 7).
+
+
+class TestDurableBatchSnapshot:
+    def test_tally_rebuilds_from_sqlite_with_an_empty_bus(self, client):
+        store = client.store
+        playlist, members = _batch(store, ["v1", "v2", "v3", "v4", "v5", "v6"])
+        for job, status in zip(
+            members, ["done", "done", "review", "error", "skipped", "queued"]
+        ):
+            store.update_job_status(job.id, status)
+
+        body = client.get(f"/api/playlists/{playlist.id}").json()
+        assert body["landed"] == 2
+        assert body["in_review"] == 1
+        assert body["failed"] == 1
+        assert body["skipped"] == 1
+        assert body["queued"] == 1
+        assert body["total"] == 6
+        assert body["playlist_id"] == playlist.id
+
+    def test_waiting_on_you_while_parked_and_nothing_queued(self, client):
+        # Acceptance item 7's terminal state, durable: parked > 0 and the grind
+        # finished ⇒ "waiting on you" — never "done" (US17), even with no event
+        # history in memory.
+        store = client.store
+        playlist, members = _batch(store, ["v1", "v2"])
+        store.update_job_status(members[0].id, "done")
+        store.update_job_status(members[1].id, "review")
+        body = client.get(f"/api/playlists/{playlist.id}").json()
+        assert body["state"] == "waiting_on_you"
+
+    def test_running_while_queued_then_done_when_all_settled(self, client):
+        store = client.store
+        playlist, members = _batch(store, ["v1", "v2"])
+        store.update_job_status(members[0].id, "done")
+        assert client.get(f"/api/playlists/{playlist.id}").json()["state"] == "running"
+        # A failure never blocks "done" (ADR-002) — settle the tail as an error.
+        store.update_job_status(members[1].id, "error")
+        assert client.get(f"/api/playlists/{playlist.id}").json()["state"] == "done"
+
+    def test_404s_an_unknown_playlist(self, client):
+        resp = client.get("/api/playlists/nope")
+        assert resp.status_code == 404
+        assert resp.json()["detail"] == "No playlist nope."
+
+    def test_carries_the_durable_identity_fields(self, client):
+        # The batch mirror of get_job surfacing url/created_at: the row's identity
+        # rides the snapshot so a card can rebuild its header without event history.
+        store = client.store
+        playlist, _ = _batch(store, ["v1"], yt_id="PLident", title="Identity Mix")
+        store.set_jellyfin_playlist_id(playlist.id, "jf-42")
+        body = client.get(f"/api/playlists/{playlist.id}").json()
+        assert body["youtube_playlist_id"] == "PLident"
+        assert body["jellyfin_playlist_id"] == "jf-42"
+        assert body["created_at"] == playlist.created_at
+
+    def test_jellyfin_id_is_null_while_uncreated(self, client):
+        # The degraded-Jellyfin first paste (ADR-027 seam 3): the NULL is real state
+        # (T-306 backfills it), so the snapshot must surface it as null, not omit it.
+        store = client.store
+        playlist, _ = _batch(store, ["v1"], yt_id="PLnull")
+        body = client.get(f"/api/playlists/{playlist.id}").json()
+        assert "jellyfin_playlist_id" in body
+        assert body["jellyfin_playlist_id"] is None
+
+
 def test_payload_bucket_keys_track_the_real_status_constants():
     # batch_progress_payload reads app.jobs' STATUS_* values as local string literals to
     # keep this import-light module off the beets-heavy app.jobs. Couple them here so a
