@@ -1,7 +1,7 @@
 ---
 type: meta
 title: "Hot — cleanmuzik"
-updated: 2026-08-18
+updated: 2026-08-19
 tags:
   - meta
   - hot-cache
@@ -19,44 +19,45 @@ status: evergreen
 CleanMuzik — personal YouTube → Jellyfin music tool. Purpose, stack, constraints, read-order in
 `CLAUDE.md`; scope in `cleanmuzik-prd.md`. Not restated here.
 
-## Current State (2026-08-18)
+## Current State (2026-08-19)
 
-- **On `main`, tree clean. 676 tests green. Merged but NOT pushed** (main is ahead of `origin/main` —
-  the T-312 feat + merge + docs at least; push is yours to call). R2 (Playlists) `in-build`.
-- **T-312 done + merged** — the batch spine's reconnect stone: **`GET /api/playlists/{id}`**, a read-only
-  projection that rebuilds a batch's aggregate tally + terminal state purely from SQLite
-  (`count_jobs_by_status` → `batch_progress_payload`, the exact read `batch.progress` rides) plus the
-  playlist's durable identity — so "walk away, come back after a restart" survives an empty bus. **No live
-  overlay** (unlike `get_job`); that's the point.
-- **Aggregate-only by decision** — a 3-seat design council (2026-08-18) ruled per-track detail out: ADR-027
-  seam 5 reserves the per-track ordered read for T-306/T-310. The ticket's old "and per-track outcomes"
-  *What* prose contradicted the ADR — **amended** in the close-out commit.
-- Live-verified over a real socket across a **genuine `kill`+relaunch**: tally + `waiting_on_you` came back
-  byte-identical from SQLite. `/code-review`: 2 low findings, both **triaged not fixed** — the zero-job
-  `total=0 → state=done` edge is filed onto **T-310's design gate** (fix belongs with `batch_progress_payload`,
-  not the route); the non-atomic 2-read is nil under ADR-004.
+- **On `main`, tree clean** (only `.vscode/` untracked). **679 server + 91 client tests green on main.**
+  **Merged but NOT pushed** (main is 1 ahead of `origin/main` — the T-310 commit `cc44520`; push is yours).
+  R2 (Playlists) `in-build`.
+- **T-310 done + merged** — the batch view. **One aggregate card** per playlist paste (not fifty): durable
+  tally+state from the T-312 snapshot, live rows off the T-305 stamped `track.*` stream, "needs you" from the
+  durable review inbox hoisted on top, art on landed rows only, warmth-not-alarms. Plus the **acquire dial**
+  (ADR-029: Single default / Playlist / Multi·soon inert). Reused the shipped console skin + review-inbox
+  resolve seam; single-song R1 card unchanged.
+- **Build decisions** (settled at build): (1) `never_started` batch state for the `total==0` phantom (screen
+  07); (2) **Option 2 review-scoping** — review payload carries `playlist_id`+`position` (one bulk
+  `membership_for_jobs` query) so the card owns its parked tracks; (3) per-track **row detail is live-only**
+  (ADR-027 seam 5) — tally durable, row detail best-effort after a restart.
+- **`/code-review` caught two subtle traps, both fixed + tested + filed to `learnings.md`:** a batch park was
+  orphaned on reload (filtered from the inbox with no card to host it) → App now recovers a card from the
+  review; and an async cold-load raced the SSE open → the stream now opens only once the snapshot says the
+  batch is still live. Live-verified over a real socket (never_started, review membership, settled stream
+  closes cleanly).
 
 ## ⟹ NEXT
 
-1. **T-310** — batch view (one aggregate card). **Now unblocked** (needed T-305 + T-312). **DESIGN GATE
-   FIRST** (ADR-016: flat HTML scenario screens incl. ugly states → owner sign-off *before* component code).
-   Gate now must cover the **zero-track/partial-enqueue reconnect** state (filed there this session). Also
-   carries the ADR-029 acquire-dial screens. Front-end. Gate artifact: `docs/r2/design/t310-batch-view.html`.
-2. **T-307** — idempotent re-paste (backend, buildable; rides T-303/T-304's idempotent append).
-3. **T-308** — `git mv docs/backlog/T-037.md docs/r2/` (artist-credit normalisation; ADR-028 filed).
-4. **T-311** — the FULL end-to-end `/verify` (whole acceptance checklist). Needs the card (T-310).
+1. **T-307** — idempotent re-paste (backend, buildable; rides T-303/T-304's idempotent append).
+2. **T-308** — `git mv docs/backlog/T-037.md docs/r2/` (artist-credit normalisation; ADR-028 filed).
+3. **T-311** — the FULL end-to-end `/verify` (whole acceptance checklist). **Now unblocked** — the batch
+   card (T-310) it needed just landed. Carries the two live-Jellyfin seams already fixed under T-314.
 
 ## Recent sessions (rolling — last 2–3)
 
-- **2026-08-18 (this session)** — Built **T-312** via a fable agent in a worktree; a 3-seat council decided
-  the payload (aggregate-only); owned the DoD (review, acceptance, live restart `/verify`, merge, ledger).
-  676 green.
-- **2026-08-18 (earlier)** — Built + merged **T-305** (batch-scoped SSE, one stream per batch); 670 green.
-- **2026-08-18** — Built + pushed **T-306** (parked→resolved appends to its playlist); filed **T-315**.
+- **2026-08-19 (this session)** — Built + merged **T-310** solo (Opus): backend `never_started` + review
+  membership, `AcquireDial` + `BatchCard` + App rewire, 178 new test lines. Owned the full DoD; `/code-review`
+  found 2 real traps, both fixed. 679+91 green on main.
+- **2026-08-18** — Built + merged **T-312** (durable batch snapshot) via a fable agent; 3-seat council ruled
+  the payload aggregate-only (ADR-027 seam 5).
+- **2026-08-18 (earlier)** — Built + merged **T-305** (batch-scoped SSE, one stream per batch).
 
 ## Where the rest of the context lives
 
-`docs/roadmap.md` (R2 `in-build`) · `docs/r2/spec.md` + **`tickets.md`** (T-300–306, T-313–314, **T-305**,
-**T-312** done; T-310/T-307/T-308/T-311/T-315 open) · `docs/r1/adr.md` (**ADR-027 seam 5** = the batch-tally
-aggregate read; per-track ordered read → T-306/T-310) · `docs/learnings.md` · `docs/workflow.md` ·
+`docs/roadmap.md` (R2 `in-build`) · `docs/r2/spec.md` + **`tickets.md`** (T-300–306, **T-305/T-312/T-310**
+done; T-307/T-308/T-311/T-315 open) · `docs/r1/adr.md` (**ADR-027 seam 5** aggregate-only read; **ADR-029**
+acquire dial) · `docs/learnings.md` (2026-08-19: reload-orphan + stream-race traps) · `docs/workflow.md` ·
 `docs/backlog/` (T-037). Business → `/graft`.
