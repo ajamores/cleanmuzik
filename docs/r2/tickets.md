@@ -553,7 +553,19 @@ integrate onto `main` with the status line flipped in the closing commit, transc
 ## Phase E — UI
 
 ### T-310 — Batch view: one aggregate playlist card
-- **Status:** todo
+- **Status:** done — merged 2026-08-19. **Build decisions (settled at build, per the gate's builder note):**
+  (1) the zero-track phantom is fixed in `batch_progress_payload` — a new `never_started` state for
+  `total==0`, folded into both `settled` derivations so an empty batch's stream closes cleanly (screen 07);
+  (2) **Option 2 review-scoping** — a parked review's payload now carries `playlist_id`+`position` (bulk
+  `Store.membership_for_jobs`, one `IN` query), so the card's "needs you" bucket picks its own parked tracks
+  out of the shared queue and App partitions the top-level inbox on a null `playlist_id`; (3) per-track
+  landed/gone **row detail is live-only** (ADR-027 seam 5 reserves no durable per-track read) — after a true
+  restart the tally is durable but rows show a durable count summary, not redrawn detail; the *card* survives,
+  the row *detail* is best-effort; (4) a batch-scoped review **reconstructs its card on reload** even with an
+  empty deck (a `/code-review` finding — otherwise the park was filtered out of the inbox with no card to
+  host it, unseen and unresolvable). Cold-load gates the SSE open on the snapshot state (settled ⇒ never open,
+  killing the reconnect race). Suites: 679 server + 91 client green; live-verified over a real socket
+  (never_started, review membership, settled stream closes). Trap recorded in `docs/learnings.md` (2026-08-19).
 - **Depends on:** T-305, T-312, T-303, T-304, T-306 (behaviours + durable state to render); **ADR-027 +
   ADR-028 settled** (T-300, T-301)
 - **Agent:** front-end

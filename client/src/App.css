@@ -143,6 +143,39 @@
   font-size: 14px;
 }
 
+/* --- dial note line (ADR-029) --------------------------------------------- */
+/* A quiet, non-blocking hint under the paste bar — song+list on Single, or a bare
+   single under Playlist. It informs and points at the dial; never a prompt, never a
+   button (the dial already carries the intent). */
+.url-form__note {
+  margin: 10px 0 0;
+  font: 11px/1.5 var(--mono);
+  color: var(--text);
+}
+.url-form__note b {
+  color: var(--text-h);
+  font-weight: 600;
+}
+
+/* --- Multi "soon" panel (present-but-inert; T-046 builds it) --------------- */
+.console__soon {
+  border: 1px dashed var(--border);
+  padding: 14px;
+  text-align: center;
+}
+.console__soon-k {
+  font: 600 10px var(--mono);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.console__soon-t {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text);
+  margin: 6px 0 0;
+}
+
 /* --- pipeline legend ------------------------------------------------------ */
 /* The five stages, standing still at the rail's foot — the same signal path the
    track cards animate. Nodes on a hairline, mono, quiet. */

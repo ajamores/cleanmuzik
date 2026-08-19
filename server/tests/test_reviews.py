@@ -1169,10 +1169,14 @@ def test_get_reviews_lists_a_parked_song_with_its_shape(client, monkeypatch):
         "reason", "contradictions",  # T-206: the reconcile Verdict's park story
         "staging_missing",  # T-106
         "guess",  # T-103: what the machine searched with, for the re-search form
+        "playlist_id", "position",  # T-310: batch membership (NULL on a single-song park)
     }
     assert row["rec"] == "medium"
     assert row["query"] == "artist title"
     assert row["candidates"][0]["candidate_id"] == "rec-A"
+    # A single-song R1 park carries no batch — the switch App partitions the inbox on.
+    assert row["playlist_id"] is None
+    assert row["position"] is None
 
 
 def test_get_single_review_returns_its_hydrated_shape(client, monkeypatch):
@@ -1191,10 +1195,39 @@ def test_get_single_review_returns_its_hydrated_shape(client, monkeypatch):
         "reason", "contradictions",  # T-206: the reconcile Verdict's park story
         "staging_missing",  # T-106
         "guess",  # T-103
+        "playlist_id", "position",  # T-310: batch membership (NULL on a single-song park)
     }
     assert row["review_id"] == review.id
     assert row["rec"] == "medium"
     assert row["candidates"][0]["candidate_id"] == "rec-A"
+    assert row["playlist_id"] is None
+    assert row["position"] is None
+
+
+def test_batch_member_review_carries_its_playlist_and_position(client, monkeypatch):
+    # T-310: a park on a batch member surfaces its `playlist_id` + `position`, so the batch
+    # card can pick its own parked tracks out of the shared queue and label the row
+    # ("track 3"). This is the switch App partitions the inbox on — a non-null playlist_id
+    # routes the row to its batch card's "needs you" bucket, not the top-level inbox.
+    store = client.store
+    playlist = store.upsert_playlist("PL-yt", "Night drives")
+    job = store.create_job(
+        "https://youtu.be/m3", playlist_id=playlist.id, position=3, youtube_video_id="m3"
+    )
+    store.update_job_status(job.id, "review")
+    store.create_review(
+        job_id=job.id, staging_path=str(client.tmp_path / "m.mp3"),
+        query="teardrop massive attack", candidate_ids=["rec-A"], rec="low",
+    )
+    monkeypatch.setattr(reviews_mod, "_hydration_cache", {})
+    import beets.metadata_plugins as mp
+
+    monkeypatch.setattr(
+        mp, "track_for_id", lambda mbid, src: type("TI", (), {"title": "S", "artist": "B"})()
+    )
+    row = next(r for r in client.get("/api/reviews").json() if r["job_id"] == job.id)
+    assert row["playlist_id"] == playlist.id
+    assert row["position"] == 3
 
 
 def test_get_single_review_404_when_gone(client):

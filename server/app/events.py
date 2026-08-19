@@ -91,6 +91,13 @@ _CLOSE = object()
 BATCH_RUNNING = "running"
 BATCH_WAITING = "waiting_on_you"
 BATCH_DONE = "done"
+# An empty batch (`total == 0`) is "never_started", NOT "done" (T-310 design gate,
+# screen 07). A crash between the playlist row-upsert and the enqueue leaves a batch
+# with zero members; without this the "no queued, no review ⇒ done" fall-through would
+# report a phantom *finished* batch and the card would paint a completed empty playlist.
+# Like BATCH_DONE it is terminal-with-nothing-coming — the batch stream treats both as
+# settled — but it reads as "never got off the ground", so the owner re-pastes.
+BATCH_EMPTY = "never_started"
 
 
 def batch_channel(playlist_id: str) -> str:
@@ -125,7 +132,12 @@ def batch_progress_payload(playlist_id: str, counts: dict[str, int]) -> dict:
     failed = counts.get("error", 0)
     skipped = counts.get("skipped", 0)
     queued = counts.get("queued", 0) + counts.get("running", 0)
-    if queued:
+    total = landed + in_review + failed + skipped + queued
+    if total == 0:
+        # Nothing was ever enqueued — the enqueue never ran (crash mid-paste). Terminal,
+        # but "never started", not "done": the card must not render a finished empty batch.
+        state = BATCH_EMPTY
+    elif queued:
         state = BATCH_RUNNING
     elif in_review:
         state = BATCH_WAITING
@@ -138,7 +150,7 @@ def batch_progress_payload(playlist_id: str, counts: dict[str, int]) -> dict:
         "failed": failed,
         "skipped": skipped,
         "queued": queued,
-        "total": landed + in_review + failed + skipped + queued,
+        "total": total,
         "state": state,
     }
 

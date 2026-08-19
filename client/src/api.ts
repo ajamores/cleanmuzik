@@ -1,8 +1,22 @@
 // Thin client for the CleanMuzik backend (spec §6). Same-origin: the Vite dev
 // server proxies /api -> http://localhost:8000 (see vite.config.ts).
 
-export interface CreateJobResponse {
-  job_id: string
+/** The acquire-intent the dial sends (ADR-029). `single`/`playlist` are wired; `multi`
+ *  is reserved geometry the backend refuses, so the dial never actually submits it. */
+export type AcquireIntent = 'single' | 'playlist'
+
+/** `POST /api/jobs` answers one of two shapes: a single-song job (the R1 shape,
+ *  byte-for-byte) or an expanded batch. The caller discriminates on the key present —
+ *  `job_id` vs `playlist_id` — which is why they're a union, not one optional-laden type. */
+export type CreateJobResponse =
+  | { job_id: string }
+  | { playlist_id: string; job_ids: string[] }
+
+/** Narrow the union at the call site without leaking the shape check everywhere. */
+export function isBatchResponse(
+  r: CreateJobResponse,
+): r is { playlist_id: string; job_ids: string[] } {
+  return 'playlist_id' in r
 }
 
 /** An HTTP error carrying the server's status and a human-readable message. */
@@ -24,8 +38,57 @@ export class ApiError extends Error {
  * missing-url 422 both arrive this way, so the caller can show the real copy
  * rather than inventing its own.
  */
-export async function createJob(url: string): Promise<CreateJobResponse> {
-  return postJson<CreateJobResponse>('/api/jobs', { url })
+export async function createJob(
+  url: string,
+  intent?: AcquireIntent,
+): Promise<CreateJobResponse> {
+  // Intent rides only when set — an absent `intent` leaves the backend on its R1 shape
+  // inference (a bare song still lands single), so the dial adds nothing to the wire for
+  // the default path. `single`/`playlist` are the only values the dial submits; `multi`
+  // is an inert stop that never reaches here (the backend would 422 it anyway).
+  return postJson<CreateJobResponse>('/api/jobs', intent ? { url, intent } : { url })
+}
+
+/**
+ * `GET /api/playlists/{playlist_id}` — a batch's durable reconnect snapshot (T-312).
+ *
+ * The aggregate tally + terminal state rebuilt purely from SQLite, with the playlist's
+ * durable identity alongside. The batch card reads this on cold load / after a restart
+ * (when the SSE replay buffer is empty), then re-subscribes to the batch stream for
+ * anything still in flight. Aggregate-only by decision (ADR-027 seam 5): no per-track
+ * rows — those come live off the stream, and the parked ones from the review inbox.
+ */
+export async function getPlaylistState(playlistId: string): Promise<PlaylistSnapshot> {
+  return request<PlaylistSnapshot>(`/api/playlists/${encodeURIComponent(playlistId)}`)
+}
+
+/** The derived batch state carried on both `batch.progress` and the snapshot (T-305/T-312).
+ *  `never_started` (T-310): a crash between the row-upsert and the enqueue left `total===0`;
+ *  the card renders it as "never got off the ground", never a green "done". */
+export type BatchState = 'running' | 'waiting_on_you' | 'done' | 'never_started'
+
+/** The aggregate tally shared by the `batch.progress` event and the reconnect snapshot.
+ *  Every count is durable (recomputed from SQLite each emit), so it is correct after a
+ *  restart — unlike the per-track rows, which the card accumulates live off the stream. */
+export interface BatchProgress {
+  playlist_id: string
+  landed: number
+  in_review: number
+  failed: number
+  skipped: number
+  queued: number
+  total: number
+  state: BatchState
+}
+
+/** `GET /api/playlists/{id}` — the progress tally plus the playlist's durable identity.
+ *  `title` lets the card render its header on a cold load, when the live `batch.queued`
+ *  event (which also carries it) has no replay buffer to arrive from. */
+export interface PlaylistSnapshot extends BatchProgress {
+  title: string
+  youtube_playlist_id: string
+  jellyfin_playlist_id: string | null
+  created_at: string
 }
 
 /** `GET /api/jobs/{id}` — the job status snapshot (spec §6). */
@@ -117,6 +180,12 @@ export interface ReviewGuess {
 export interface ReviewRow {
   review_id: string
   job_id: string
+  /** The batch this park belongs to, and the track's index in it (T-310). `null` on a
+   *  single-song R1 park — the switch App partitions on: a null-`playlist_id` review is a
+   *  top-level inbox row, a non-null one belongs to its batch card's "needs you" bucket
+   *  (same review, same resolve seam, contextual place). `position` labels the row. */
+  playlist_id?: string | null
+  position?: number | null
   query: string
   rec: string
   candidates: ReviewCandidate[]

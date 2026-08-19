@@ -1023,3 +1023,17 @@ Format: `- <date> — what went wrong → the correction / rule now in place`
   root cause of the playlist-append feature never working live; both are now in `app/jellyfin.py`. If you
   add any new Jellyfin call, assume it may need `userId` and verify the filter you rely on against a real
   server before trusting it (the general lesson is the T-313 entry above).
+- 2026-08-19 — (T-310, `/code-review` finding, caught pre-merge) **When a durable row is shown in a
+  *context-scoped* place, prove that context still exists on a cold reload before you filter the row out of
+  its fallback home.** The batch card renders a batch member's parked review in its own "needs you" bucket,
+  so App filtered batch-scoped reviews (non-null `playlist_id`) OUT of the top-level inbox to avoid doubling.
+  Correct while a card is mounted — but after a page reload the deck starts empty (no session `items`, no
+  persistence), so **no card mounted**, and the filtered-out review appeared in *neither* place: invisible
+  and unresolvable, the exact opposite of "a queue the owner can't empty is a bug". Fix: App derives the deck
+  from `items` **plus a recovered card for any batch that has a parked review**, so the context is
+  reconstructed from the durable review itself. Rule: a "show it here instead of there" partition is only
+  safe if "here" is guaranteed to exist whenever the row does — on a stateless reload that means deriving the
+  container from the same durable data, never from session memory. (Second, related trap the same review
+  caught: an async cold-load that decides whether to open an SSE stream must **gate the open on its result**,
+  not flip a ref the stream's error handler reads — a settled batch's EOF can fire before the ref is set,
+  reconnect-looping. Open the stream only once the snapshot says the batch is still live.)

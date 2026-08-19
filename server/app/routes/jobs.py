@@ -30,7 +30,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
 from app.db import get_store
-from app.events import BATCH_DONE, batch_channel, batch_progress_payload
+from app.events import BATCH_DONE, BATCH_EMPTY, batch_channel, batch_progress_payload
 
 router = APIRouter()
 
@@ -285,12 +285,13 @@ async def stream_batch_events(playlist_id: str, request: Request) -> StreamingRe
     playlist = store.get_playlist(playlist_id)
     if playlist is None:
         raise HTTPException(status_code=404, detail=f"No playlist {playlist_id}.")
-    settled = (
-        batch_progress_payload(
-            playlist_id, store.count_jobs_by_status(playlist_id)
-        )["state"]
-        == BATCH_DONE
-    )
+    # Both terminal-with-nothing-coming states settle the stream: DONE (all resolved) and
+    # EMPTY (never_started — nothing was ever enqueued, so nothing will ever emit here). A
+    # left-open channel on either must close rather than ping forever (the eviction lesson).
+    state = batch_progress_payload(
+        playlist_id, store.count_jobs_by_status(playlist_id)
+    )["state"]
+    settled = state in (BATCH_DONE, BATCH_EMPTY)
     bus = request.app.state.worker.bus
     key = batch_channel(playlist_id)
     if settled:
@@ -335,6 +336,12 @@ def get_playlist_state(playlist_id: str) -> dict:
     snapshot = batch_progress_payload(
         playlist_id, store.count_jobs_by_status(playlist_id)
     )
+    # The playlist's durable identity alongside the tally. `title` is what the card's
+    # header reads on a COLD load (T-310): the live `batch.queued` event carries it, but a
+    # reload / restart has no replay buffer, so without it here the reopened card would
+    # have a nameless header — the one field the snapshot must add for the card to render
+    # whole from durable state.
+    snapshot["title"] = playlist.title
     snapshot["youtube_playlist_id"] = playlist.youtube_playlist_id
     snapshot["jellyfin_playlist_id"] = playlist.jellyfin_playlist_id
     snapshot["created_at"] = playlist.created_at

@@ -377,7 +377,10 @@ def hydrate_review(store: Store, review_id: str) -> dict | None:
                 lib = get_library()
             except Exception as exc:  # noqa: BLE001 — a bad library still lists the row bare
                 logger.warning("library open failed for review %s: %s", review_id, exc)
-        return _hydrate(review, lib)
+        pl_id, pos = store.membership_for_jobs([review.job_id]).get(
+            review.job_id, (None, None)
+        )
+        return _hydrate(review, lib, playlist_id=pl_id, position=pos)
 
 
 def hydrate_reviews(store: Store) -> list[dict]:
@@ -394,6 +397,10 @@ def hydrate_reviews(store: Store) -> list[dict]:
     reviews = store.list_reviews(status=REVIEW_PENDING)
     if not reviews:
         return []
+    # Each review's batch membership (T-310), in ONE query — fetched BEFORE the hydration
+    # lock, since it reads `jobs` (DB), not the beets library the lock guards. NULL for a
+    # single-song R1 park; scopes a batch member's row to its card's "needs you" bucket.
+    membership = store.membership_for_jobs([review.job_id for review in reviews])
     with _hydration_lock:
         # Open the beets library at most once for the whole batch. `_duplicate_detail`
         # runs under this lock for every duplicate row, and re-opening the sqlite-backed
@@ -413,15 +420,33 @@ def hydrate_reviews(store: Store) -> list[dict]:
                 # weak-match rows (which never touch the library) still list.
                 logger.warning("batch library open failed; falling back to per-row: %s", exc)
                 lib = None
-        return [_hydrate(review, lib) for review in reviews]
+        rows = []
+        for review in reviews:
+            pl_id, pos = membership.get(review.job_id, (None, None))
+            rows.append(_hydrate(review, lib, playlist_id=pl_id, position=pos))
+        return rows
 
 
-def _hydrate(review: Review, lib=None) -> dict:
+def _hydrate(
+    review: Review, lib=None, *, playlist_id: str | None = None, position: int | None = None
+) -> dict:
     """One review row → its API shape. Never raises: a row that can't be enriched
-    still lists, because a queue that 500s is a queue the owner can't empty."""
+    still lists, because a queue that 500s is a queue the owner can't empty.
+
+    `playlist_id`/`position` are the review's *batch membership* (T-310), read from the
+    parked job by the callers (both have the store; `_hydrate` deliberately does not, to
+    keep its "never touches the DB, never raises" shape). NULL on a single-song R1 park —
+    which is exactly the switch the client partitions on: a null-`playlist_id` review
+    belongs to the top-level inbox, a non-null one to its batch card's "needs you" bucket
+    (same review, same resolve seam, contextual place). `position` labels the row ("track
+    12") the same way the batch stream's stamped events do."""
     row = {
         "review_id": review.id,
         "job_id": review.job_id,
+        # The batch this park belongs to, and the track's index in it (T-310). NULL/absent
+        # on a single-song paste — the R1 review is unchanged, it simply carries no batch.
+        "playlist_id": playlist_id,
+        "position": position,
         "query": review.query,
         "rec": review.rec,
         "candidates": [],

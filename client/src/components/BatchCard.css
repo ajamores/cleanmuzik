@@ -1,0 +1,431 @@
+/* The one aggregate batch card (T-310) — ported from the signed-off design gate
+   (docs/r2/design/t310-batch-view.html) against the shipped index.css tokens. Sharp
+   corners, IBM Plex, LED-tick meters, dark-native cyan. Warmth over alarms: failures are
+   muted "gone", never the --danger red (which appears nowhere on this card). */
+
+.batch {
+  border: 1px solid var(--border);
+  background: var(--card-bg);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+/* ---- header: title + terminal status pill ---- */
+.batch__top {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 20px 22px 16px;
+}
+.batch__id {
+  min-width: 0;
+  flex: 1;
+}
+.batch__title {
+  margin: 0;
+  font-size: 23px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text-h);
+  line-height: 1.15;
+}
+.batch__src {
+  margin: 6px 0 0;
+  font: 12px var(--mono);
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pill {
+  flex: none;
+  font: 600 11px var(--mono);
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  padding: 6px 11px;
+  white-space: nowrap;
+}
+.pill--live {
+  color: var(--accent);
+  background: var(--accent-bg);
+}
+.pill--wait {
+  color: var(--warn);
+  background: var(--warn-bg);
+}
+.pill--done {
+  color: var(--ok);
+  background: var(--ok-bg);
+}
+.pill--never {
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+
+/* ---- aggregate progress meter ---- */
+.agg {
+  padding: 0 22px 18px;
+}
+.agg__bar {
+  height: 14px;
+  border: 1px solid var(--border);
+  background: var(--field);
+  position: relative;
+  overflow: hidden;
+}
+.agg__fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: repeating-linear-gradient(90deg, var(--accent) 0 6px, transparent 6px 10px);
+}
+.agg__fill--wait {
+  background: repeating-linear-gradient(90deg, var(--warn) 0 6px, transparent 6px 10px);
+}
+.agg__fill--done {
+  background: repeating-linear-gradient(90deg, var(--ok) 0 6px, transparent 6px 10px);
+}
+.agg__meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  margin-top: 8px;
+}
+.agg__count {
+  font: 600 12px var(--mono);
+  color: var(--text-h);
+}
+.agg__pct {
+  font: 600 12px var(--mono);
+  color: var(--text);
+  white-space: nowrap;
+}
+.agg__pct--wait {
+  color: var(--warn);
+}
+.agg__pct--done {
+  color: var(--ok);
+}
+
+/* ---- outcome tally — five stat cells ---- */
+.tally {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+.tally__cell {
+  padding: 13px 14px;
+  border-right: 1px solid var(--border);
+}
+.tally__cell:last-child {
+  border-right: 0;
+}
+.tally__n {
+  font: 700 22px var(--mono);
+  line-height: 1;
+  color: var(--text-h);
+  letter-spacing: -0.02em;
+}
+.tally__k {
+  display: block;
+  margin-top: 6px;
+  font: 600 10px var(--mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text);
+}
+.tally__cell--landed .tally__n {
+  color: var(--ok);
+}
+.tally__cell--review .tally__n,
+.tally__cell--review .tally__k {
+  color: var(--warn);
+}
+/* failed + skipped are QUIET, not alarms — muted ink, no red, no tint */
+.tally__cell--failed .tally__n,
+.tally__cell--skipped .tally__n {
+  color: var(--text);
+  opacity: 0.9;
+}
+.tally__cell--zero .tally__n {
+  opacity: 0.35;
+}
+
+/* ---- live strip ---- */
+.live {
+  padding: 16px 22px;
+  border-bottom: 1px solid var(--border);
+  background: linear-gradient(0deg, rgba(var(--glow), 0.03), rgba(var(--glow), 0.03));
+}
+.live__lab {
+  font: 600 10px var(--mono);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin: 0 0 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.live__dot {
+  width: 7px;
+  height: 7px;
+  background: var(--accent);
+  border-radius: 50%;
+  animation: batch-blink 1.4s ease-in-out infinite;
+}
+.live__now {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-h);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.live__sub {
+  font: 12px var(--mono);
+  color: var(--text);
+  margin-top: 2px;
+}
+.meter {
+  display: flex;
+  gap: 7px;
+  margin-top: 12px;
+}
+.seg {
+  flex: 1;
+  height: 11px;
+  color: var(--border);
+  background: repeating-linear-gradient(90deg, currentColor 0 5px, transparent 5px 9px);
+}
+.seg[data-s='complete'] {
+  color: var(--accent);
+}
+.seg[data-s='active'] {
+  color: var(--accent);
+  animation: batch-pulse 1.6s ease-in-out infinite;
+}
+.seg[data-s='pending'] {
+  opacity: 0.55;
+}
+.mlabels {
+  display: flex;
+  gap: 7px;
+  margin-top: 6px;
+}
+.mlabels span {
+  flex: 1;
+  font: 10px var(--mono);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text);
+}
+.mlabels span[data-s='complete'],
+.mlabels span[data-s='active'] {
+  color: var(--text-h);
+}
+.mlabels span[data-s='pending'] {
+  opacity: 0.4;
+}
+
+/* ---- outcome buckets ---- */
+.batch__bucket {
+  padding: 16px 22px;
+  border-bottom: 1px solid var(--border);
+}
+.batch__bucket:last-child {
+  border-bottom: 0;
+}
+.bucket__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.bucket__name {
+  font: 700 11px var(--mono);
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--text-h);
+  margin: 0;
+}
+.bucket__n {
+  font: 600 11px var(--mono);
+  padding: 1px 8px;
+  border: 1px solid var(--border);
+  color: var(--text);
+}
+.batch__bucket--needs .bucket__name {
+  color: var(--warn);
+}
+.batch__bucket--needs .bucket__n {
+  color: var(--warn);
+  border-color: var(--warn);
+}
+
+.rows {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+.row {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  padding: 11px 13px;
+}
+/* needs-you rows carry the amber left edge — the review-inbox language */
+.row--needs {
+  border-left: 3px solid var(--warn);
+  align-items: flex-start;
+}
+.row--gone {
+  opacity: 0.72;
+}
+/* album art ONLY on landed rows (ADR-010/018) */
+.cover {
+  width: 44px;
+  height: 44px;
+  flex: none;
+  overflow: hidden;
+  box-shadow: 0 1px 5px rgba(0, 0, 0, 0.4);
+}
+.noart {
+  width: 44px;
+  height: 44px;
+  flex: none;
+  border: 1px dashed var(--border);
+  display: grid;
+  place-items: center;
+}
+.noart span {
+  font: 9px var(--mono);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text);
+  opacity: 0.5;
+}
+.row__body {
+  min-width: 0;
+  flex: 1;
+}
+.row__t {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-h);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.row__m {
+  font: 11px var(--mono);
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-top: 2px;
+}
+.row__panel {
+  margin-top: 12px;
+  white-space: normal;
+}
+.row__state {
+  flex: none;
+  font: 600 10px var(--mono);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.row__state--ok {
+  color: var(--ok);
+}
+.row__state--gone {
+  color: var(--text);
+  opacity: 0.8;
+}
+.resolve {
+  flex: none;
+  font: 700 12px var(--sans);
+  color: var(--accent-fg);
+  background: var(--accent);
+  border: 0;
+  padding: 8px 14px;
+  cursor: pointer;
+}
+
+/* collapsed "already here" / cold-load summary */
+.already {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 13px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+}
+.already__n {
+  font: 700 18px var(--mono);
+  color: var(--text);
+  flex: none;
+}
+.already__t {
+  font-size: 13px;
+  color: var(--text);
+}
+.already__t b {
+  color: var(--text-h);
+  font-weight: 600;
+}
+
+/* screen 07 "never started" / D-panel ready block */
+.ready {
+  border: 1px dashed var(--border);
+  background: var(--bg);
+  padding: 26px 22px;
+}
+.ready__t {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-h);
+}
+.ready__s {
+  margin: 5px 0 0;
+  font-size: 13px;
+  color: var(--text);
+}
+
+/* the batch is gone from the server (reset DB / stale id) */
+.batch--lost {
+  padding: 26px 22px;
+}
+.batch__lost {
+  margin: 0;
+  font: 13px var(--mono);
+  color: var(--text);
+}
+
+@keyframes batch-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+@keyframes batch-blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .seg[data-s='active'],
+  .live__dot {
+    animation: none;
+  }
+}

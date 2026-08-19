@@ -170,6 +170,23 @@ class TestProgressPayload:
         assert payload["state"] == "done"
         assert payload["failed"] == 2
 
+    def test_empty_batch_is_never_started_not_done(self):
+        # T-310 design gate, screen 07: a crash between the row-upsert and the enqueue
+        # leaves total == 0. The "no queued, no review ⇒ done" fall-through would report
+        # a phantom FINISHED empty batch; it must read "never_started" instead so the
+        # card doesn't paint a completed empty playlist.
+        for counts in ({}, {"queued": 0}, {"done": 0, "error": 0}):
+            payload = batch_progress_payload("pl", counts)
+            assert payload["total"] == 0
+            assert payload["state"] == "never_started", counts
+
+    def test_one_failed_member_is_not_empty(self):
+        # The boundary: a single failed track is total == 1 — a real (if grim) batch that
+        # DID start, so it is terminal "done", never "never_started".
+        payload = batch_progress_payload("pl", {"error": 1})
+        assert payload["total"] == 1
+        assert payload["state"] == "done"
+
 
 # --- 3. the pin --------------------------------------------------------------
 

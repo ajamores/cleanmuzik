@@ -1,0 +1,146 @@
+/* The acquire dial (ADR-029, T-310 gate D1–D4) — ported verbatim from the signed-off
+   design gate (docs/r2/design/t310-batch-view.html), against the shipped index.css
+   tokens. The one round object in a sharp-cornered instrument: a hero control on
+   purpose. Click-stepped between three stops, never spun — it's a radiogroup, not a
+   slider. Single is the resting default every load. */
+
+.dial-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin: 2px 0 18px;
+}
+
+.dial {
+  position: relative;
+  width: 168px;
+  height: 118px;
+}
+
+.dial__knob {
+  position: absolute;
+  left: 50%;
+  top: 6px;
+  transform: translateX(-50%);
+  width: 86px;
+  height: 86px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 34%, #202832, #0c1014 72%);
+  border: 1px solid var(--border);
+  box-shadow:
+    inset 0 2px 8px rgba(0, 0, 0, 0.7),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.05),
+    0 1px 2px rgba(0, 0, 0, 0.5);
+  display: grid;
+  place-items: center;
+  transition: transform 0.1s ease;
+}
+
+.dial__knob::before {
+  content: '';
+  position: absolute;
+  inset: 5px;
+  border-radius: 50%;
+  background: repeating-conic-gradient(from 0deg, var(--border) 0 1.5deg, transparent 1.5deg 15deg);
+  opacity: 0.45;
+}
+
+.dial__pointer {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 3px;
+  height: 33px;
+  background: var(--accent);
+  transform-origin: 50% 100%;
+  transform: translate(-50%, -100%) rotate(var(--ang, -125deg));
+  box-shadow: 0 0 9px rgba(var(--glow), 0.75);
+  transition: transform 0.16s cubic-bezier(0.2, 0.9, 0.3, 1.2);
+}
+
+.dial__cap {
+  position: relative;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: #0c1014;
+  border: 1px solid var(--border);
+  z-index: 2;
+}
+
+.dial[data-mode='single'] {
+  --ang: -125deg;
+}
+.dial[data-mode='playlist'] {
+  --ang: 0deg;
+}
+.dial[data-mode='multi'] {
+  --ang: 125deg;
+}
+
+.dial__lab {
+  position: absolute;
+  font: 600 10px var(--mono);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text);
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+}
+
+.dial__lab i {
+  font-style: normal;
+  opacity: 0.55;
+}
+
+.dial__lab::before {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 5px;
+  vertical-align: middle;
+  background: var(--field);
+  border: 1px solid var(--text);
+  border-radius: 50%;
+}
+
+.dial__lab[data-on='true'] {
+  color: var(--text-h);
+}
+
+.dial__lab[data-on='true']::before {
+  background: var(--accent);
+  border-color: var(--accent);
+  box-shadow: 0 0 7px rgba(var(--glow), 0.85);
+}
+
+/* A visible focus ring so the keyboard user can see which stop is focused — the design
+   gate is a static mock and shows none; this is the interactive addition. */
+.dial__lab:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+.dial__lab--single {
+  left: 0;
+  bottom: 2px;
+}
+.dial__lab--playlist {
+  left: 50%;
+  top: -4px;
+  transform: translateX(-50%);
+}
+.dial__lab--multi {
+  right: 0;
+  bottom: 2px;
+  opacity: 0.55;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dial__pointer,
+  .dial__knob {
+    transition: none;
+  }
+}

@@ -498,6 +498,27 @@ class Store:
             ).fetchall()
         return {row["status"]: row["n"] for row in rows}
 
+    def membership_for_jobs(
+        self, job_ids: list[str]
+    ) -> dict[str, tuple[str | None, int | None]]:
+        """`job_id → (playlist_id, position)` for many jobs, in ONE query (T-310).
+
+        The batch-membership lookup the review hydration needs to scope each parked row
+        to its batch. A single `IN (...)` read replaces a per-review `get_job` — the N+1 a
+        cold review-list would otherwise pay, and pay under the hydration lock. A
+        single-song R1 park has a NULL `playlist_id`; a job id absent from the table is
+        simply not in the returned dict and the caller defaults it to `(None, None)`.
+        """
+        if not job_ids:
+            return {}
+        placeholders = ",".join("?" for _ in job_ids)
+        with self._connect() as conn:
+            rows = conn.execute(
+                f"SELECT id, playlist_id, position FROM jobs WHERE id IN ({placeholders})",
+                tuple(job_ids),
+            ).fetchall()
+        return {row["id"]: (row["playlist_id"], row["position"]) for row in rows}
+
     # --- reviews ----------------------------------------------------------
 
     def create_review(
