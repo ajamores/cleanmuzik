@@ -293,7 +293,9 @@ integrate onto `main` with the status line flipped in the closing commit, transc
     the real `STATUS_*` constants.
 
 ### T-312 — Durable batch state + reconnect (walk-away survives a restart)
-- **Status:** todo
+- **Status:** done (2026-08-18; merged to `main`, 676 tests green, `/code-review` clean — 2 low findings triaged,
+  not fixed; live-verified over a real socket across a genuine process restart — tally + `waiting_on_you`
+  rebuilt from SQLite against an empty bus)
 - **Depends on:** T-300, T-305
 - **Agent:** back-end
 - **What:** The single-song card reconnects by overlaying the durable `jobs` row on the live registry
@@ -301,10 +303,14 @@ integrate onto `main` with the status line flipped in the closing commit, transc
   terminal state live only on the in-memory `EventBus` (cleared on restart). In-process reload is already
   covered by the channel's replay buffer, but **"walk away and come back" across a restart is not** (stories
   20, 22). Add a durable batch-state read — a **`GET /api/playlists/{id}`** (mirroring the single-song
-  reconnect pattern) that **derives** the aggregate tally and per-track outcomes from `jobs WHERE
-  playlist_id = ?` grouped by status **+** the membership store (skipped/added) — so `batch.progress` (T-305)
-  and the T-310 card can rebuild from durable state after a restart, not just replay memory. No new landing
-  path; a read-only projection.
+  reconnect pattern) that **derives** the **aggregate tally + terminal state** from `jobs WHERE
+  playlist_id = ?` grouped by status (through `count_jobs_by_status` → `batch_progress_payload`, the exact
+  read `batch.progress` rides), plus the playlist's durable **identity** (`youtube_playlist_id`,
+  `jellyfin_playlist_id`, `created_at`) — so `batch.progress` (T-305) and the T-310 card can rebuild from
+  durable state after a restart, not just replay memory. **Aggregate-only by decision (ADR-027 seam 5;
+  3-seat design council, 2026-08-18):** the **per-track ordered read** is the membership store's backfill
+  path (T-306) and T-310's own read — **not** this projection (the earlier "and per-track outcomes … +
+  membership store" phrasing crossed that seam and is retired). No new landing path; a read-only projection.
 - **Done when:** after a **backend restart** mid-batch, `GET /api/playlists/{id}` returns the correct tally
   (landed / in-review / failed / skipped / queued) and terminal state ("waiting on you" while parked > 0)
   derived from SQLite — the card rebuilds without any in-memory event history. (Acceptance item 7 — terminal
@@ -554,8 +560,12 @@ integrate onto `main` with the status line flipped in the closing commit, transc
 - **Design gate (ADR-016) — BEFORE component code.** This changes a user-visible **flow/state**, so it passes
   the design gate first: **flat HTML scenario screens, one per scenario including the ugly states** — a
   just-started batch; the live currently-processing track; a failed song ("gone / unavailable", **not**
-  error-red); "N in review" ("still filling in"); the terminal **"waiting on you"** (parked > 0); and a
-  **mostly-already-done re-paste** ("45 already here, 3 added, nothing wrong") — published for owner sign-off.
+  error-red); "N in review" ("still filling in"); the terminal **"waiting on you"** (parked > 0); a
+  **mostly-already-done re-paste** ("45 already here, 3 added, nothing wrong"); and a **zero-track /
+  partially-enqueued reconnect** (a crash between the row-upsert and the enqueue leaves `total=0`, which the
+  durable projection reports as `state=done` — the card must **not** render a phantom empty batch as finished;
+  T-312 `/code-review` finding, fix belongs with the shared `batch_progress_payload` semantics, not the route) —
+  published for owner sign-off.
   Runs *ahead of* the DoD, not inside it. The mockups **encode ADR-027/028** — writing them before those ADRs
   land means re-mocking (why the design gate depends on Phase A). **Gate artifact: `docs/r2/design/t310-batch-view.html`.**
   - **Added 2026-08-16 (ADR-029): the acquire dial screens (D1–D4).** The gate also covers the acquire-intent
