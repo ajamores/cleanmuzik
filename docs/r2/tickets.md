@@ -525,7 +525,13 @@ integrate onto `main` with the status line flipped in the closing commit, transc
 > §Further Notes "T-037 filing"); these two tickets are its build halves.
 
 ### T-308 — T-037 defect 1: canonical artist-credit normalisation in the write path
-- **Status:** todo
+- **Status:** done — shipped 2026-08-19. `normalize.canonical_credit` (pure fold: NFC → confusable
+  map `Ÿ`→`Y` → hyphen class U+2010/U+2011→U+002D) + `import_seam.canonicalize_credit(match)` wired at
+  **both** matched sites (`_accept`, `ResolveSession.choose_item`); one structured log line per fold.
+  Acceptance proven end-to-end via the real beets path template (`tests/test_credit_normalisation.py`:
+  `JAŸ‐Z`→`JAY-Z/` folder, accented artists preserved). `/code-review` findings adjudicated: NFC +
+  two-site placement are ADR-028-ratified (not reversed); sort-frame + plural-`artists` coverage
+  deferred to **T-049** (owner call — ship the ratified four fields).
 - **Depends on:** T-301
 - **Agent:** back-end
 - **What:** Implement ADR-028 (T-301): a **canonical artist-credit normalisation step in the write /

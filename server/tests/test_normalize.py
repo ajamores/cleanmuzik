@@ -10,7 +10,12 @@ Run from the `server/` directory: `./.venv/bin/pytest tests/test_normalize.py -v
 
 import pytest
 
-from app.normalize import loose_key, loose_match, normalize_title
+from app.normalize import (
+    canonical_credit,
+    loose_key,
+    loose_match,
+    normalize_title,
+)
 
 # (raw_title, artist_or_None, expected). Grouped by the behaviour each row pins.
 CASES = [
@@ -175,3 +180,53 @@ def test_loose_match_containment_matches(a, b):
 )
 def test_loose_match_rejects_non_containment_and_empties(a, b):
     assert not loose_match(a, b)
+
+
+# --- canonical_credit: the ADR-028 write-path fold (T-308) -------------------
+#
+# Deliberate identity normalisation, not mojibake repair. The fold touches only
+# the enumerated confusable (Ÿ→Y) and the hyphen class (U+2010/U+2011→U+002D);
+# every other diacritic and the en/em dashes pass byte-for-byte. Cases are keyed
+# by their codepoints so a "looks the same" edit can't silently pass.
+
+
+@pytest.mark.parametrize(
+    "raw, expected",
+    [
+        # The T-037 subject: Ÿ→Y and the U+2010 hyphen → ASCII, both at once.
+        ("JAŸ‐Z", "JAY-Z"),
+        ("JAŸ-Z", "JAY-Z"),  # Ÿ with the ASCII hyphen already
+        ("JAY‐Z", "JAY-Z"),  # clean Y, only the U+2010 hyphen folds
+        ("JAY‑Z", "JAY-Z"),  # non-breaking hyphen U+2011 folds too
+        # Owner's own accented folders pass BYTE-FOR-BYTE — the fold must never
+        # manufacture a new split (the exact bug T-037 exists to kill).
+        ("Beyoncé", "Beyoncé"),
+        ("Sigur Rós", "Sigur Rós"),
+        ("Mötley Crüe", "Mötley Crüe"),
+        ("Motörhead", "Motörhead"),
+        ("Björk", "Björk"),
+        # NFC floor: decomposed Beyonce + U+0301 → precomposed Beyoncé (same
+        # split class, closed for free).
+        ("Beyoncé", "Beyoncé"),
+        # En/em dashes are legitimate distinct punctuation — NOT folded.
+        ("AC–DC", "AC–DC"),
+        ("Artist — Name", "Artist — Name"),
+        # Empties pass through untouched.
+        ("", ""),
+    ],
+)
+def test_canonical_credit_folds_only_the_enumerated_cases(raw, expected):
+    assert canonical_credit(raw) == expected
+
+
+def test_canonical_credit_none_passthrough():
+    assert canonical_credit(None) is None
+
+
+@pytest.mark.parametrize(
+    "raw",
+    ["JAŸ‐Z", "Beyoncé", "Sigur Rós", "AC–DC", ""],
+)
+def test_canonical_credit_is_idempotent(raw):
+    once = canonical_credit(raw)
+    assert canonical_credit(once) == once
