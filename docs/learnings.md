@@ -1037,3 +1037,13 @@ Format: `- <date> — what went wrong → the correction / rule now in place`
   caught: an async cold-load that decides whether to open an SSE stream must **gate the open on its result**,
   not flip a ref the stream's error handler reads — a settled batch's EOF can fire before the ref is set,
   reconnect-looping. Open the stream only once the snapshot says the batch is still live.)
+- 2026-08-19 — (live batch run, first real playlist test) **A blanket `HTTP 403 Forbidden` on the media
+  fetch across *every* track is a stale-yt-dlp signature, not a pipeline bug — diagnose the dependency, not
+  the app.** A 29-track run failed identically at download; the retry-then-park logic behaved perfectly,
+  there was simply nothing it could fetch. Cause: the pin (`2026.7.4`, six weeks old) predated a YouTube
+  change; that version can't supply the GVS **PO tokens** YouTube now forces, so it falls back to the
+  `android vr` player client whose media URLs YouTube 403s (the alternate clients — web_safari/ios/mweb/tv —
+  all fail too on that version, which *confirms* it's the version, not one bad client). Note: `--simulate`
+  only does extraction and 403s nothing, so it hides this — you must do a **real download** to reproduce. Fix
+  is a deliberate bump (here → `2026.8.19`) + re-verify one real download through the project venv. yt-dlp
+  pins go stale in *weeks*; treat a total 403 blackout as "bump the pin" before touching pipeline code.
