@@ -466,7 +466,7 @@ integrate onto `main` with the status line flipped in the closing commit, transc
   the `playlists` table. (Acceptance item 4. Stories: US7, US8.)
 
 ### T-307 — Idempotent re-paste: same playlist updated, only new entries added
-- **Status:** todo
+- **Status:** done (2026-08-19)
 - **Depends on:** T-304, T-303
 - **Agent:** back-end
 - **What:** Re-pasting a playlist as it grows must update the **same** Jellyfin playlist, never create a
@@ -483,6 +483,14 @@ integrate onto `main` with the status line flipped in the closing commit, transc
   playlist is **added exactly once**, and the Jellyfin playlist is the **same** one (not duplicated); a
   video already in both library and playlist does **not** double-add. (Acceptance items 5, 9-adjacent (re-add
   path); item 11 (already-have still added). Stories: US9, US10, US11.)
+- **Close note (2026-08-19):** **no production delta** — idempotent re-paste already emerged from the shipped
+  seams: `upsert_playlist`'s conflict-reuse + the `create_playlist` NULL-id gate (T-302), the T-303 skip, the
+  `UNIQUE(playlist_id, youtube_video_id)` guard, and `count_jobs_by_status`'s newest-attempt-per-position
+  tally. The deliverable is the **composition proof** the isolated seam tests didn't have: the full "Done
+  when" scenario (skip-not-redownload / new-entry-processes / owned-elsewhere-added-once / no double-add)
+  through the real `run_pipeline` (`tests/test_dedup.py::TestRepasteScenario`) + route-level row-reuse &
+  create-once (`tests/test_jobs.py::test_repaste_reuses_the_row_and_never_re_creates_the_jellyfin_playlist`).
+  **Live observable folded into T-311** — its "What" already drives the real re-paste (owner call, this session).
 
 ### T-315 — Recover a stale/deleted playlist id (create-if-missing only guards NULL)
 - **Status:** todo

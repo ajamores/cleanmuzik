@@ -917,6 +917,33 @@ def test_post_playlist_url_expands_into_track_jobs(client, monkeypatch):
         assert job.youtube_video_id == f"v{position}"
 
 
+def test_repaste_reuses_the_row_and_never_re_creates_the_jellyfin_playlist(client, monkeypatch):
+    # T-307 at the route: re-pasting a playlist as it grows updates the SAME playlists row
+    # and never creates a second Jellyfin playlist. `upsert_playlist` reuses the row (its
+    # stored jellyfin_playlist_id survives), and the create-at-queued step is gated on that
+    # id being NULL — so the second paste's create-call list is empty.
+    first = _stub_expansion(
+        monkeypatch, entries=[("v1", "First"), ("v2", "Second")],
+        title="Summer 2026", yt_id="PLsummer", jf_id="jf-1",
+    )
+    r1 = client.post("/api/jobs", json={"url": "https://youtube.com/playlist?list=PLsummer"})
+    assert r1.status_code == 200
+    playlist_id = r1.json()["playlist_id"]
+    assert first["create"] == ["Summer 2026"]  # created once, on the first paste
+    assert client.store.get_playlist(playlist_id).jellyfin_playlist_id == "jf-1"
+
+    # Re-paste the SAME list, now grown by one entry.
+    second = _stub_expansion(
+        monkeypatch, entries=[("v1", "First"), ("v2", "Second"), ("v3", "Third")],
+        title="Summer 2026", yt_id="PLsummer", jf_id="jf-1",
+    )
+    r2 = client.post("/api/jobs", json={"url": "https://youtube.com/playlist?list=PLsummer"})
+    assert r2.status_code == 200
+    assert r2.json()["playlist_id"] == playlist_id  # same row, not a duplicate
+    assert second["create"] == []  # NOT re-created — the stored id short-circuits it
+    assert client.store.get_playlist(playlist_id).jellyfin_playlist_id == "jf-1"  # unchanged
+
+
 def test_single_song_url_keeps_the_r1_shape(client):
     # Acceptance item 11: a single-song URL still enqueues one `playlist_id = NULL` job and
     # returns the bare `{ job_id }` — the R1 path, byte-for-byte.

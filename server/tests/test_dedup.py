@@ -236,5 +236,133 @@ class TestSkip:
         assert len(store.list_members(pl.id)) == 1
 
 
+# --- 3. the re-paste composition (T-307) ------------------------------------
+
+
+def _lands_each_video_to_disk(tmp_path):
+    """An `import_fn` that lands every job to its OWN real file under `tmp_path/lib`,
+    keyed by the per-job staging directory.
+
+    The default `_run_member` import lands every video to one fixed path that is never
+    written to disk — fine for a single skip test, but useless for a re-paste scenario:
+    the T-303 skip existence-checks the recorded path, so a first run's tracks are only
+    genuinely "owned" on the second run if their canonical files actually exist and differ
+    per job. This closes both gaps.
+    """
+    def import_fn(mp3, *a, **k):
+        # The video id is not passed to the import seam, so key the landing on the mp3's
+        # PARENT dir name — the per-job mkdtemp staging dir, which IS unique per job. The
+        # mp3's own name is `song.mp3` for every job (see `_fake_transcode`) and would
+        # collide, so `mp3.parent.name` is load-bearing, not interchangeable with `mp3.name`.
+        dest = tmp_path / "lib" / f"{mp3.parent.name}.mp3"
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(b"landed-mp3")
+        return [
+            Outcome("landed", 0.95, 0.5, track_id=mp3.parent.name,
+                    landed_path=str(dest), tags={"artist": "Band"})
+        ]
+
+    return import_fn
+
+
+def _run_gen(store, playlist, entries, tmp_path, *, calls):
+    """One expansion generation: create + run a member job per (video_id, url) entry,
+    exactly as `_expand_and_enqueue` → the worker does. Returns the run states in order.
+
+    Models a re-paste by being called twice against the SAME `playlist` (the row a re-paste
+    reuses via `upsert_playlist`), with a fresh job row per entry each time — the second
+    generation the newest-attempt tally and the T-303 skip are built to expect.
+    """
+    states = []
+    import_fn = _lands_each_video_to_disk(tmp_path)
+    for position, (video_id, url) in enumerate(entries, start=1):
+        job = store.create_job(
+            url, playlist_id=playlist.id, position=position, youtube_video_id=video_id,
+        )
+        states.append(
+            _run_member(store, job, tmp_path, calls=calls, import_fn=import_fn)
+        )
+    return states
+
+
+class TestRepasteScenario:
+    """T-307's `Done when`, composed: run a playlist, then re-paste it grown by one entry.
+
+    The idempotent-re-paste behaviour is not new code — it emerges from the shipped seams
+    (playlist-row reuse, the T-303 skip, the membership UNIQUE guard). This proves they
+    compose into the acceptance scenario: skips don't re-download, the new entry processes,
+    an already-owned entry new to the playlist is added exactly once, nothing double-adds.
+    """
+
+    def test_repaste_grown_by_one_skips_landed_and_adds_only_the_new(self, tmp_path):
+        store = _store(tmp_path)
+        # A song already owned from an EARLIER, unrelated paste — landed, not yet in this
+        # playlist. Its file must exist so the re-paste skip can locate and append it.
+        owned_elsewhere = _own_video(store, "vidOld", tmp_path, name="Old.mp3")
+
+        pl = store.upsert_playlist("PLsummer", "Summer 2026")
+
+        # --- first paste: two fresh tracks, both land -----------------------
+        gen1_calls = []
+        gen1 = _run_gen(
+            store, pl,
+            [("vidA", "https://youtu.be/a"), ("vidB", "https://youtu.be/b")],
+            tmp_path, calls=gen1_calls,
+        )
+        assert [s.status for s in gen1] == ["done", "done"]
+        assert gen1_calls == ["https://youtu.be/a", "https://youtu.be/b"]  # both downloaded
+        assert {m.youtube_video_id for m in store.list_members(pl.id)} == {"vidA", "vidB"}
+
+        # --- re-paste: same two, plus one genuinely new, plus the owned-elsewhere song ----
+        # The playlist row is REUSED (never a second upsert to a new id).
+        again = store.upsert_playlist("PLsummer", "Summer 2026")
+        assert again.id == pl.id
+
+        gen2_calls = []
+        gen2 = _run_gen(
+            store, pl,
+            [
+                ("vidA", "https://youtu.be/a"),      # already landed → skip
+                ("vidB", "https://youtu.be/b"),      # already landed → skip
+                ("vidOld", "https://youtu.be/old"),  # owned elsewhere, new to THIS list → skip+add
+                ("vidC", "https://youtu.be/c"),      # genuinely new → process
+            ],
+            tmp_path, calls=gen2_calls,
+        )
+        assert [s.status for s in gen2] == ["skipped", "skipped", "skipped", "done"]
+        # Only the genuinely-new entry was downloaded; the three owned ones never hit yt-dlp.
+        assert gen2_calls == ["https://youtu.be/c"]
+
+        # Every distinct video is in the playlist exactly once — the owned-elsewhere song is
+        # now added (item 11), and no video double-added despite vidA/vidB re-appearing.
+        members = store.list_members(pl.id)
+        assert sorted(m.youtube_video_id for m in members) == [
+            "vidA", "vidB", "vidC", "vidOld",
+        ]
+        assert len(members) == 4
+
+        # The tally reads THIS grind (newest attempt per position), not both generations:
+        # four positions, all terminal, none double-counted.
+        counts = store.count_jobs_by_status(pl.id)
+        assert counts.get("skipped") == 3 and counts.get("done") == 1
+        assert sum(counts.values()) == 4
+
+    def test_repaste_of_an_unchanged_playlist_downloads_nothing(self, tmp_path):
+        # The common case — a re-paste with no new entries — is a quiet all-skip: nothing
+        # re-downloaded, membership unchanged, no duplicate playlist row.
+        store = _store(tmp_path)
+        pl = store.upsert_playlist("PLsame", "Same")
+        entries = [("vidA", "https://youtu.be/a"), ("vidB", "https://youtu.be/b")]
+
+        _run_gen(store, pl, entries, tmp_path, calls=[])
+        assert {m.youtube_video_id for m in store.list_members(pl.id)} == {"vidA", "vidB"}
+
+        repaste_calls = []
+        gen2 = _run_gen(store, pl, entries, tmp_path, calls=repaste_calls)
+        assert [s.status for s in gen2] == ["skipped", "skipped"]
+        assert repaste_calls == []  # nothing re-downloaded
+        assert len(store.list_members(pl.id)) == 2  # no double-add
+
+
 async def _drain(bus, job_id):
     return "".join([frame async for frame in bus.stream(job_id)])
