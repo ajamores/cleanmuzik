@@ -196,6 +196,46 @@ def loose_match(a: str | None, b: str | None) -> bool:
     return ka in kb or kb in ka
 
 
+# --- ADR-028: canonical artist-credit fold (T-308) -----------------------
+#
+# Reconciles MusicBrainz's per-release *artist credit* to the owner's one
+# canonical Jellyfin identity BEFORE beets writes it. This is deliberate
+# identity normalisation, NOT mojibake repair: MB serves the stylised credit
+# (`JAY‑Z` with a Unicode hyphen) faithfully and nothing we own mangled a clean
+# `Y` (ADR-028 corrects T-037's "our decode is broken" framing on the record).
+# The map grows ONE diagnosed pair at a time — never a heuristic detector
+# (TR39 confusable-folding false-merges distinct artists; NFKC doesn't even
+# decompose `Ÿ`→`Y`). Both explicitly rejected in ADR-028.
+
+# Enumerated confusable → canonical, today exactly one pair: Ÿ (U+0178) → Y.
+_CONFUSABLES = {"Ÿ": "Y"}
+
+# Hyphen class folded to the ASCII hyphen-minus the owner's `Jay-Z/` uses:
+# U+2010 HYPHEN and U+2011 NON-BREAKING HYPHEN → U+002D. En dash (U+2013) and
+# em dash (U+2014) are legitimate distinct punctuation and are NOT folded.
+_HYPHEN_FOLD = {"‐": "-", "‑": "-"}
+
+_CREDIT_TRANSLATION = str.maketrans({**_CONFUSABLES, **_HYPHEN_FOLD})
+
+
+def canonical_credit(value: str | None) -> str | None:
+    """Fold an artist credit to the owner's single canonical identity (ADR-028).
+
+    Three moves, in order: (i) NFC-compose — lossless, idempotent, and it also
+    merges a decomposed `Beyonce`+U+0301 into precomposed `Beyoncé` (the same
+    split class); (ii) map the enumerated confusable set (currently only
+    `Ÿ`→`Y`); (iii) fold the hyphen class U+2010/U+2011 → U+002D. Every other
+    diacritic and the en/em dashes pass byte-for-byte (Beyoncé, Björk, Sigur Rós,
+    Mötley Crüe, Motörhead unchanged). `None`/`""` return unchanged.
+
+    Pure and idempotent by contract: `canonical_credit(canonical_credit(x)) ==
+    canonical_credit(x)`. The match-shaped wiring lives in `import_seam.py`.
+    """
+    if not value:
+        return value
+    return unicodedata.normalize("NFC", value).translate(_CREDIT_TRANSLATION)
+
+
 def normalize_title(raw: str, artist: str | None = None) -> str:
     """Normalize a raw YouTube video title into a clean beets query string.
 

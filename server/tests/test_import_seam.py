@@ -16,7 +16,7 @@ from types import SimpleNamespace
 
 import pytest
 from beets import library
-from beets.autotag import Recommendation
+from beets.autotag import Distance, Recommendation, TrackMatch
 from beets.importer import Action
 
 import app.import_seam as seam
@@ -26,6 +26,7 @@ from app.import_seam import (
     AcoustidPermanentError,
     Dominance,
     FingerprintTrustSession,
+    canonicalize_credit,
     fingerprint_dominance,
 )
 
@@ -308,7 +309,10 @@ def store(tmp_path: Path) -> Store:
 
 
 def _candidate(track_id: str):
-    return SimpleNamespace(info=SimpleNamespace(track_id=track_id))
+    # A faithful TrackMatch(distance, info, item) — the shape _accept rebuilds
+    # (ADR-028's canonicalize_credit reads match.distance/.item), with a thin
+    # info stand-in carrying only the fields these tests compare.
+    return TrackMatch(Distance(), SimpleNamespace(track_id=track_id), None)
 
 
 def _task(track_ids, rec=Recommendation.medium):
@@ -345,7 +349,9 @@ def test_dominant_with_matching_candidate_lands(store):
     choice = session.choose_item(task)
     outcomes = session.finalize_outcomes()  # "landed" is settled post-run
 
-    assert choice is task.candidates[1]  # the fingerprint's recording, not #0
+    # The fingerprint's recording, not #0. Identity by track_id (not `is`): _accept
+    # now returns a canonicalized copy of the match (ADR-028), not the candidate.
+    assert choice.info.track_id == task.candidates[1].info.track_id == "rec-A"
     assert outcomes[-1].action == "landed"
     assert outcomes[-1].track_id == "rec-A"
     assert store.list_reviews() == []  # nothing parked
@@ -755,7 +761,9 @@ def test_choose_item_no_library_duplicate_accepts(store):
 
     choice = session.choose_item(task)
 
-    assert choice is task.candidates[0]  # the match, accepted
+    # The match, accepted — compared by track_id since _accept returns a
+    # canonicalized copy of the candidate, not the candidate object (ADR-028).
+    assert choice.info.track_id == task.candidates[0].info.track_id
     assert session._accepted  # queued to finalize as landed
     assert store.list_reviews() == []
 
@@ -980,7 +988,11 @@ def _signals(yt_artist, yt_title):
 
 
 def _rich_candidate(track_id, artist, title):
-    return SimpleNamespace(info=SimpleNamespace(track_id=track_id, artist=artist, title=title))
+    return TrackMatch(
+        Distance(),
+        SimpleNamespace(track_id=track_id, artist=artist, title=title),
+        None,
+    )
 
 
 def _rich_task(candidates, rec=Recommendation.medium):
@@ -1313,3 +1325,66 @@ def test_adjudication_unavailable_park_persists_its_reason(store):
     assert row.reason == "adjudication unavailable"
     assert row.contradictions == []
     assert row.candidate_ids == ["rec-A"]
+
+
+# --- canonicalize_credit: the ADR-028 write-path fold, match-shaped (T-308) --
+#
+# The pure string fold is exercised in test_normalize.py; here we pin the
+# match-shaped wiring: it folds the credit fields, drives BOTH tag and path via
+# a single TrackInfo edit, and NEVER mutates the shared (beets-cached) match.
+
+
+def _track_match(**info_fields):
+    """A minimal TrackMatch carrying the given TrackInfo credit fields."""
+    from beets.autotag.hooks import TrackInfo
+
+    info = TrackInfo(**info_fields)
+    return TrackMatch(Distance(), info, None)
+
+
+def test_canonicalize_credit_folds_artist_and_credit_variants():
+    match = _track_match(
+        artist="JAŸ‐Z",
+        artist_credit="JAŸ‐Z",
+    )
+    out = canonicalize_credit(match)
+    assert out.info.artist == "JAY-Z"
+    assert out.info.artist_credit == "JAY-Z"
+
+
+def test_canonicalize_credit_folds_albumartist_when_present():
+    # A merged album match carries albumartist / albumartist_credit — both fold.
+    match = _track_match(artist="JAŸ‐Z", albumartist="JAŸ‐Z")
+    out = canonicalize_credit(match)
+    assert out.info.artist == "JAY-Z"
+    assert out.info.albumartist == "JAY-Z"
+
+
+def test_canonicalize_credit_leaves_accented_credit_untouched():
+    match = _track_match(artist="Beyoncé", artist_credit="Sigur Rós")
+    out = canonicalize_credit(match)
+    assert out.info.artist == "Beyoncé"
+    assert out.info.artist_credit == "Sigur Rós"
+
+
+def test_canonicalize_credit_does_not_mutate_the_shared_match():
+    # The TrackInfo can be a beets-cached object shared across candidates; the
+    # fold deep-copies, so the original is byte-for-byte unchanged (leak guard).
+    match = _track_match(artist="JAŸ‐Z")
+    out = canonicalize_credit(match)
+    assert match.info.artist == "JAŸ‐Z"  # original untouched
+    assert out.info.artist == "JAY-Z"  # copy folded
+    assert out.info is not match.info
+
+
+def test_canonicalize_credit_logs_only_when_a_codepoint_changes(caplog):
+    import logging
+
+    with caplog.at_level(logging.INFO, logger="cleanmuzik"):
+        canonicalize_credit(_track_match(artist="Beyoncé"))
+    assert not any("canonicalized artist credit" in r.getMessage() for r in caplog.records)
+
+    caplog.clear()
+    with caplog.at_level(logging.INFO, logger="cleanmuzik"):
+        canonicalize_credit(_track_match(artist="JAŸ‐Z"))
+    assert any("canonicalized artist credit" in r.getMessage() for r in caplog.records)

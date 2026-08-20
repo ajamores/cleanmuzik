@@ -647,6 +647,7 @@ class FingerprintTrustSession(ImportSession):
         release ids drive the cover-art fetch); the reconcile gate zeroes it when the
         fingerprint dissented, so art never comes from a recording we didn't land.
         """
+        match = canonicalize_credit(match)  # ADR-028 (T-308): fold before the match is applied
         existing = self._library_duplicates(match.info.track_id)
         if existing:
             return self._resolve_duplicate(task, existing, dominance)
@@ -1517,6 +1518,9 @@ class ResolveSession(FingerprintTrustSession):
             )
         if self.suffix:
             match = _with_title_suffix(match, self.suffix)
+        # ADR-028 (T-308): the resolve path bypasses _accept — fold here too, or it
+        # silently keeps writing the stylised credit.
+        match = canonicalize_credit(match)
         self._accepted.append((task, match, Dominance(0.0, 0.0, ())))
         logger.info(
             "resolving %s onto recording %s%s",
@@ -1555,6 +1559,49 @@ def _with_title_suffix(match: TrackMatch, suffix: str) -> TrackMatch:
     """
     info = copy.deepcopy(match.info)
     info.title = f"{(info.title or '').strip()} {suffix}".strip()
+    return TrackMatch(match.distance, info, match.item)
+
+
+# Credit fields on a matched TrackInfo that name the artist's canonical identity
+# and drive BOTH the ID3 write and the path template ($artist / $albumartist). A
+# singleton TrackInfo carries `artist`/`artist_credit`; the `albumartist` variants
+# appear on a merged album match — fold whichever are present and set (ADR-028).
+_CREDIT_FIELDS = ("artist", "artist_credit", "albumartist", "albumartist_credit")
+
+
+def canonicalize_credit(match: TrackMatch) -> TrackMatch:
+    """`match` with its artist credit folded to the owner's canonical identity (ADR-028).
+
+    Deep-copies the `TrackInfo` first — it can be a beets-cached object shared
+    across candidates, and mutating it in place would leak the fold into anything
+    else holding the reference (the same hazard `_with_title_suffix` guards).
+    beets applies `info.item_data` onto the item, so the single edit drives BOTH
+    the ID3 `artist`/`albumartist` write AND the path template — one edit, both
+    effects, closing the clean-tag/wrong-folder split a path-only fix would leave.
+
+    Emits ONE structured log line when any codepoint changes, so a fold that fires
+    (or mis-fires) is never silent (ADR-028 observability clause).
+    """
+    # Compute the folds off the ORIGINAL first, so a credit that needs no fold —
+    # the common case, and every path that discards the match (a duplicate) — pays
+    # no deep-copy. Only a real change copies + mutates.
+    changed = {}
+    for name in _CREDIT_FIELDS:
+        before = getattr(match.info, name, None)
+        if not isinstance(before, str):
+            continue
+        after = normalize.canonical_credit(before)
+        if after != before:
+            changed[name] = (before, after)
+    if not changed:
+        return match
+    info = copy.deepcopy(match.info)
+    for name, (_before, after) in changed.items():
+        setattr(info, name, after)
+    logger.info(
+        "canonicalized artist credit (ADR-028): %s",
+        ", ".join(f"{n} {b!r}→{a!r}" for n, (b, a) in changed.items()),
+    )
     return TrackMatch(match.distance, info, match.item)
 
 
