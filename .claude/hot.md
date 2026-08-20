@@ -22,8 +22,7 @@ CleanMuzik — personal YouTube → Jellyfin music tool. Purpose, stack, constra
 ## Current State (2026-08-19)
 
 - **On `main`, tree clean** (only `.vscode/` untracked). **679 server + 91 client tests green on main.**
-  **Merged but NOT pushed** (main is 1 ahead of `origin/main` — the T-310 commit `cc44520`; push is yours).
-  R2 (Playlists) `in-build`.
+  **Pushed to `origin/main`** (through the T-310 commit `cc44520` + docs). R2 (Playlists) `in-build`.
 - **T-310 done + merged** — the batch view. **One aggregate card** per playlist paste (not fifty): durable
   tally+state from the T-312 snapshot, live rows off the T-305 stamped `track.*` stream, "needs you" from the
   durable review inbox hoisted on top, art on landed rows only, warmth-not-alarms. Plus the **acquire dial**
@@ -32,6 +31,8 @@ CleanMuzik — personal YouTube → Jellyfin music tool. Purpose, stack, constra
 - Build decisions + the two `/code-review` traps (reload-orphaned park; async cold-load racing the SSE open)
   are filed — see the T-310 close note in `docs/r2/tickets.md` and `docs/learnings.md` (2026-08-19).
   Live-verified over a real socket (never_started, review membership, settled stream closes).
+- **Filed T-048** (`docs/backlog/`) — the T-310 follow-up: durable per-track rows so landed/gone row *detail*
+  survives a restart (not just the tally). An enhancement, not a bug — revisits ADR-027 seam 5 / ADR-015.
 
 ## ⟹ NEXT
 
