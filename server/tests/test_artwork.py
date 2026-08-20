@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from app.artwork import _image_suffix, embed_cover, fetch_cover_art
+from app.artwork import _MAX_CAA_RELEASES, _image_suffix, embed_cover, fetch_cover_art
 
 
 def test_image_suffix_detects_png_vs_jpeg():
@@ -162,7 +162,25 @@ def test_fetch_caps_number_of_releases_tried():
         release_ids=tuple(f"rel-{i}" for i in range(20)),
         http=_FakeHTTP(handler),
     )
-    assert len(tried) <= 3  # doesn't hammer CAA with 20 sequential blocking GETs
+    # A few blocking GETs, not 20 — the cap preserves art recall (a later release may
+    # carry the cover the first lacks) while stopping CAA from hammering the synchronous
+    # import thread; the per-release timeout (T-216) bounds the slow tail, not this cap.
+    assert len(tried) == _MAX_CAA_RELEASES
+
+
+def test_fetch_bounds_the_per_read_timeout():
+    # T-216: the default per-read timeout is the bounded value, so a slow CAA →
+    # archive.org redirect can't stall the synchronous import thread for 10s/hop.
+    seen = {}
+
+    def handler(url, kw):
+        seen["timeout"] = kw.get("timeout")
+        return _Resp(404, b"")  # force the fetch to fall through; we only inspect the call
+
+    fetch_cover_art(
+        artist="x", title="y", release_ids=("rel-1",), http=_FakeHTTP(handler)
+    )
+    assert seen["timeout"] == 5
 
 
 def test_fetch_returns_none_when_nothing_found():

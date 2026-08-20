@@ -32,6 +32,8 @@ Two tiers live here:
   - [`T-208.md`](T-208.md) — collapse the MB candidate **fan-out** (5 independent `track_for_id` hydrations behind the 1/sec limit; the `mb_search.py` finding-#4 fix, applied to acquire) *(the ~4–5s lever; **engine change → deferred + conditional**, clears its own §7 gate; from T-209 + the 2026-08-13 speed council)*
   - [`T-214.md`](T-214.md) — narrate the 16–19s "Identifying" freeze as four moving sub-steps *(safe, non-engine, **perceived** speed — the biggest felt win; buildable anytime)*
   - [`T-215.md`](T-215.md) — hoist Shazam to run *during* the beets candidate lookup *(safe, non-engine, ~2s + moves the ≤8s hang tail off the critical path; rides the `shazam_fn` seam; buildable anytime)*
+  - [`T-216.md`](T-216.md) — bound the Cover Art Archive fetch (5s per-release timeout; cap kept at 3 for recall) *(safe, non-engine, best-effort art; lifted a live run from ~39s to ~26s/track; from the 2026-08-19 profile; **built** 2026-08-19)*
+  - [`T-217.md`](T-217.md) — debounce the Jellyfin library scan to once per batch *(safe, non-engine; kills 29-scan indexer thrash; from the 2026-08-19 profile; append seam is retry-based, doesn't depend on the per-track scan)*
 - **Unscoped ideas** — broader directions not yet worked into tickets:
 
 - Playlist support (batch of tracks from one URL)

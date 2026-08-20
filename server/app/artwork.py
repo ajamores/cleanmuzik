@@ -39,9 +39,12 @@ _ITUNES_SEARCH = "https://itunes.apple.com/search"
 # home in config so this and `app.isrc` never drift.
 _UA = {"User-Agent": MUSICBRAINZ_USER_AGENT}
 _PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
-# A recording can appear on dozens of releases; the front cover is near-identical
-# across them, so trying more than a few just risks stalling the (synchronous,
-# ADR-001) import thread on a slow CAA. Cap it.
+# A recording can appear on dozens of releases. Each is a blocking GET on the
+# synchronous (ADR-001) import thread, and CAA 307-redirects `/front` to archive.org
+# backends that occasionally hang — live profiling (T-216) clocked one track's art at
+# ~36s under a 10s-per-release timeout. The tail is bounded by the `timeout` below, NOT
+# by this cap: a release with no cover 404s fast, so keeping a few preserves art
+# *recall* (release #1 may lack a front cover where #2 has it) at ~no typical cost.
 _MAX_CAA_RELEASES = 3
 
 
@@ -79,7 +82,10 @@ def fetch_cover_art(
     artist: str,
     title: str,
     release_ids: tuple[str, ...] = (),
-    timeout: int = 10,
+    timeout: int = 5,  # T-216: the tail-bound. requests applies this to connect AND
+    # each read, and `allow_redirects` means a CAA→archive.org hang costs it per hop —
+    # 5s caps the stall well under the old 10s while leaving the iTunes fallback (and
+    # its 1200x1200 image GET) comfortable headroom for a real, slow-but-live response.
     http=requests,
 ) -> bytes | None:
     """Return front-cover image bytes for a track, or None if none is found.
