@@ -3,7 +3,7 @@ uvicorn[standard]==0.51.0
 pydantic-settings==2.14.2
 # Download stage (T-004). yt-dlp releases often, and YouTube changes break older
 # pins fast — bump this deliberately (re-verify a real download when you do).
-yt-dlp==2026.7.4
+yt-dlp==2026.8.19
 
 # beets is the tagging engine (ADR-005). Pinned to 2.12 on purpose: `importer` /
 # `autotag` are not beets' stable API, so an upgrade means re-testing the review-
