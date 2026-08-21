@@ -544,7 +544,16 @@ integrate onto `main` with the status line flipped in the closing commit, transc
   re-splits the artist. (Acceptance item 9. Stories: US24, US25.)
 
 ### T-309 — T-037 defect 2: the genre-report bug (read the written genre off disk)
-- **Status:** todo
+- **Status:** done — merged 2026-08-20. `_landed_tags` reads genre off the **landed file**
+  (`_genre_on_disk`, `import_seam.py:~1316`), not the stale in-memory snapshot (T-103: event said
+  "no genre" on a file carrying `Soul`). Disk wins when it carries a genre; a *bare* disk tag does
+  not shadow a present in-memory value (review Finding 3 — report a genre if either source has one).
+  Guarded like the sibling read-off-disk helpers (unreadable tag degrades to the in-memory field, never
+  un-lands a track). Proof: `tests/test_genre_report.py` (disk-over-stale-None, bare-stays-null,
+  in-memory-not-shadowed, unreadable-degrades) with the "bare" precondition written deterministically
+  via `MediaFile` (Finding 4). Review Findings 1 (lyrics same-class lag) filed **T-050**; 2 (blanket
+  disk re-read) and 3 (migrate stale — `lastgenre force` defaults `yes`, so disk is fresh) declined
+  with reasons. 714 server tests green.
 - **Depends on:** none
 - **Agent:** back-end
 - **What:** The **only** genuine defect-2 bug (the plugin/key theories were refuted by the T-103 verify —

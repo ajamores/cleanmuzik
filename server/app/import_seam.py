@@ -1313,20 +1313,48 @@ def _chosen_tags(info) -> dict:
     }
 
 
+def _genre_on_disk(item) -> str | None:
+    """The genre tag read back off the landed file — the authoritative value (T-309).
+
+    `lastgenre`'s write does not reliably reach the in-memory `item.genre` by the time
+    the seam snapshots the receipt (T-103: `item.genre` was None while the landed file
+    on disk carried `'Soul'`), so `track.done` claimed "no genre" on a file that had
+    one. The file is the truth: read the tag straight off it. Best-effort and guarded
+    like the other read-off-disk helpers — a missing path or read error degrades to the
+    in-memory field rather than lying either way (a bare genre is a documented degrade,
+    spec §6, not a failure).
+
+    Disk wins when it carries a genre, but a *bare* disk tag does not shadow a present
+    in-memory value: report a genre if either source has one (T-309, review Finding 3).
+    """
+    path = getattr(item, "path", None)
+    if path:
+        try:
+            from mediafile import MediaFile
+
+            disk = MediaFile(os.fsdecode(path)).genre
+            if disk:
+                return disk
+        except Exception as exc:  # noqa: BLE001 — an unreadable tag must not un-land a track
+            logger.debug("could not read genre off %s (%s)", path, exc)
+    return getattr(item, "genre", None)
+
+
 def _landed_tags(item, has_art: bool) -> dict:
     """spec §6 `track.done.tags`: what actually landed on the file, post-organize.
 
-    `genre` is whatever `lastgenre` wrote (null if no Last.fm key — a documented
-    degrade, not a failure, spec §6). `has_art` is Door B's own result (whether a
-    cover was embedded), passed in rather than re-read off disk. `has_lyrics` is the
-    presence of the `lyrics` plugin's text on the item.
+    `genre` is whatever `lastgenre` wrote, read back OFF THE LANDED FILE (T-309) — the
+    in-memory `item.genre` lags the write, so the file is the source of truth (null if
+    no Last.fm coverage — a documented degrade, not a failure, spec §6). `has_art` is
+    Door B's own result (whether a cover was embedded), passed in rather than re-read
+    off disk. `has_lyrics` is the presence of the `lyrics` plugin's text on the item.
     """
     return {
         "title": getattr(item, "title", None),
         "artist": getattr(item, "artist", None),
         "album": getattr(item, "album", None),
         "year": getattr(item, "year", None) or None,
-        "genre": getattr(item, "genre", None) or None,
+        "genre": _genre_on_disk(item) or None,
         "has_art": has_art,
         "has_lyrics": bool(getattr(item, "lyrics", None)),
     }
