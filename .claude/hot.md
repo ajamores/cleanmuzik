@@ -21,10 +21,10 @@ CleanMuzik — personal YouTube → Jellyfin music tool. Purpose, stack, constra
 
 ## Current State (2026-08-21)
 
-- **On `main`, clean tree** (only `.vscode/` untracked). **727 server tests green on `main`.** Ahead of
-  `origin/main` by **3 commits — not pushed** (push is the owner's call; the prior board's "8" was stale).
-- **R2's last ticket (T-311) is DONE** — the full end-to-end acceptance sweep passed live against the real
-  Jellyfin. **All R2 tickets are now closed.** R2 is functionally complete.
+- **On `main`, clean tree** (only `.vscode/` untracked). **727 server tests green.** **`main` pushed —
+  in sync with `origin/main`.**
+- **R2 (Playlists) SHIPPED 2026-08-21** — roadmap flipped `in-build`→`shipped`; T-311 (the last ticket)
+  passed the full acceptance sweep live against the real Jellyfin. **All R2 tickets closed + pushed.**
 - **T-316 shipped** (found *by* T-311): the pipeline lands POSIX `/mnt/c/…` paths but Jellyfin reports
   `C:\…\`, so the exact resolve match never succeeded — no landed track ever joined its playlist. Fixed
   (library-relative, case-folded tail match). Full evidence + the two owner-accepted residuals (item 7
@@ -32,11 +32,11 @@ CleanMuzik — personal YouTube → Jellyfin music tool. Purpose, stack, constra
 
 ## ⟹ NEXT
 
-1. **Flip R2 `in-build` → `shipped`** in `docs/roadmap.md` (all tickets done; owner-accepted residuals) —
-   a release-close call, owner's to confirm (a `/maintenance` moment).
-2. **Push `main`** to origin (3 unpushed) — owner's call.
-3. Then pick the next release: **R2.5 (migrate/clean the existing library)** per the roadmap, or drain the
-   backlog speed follow-ons (**T-217** scan debounce · **T-215** Shazam overlap · **T-208** MB de-hydration).
+1. **Start R2.5 (Migrate/clean the existing library)** — the one the owner actually wants (fills the
+   library worth streaming in the car). It's `backlog`; move it → `specing` and write its spec to begin.
+   R1.5's engine + R2's batch model are what its bulk run multiplies over; **T-208** (per-song speed)
+   graduates here.
+2. Or drain backlog speed follow-ons anytime: **T-217** scan debounce · **T-215** Shazam overlap.
 
 ## Recent sessions (rolling — last 2–3)
 
