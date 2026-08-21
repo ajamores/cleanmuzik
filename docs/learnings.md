@@ -1047,3 +1047,17 @@ Format: `- <date> — what went wrong → the correction / rule now in place`
   only does extraction and 403s nothing, so it hides this — you must do a **real download** to reproduce. Fix
   is a deliberate bump (here → `2026.8.19`) + re-verify one real download through the project venv. yt-dlp
   pins go stale in *weeks*; treat a total 403 blackout as "bump the pin" before touching pipeline code.
+- 2026-08-20 — (T-316, surfaced by T-311's live `/verify`) **An exact string compare across a
+  format boundary the tests never cross will pass every unit test and fail every real call.**
+  `resolve_item_id` matched a landed file to its Jellyfin item with `it["Path"] == landed_path`.
+  Unit tests fed identical fake paths (`/lib/A/x.mp3`) on both sides, so it was green. Live, the app
+  lands POSIX paths under `LIBRARY_DIRECTORY` (`/mnt/c/…`, `/`) while Jellyfin on the Windows host
+  reports the same file as `C:\…\` — so `==` never matched and **every** pipeline-landed track resolved
+  NOT_INDEXED forever; the playlist was created but never populated. The bug hid behind a *deferred*
+  review note that had rationalised it as "Phase 1 only, app and Jellyfin share the identical path on
+  Phase 0" — an assumption never checked against a real server. Rule: when two systems name the same
+  thing (a path, an id, a key) and one of them is external, do **not** trust `==` until you've compared
+  the two real strings side by side; match on the invariant part (here the library-relative tail, with
+  separators normalised), and be suspicious of any deferral whose premise is an untested "they're the
+  same". The T-313/T-314 lesson generalises: a seam's unit tests prove the logic, only a live run proves
+  the *shapes* agree.

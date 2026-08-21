@@ -409,11 +409,12 @@ integrate onto `main` with the status line flipped in the closing commit, transc
      the current single-user library scale; when it matters, fetch the audio listing **once per reconcile
      pass** (like the per-playlist pre-check cache) and match all members against it — needs a small
      `resolve_fn` signature change (an optional prefetched index), which is why it wasn't rushed into the fix.
-  2. **Path-remap robustness (Phase 1).** The resolve match is an **exact** `Path ==` compare, correct and
-     verified on **Phase 0 localhost** (app and Jellyfin share the identical absolute path). On the Phase 1
-     always-on box (roadmap R3+, Tailscale) Jellyfin's library mount root may differ from where the app
-     writes, and the exact compare would then miss forever (every track NOT_INDEXED). Revisit with a
-     path-normalisation / suffix-match strategy when Phase 1 lands — do NOT ship speculative normalisation now.
+  2. **Path-remap robustness — RESOLVED by T-316 (its premise was wrong).** This note assumed Phase-0
+     localhost shares "the identical absolute path"; T-311's live `/verify` proved it false — Jellyfin
+     reports Windows `C:\…\` paths while the app lands POSIX `/mnt/c/…/`, so the exact compare missed on
+     **Phase 0**, not just Phase 1 (every track NOT_INDEXED). T-316 replaced it with a library-relative
+     tail match (`_same_landed_file`) that bridges both the separator and the mount-root gap — so the
+     Phase-1 different-root case is covered too.
 
 ---
 
@@ -653,6 +654,30 @@ integrate onto `main` with the status line flipped in the closing commit, transc
 ---
 
 ## Phase F — verify
+
+### T-316 — Bridge the WSL/Windows path-format gap in `resolve_item_id` (T-311 live finding)
+- **Status:** done
+- **Depends on:** T-314 (owns `resolve_item_id`'s exact match)
+- **Agent:** back-end
+- **Surfaced by:** T-311's live `/verify`. Driving the app's own `resolve_item_id` against the **real**
+  Jellyfin proved the exact-string `Path ==` match can **never** succeed on the Phase-0 deployment: the
+  pipeline lands POSIX paths under `LIBRARY_DIRECTORY` (`/mnt/c/…`, `/` separators) while Jellyfin — on the
+  Windows host — reports the identical file as `C:\…` with `\` separators. The same already-indexed file
+  resolved **NOT_INDEXED** in beets/WSL form and **RESOLVED** in Windows form. Net: **no pipeline-landed
+  track ever joined its Jellyfin playlist** — acceptance items 2/3/4/12 were broken end-to-end, invisibly
+  (unit tests compare matching fake paths, so they stayed green). This is the T-314 deferred follow-up #2
+  ("Path-remap robustness, Phase 1"), but its deferral rested on a **false** premise — the note assumed
+  Phase-0 localhost shares "the identical absolute path"; live contact shows Jellyfin reports Windows paths
+  even here, so the gap is a **Phase-0** defect, not a Phase-1 one.
+- **What:** Replace the raw `it["Path"] == path` compare with `_same_landed_file(landed, jf)`, which
+  normalises separators and matches on the path **below `LIBRARY_DIRECTORY`** — the tail beets controls
+  (`Artist/Album/Title.mp3`) — so the match survives both the separator and the drive/mount-root gap
+  (also covering the Phase-1 different-root case the deferral flagged). An identical-root compare (unit-test
+  / same-host shape) still matches via a fast path. `LIBRARY_DIRECTORY` is read live off the `beets_engine`
+  module (not a by-value import) so the verify shim's patch is honoured.
+- **Done when:** `resolve_item_id` fed the real pipeline's `/mnt/c/…` landed path RESOLVES the file live
+  (watched: same id as the Windows form; a genuine non-existent path still NOT_INDEXED; a same-title track
+  under a different album is not a false positive). Suites green on `main`. **[done]**
 
 ### T-311 — End-to-end `/verify` against the acceptance checklist + R1 non-regression
 - **Status:** todo
