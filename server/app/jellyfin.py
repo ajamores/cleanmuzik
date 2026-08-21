@@ -341,6 +341,58 @@ def create_playlist(
     return playlist_id
 
 
+def _landed_match_keys(landed_path: str) -> tuple[str, str | None]:
+    """The two comparison keys for one landed file, computed **once** per resolve call.
+
+    Returns `(norm, anchor)`, both separator-normalised (`\\`→`/`) and **case-folded**:
+      - `norm`   — the whole landed path. Matches when the app and Jellyfin name the file
+                   identically (the unit-test / same-host shape).
+      - `anchor` — the landed path from the **library folder name** down
+                   (`CleanMuzik/Artist/Album/Title.mp3`), or `None` when the landed path
+                   isn't under `LIBRARY_DIRECTORY`. Matches across the format boundary.
+
+    Why this shape (all three from T-316 / its review):
+      - **Separator + root bridge.** On Phase-0 the pipeline lands POSIX paths under
+        `LIBRARY_DIRECTORY` (`/mnt/c/…`, `/`) while Jellyfin — on the Windows host — reports
+        `C:\\…` with `\\`. A raw `==` never matched, so every landed track resolved
+        NOT_INDEXED forever (the live finding). Matching on the path below the root, with
+        separators normalised, bridges both — and covers the Phase-1 different-mount-root
+        case the T-314 deferral flagged.
+      - **Anchor on the library folder name, not a bare tail.** `/Items` is queried
+        unscoped across *every* Jellyfin library, so a bare `Artist/Album/Title.mp3` tail
+        could match the same-named track in a **different** library (e.g. this verify run's
+        temp library beside the real one). Including the library folder name in the anchor
+        keeps distinct libraries from cross-matching.
+      - **Case-fold.** The boundary bridged is a case-insensitive NTFS mount; a case
+        divergence in any component would otherwise silently reintroduce the permanent
+        NOT_INDEXED bug. Folding is safe here — two files differing only in case cannot
+        coexist on that filesystem.
+
+    `beets_engine` is imported lazily (not at module top) so the Jellyfin HTTP client does
+    not eagerly pull in the tagging engine — matching the lazy-import convention in
+    `main.py`/`mb_search.py`. Reading the attribute at call time also honours the verify
+    shim's patch of `LIBRARY_DIRECTORY`.
+    """
+    import app.beets_engine as beets_engine
+
+    norm = landed_path.replace("\\", "/").casefold()
+    root = beets_engine.LIBRARY_DIRECTORY.replace("\\", "/").rstrip("/").casefold()
+    parent = root.rsplit("/", 1)[0] if "/" in root else ""
+    if norm.startswith(root + "/"):
+        # Keep the library folder name in the anchor: slice below the root's *parent*.
+        anchor = norm[len(parent) + 1 :] if parent else norm
+        return norm, anchor
+    return norm, None
+
+
+def _item_is_landed_file(jf_path: str, norm: str, anchor: str | None) -> bool:
+    """True iff Jellyfin's `jf_path` is the landed file described by `_landed_match_keys`."""
+    jf = jf_path.replace("\\", "/").casefold()
+    if jf == norm:
+        return True
+    return anchor is not None and (jf == anchor or jf.endswith("/" + anchor))
+
+
 def resolve_item_id(
     path: str,
     *,
@@ -359,7 +411,9 @@ def resolve_item_id(
     Returns a `ResolveResult` distinguishing the three outcomes T-304 wrongly collapsed to
     `None` (T-313, repair 2 — this split is what kills the outage-strands-everything bug on
     the resolve path):
-      - RESOLVED(id)  — the one audio item whose `Path` equals this file's path.
+      - RESOLVED(id)  — the one audio item that IS this landed file (matched by
+                        `_item_is_landed_file`, which bridges the WSL/Windows path-format
+                        gap, T-316 — not a raw `==`).
       - NOT_INDEXED   — Jellyfin answered cleanly but has no audio item at this path yet (or
                         config absent → nothing to resolve against). Keep waiting.
       - UNREACHABLE   — a network error / non-2xx / non-JSON / malformed body (a match whose
@@ -406,8 +460,16 @@ def resolve_item_id(
     items = data.get("Items")
     if not isinstance(items, list):
         return ResolveResult(ResolveStatus.UNREACHABLE)  # malformed 2xx, not an empty index
+    norm, anchor = _landed_match_keys(path)  # computed once, not per item
     match = next(
-        (it for it in items if isinstance(it, dict) and it.get("Path") == path), None
+        (
+            it
+            for it in items
+            if isinstance(it, dict)
+            and isinstance(it.get("Path"), str)
+            and _item_is_landed_file(it["Path"], norm, anchor)
+        ),
+        None,
     )
     if match is None:
         return ResolveResult(ResolveStatus.NOT_INDEXED)  # answered, no audio item at this path yet

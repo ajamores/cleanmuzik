@@ -160,6 +160,70 @@ class TestResolveItemId:
         assert "Path" not in kw["params"]  # no longer relies on the ignored server-side filter
         assert kw["headers"]["X-Emby-Token"] == "key"
 
+    def test_wsl_landed_path_matches_windows_jellyfin_path(self, monkeypatch):
+        # T-316 live finding: the pipeline lands POSIX paths under LIBRARY_DIRECTORY
+        # (/mnt/c/…, '/') but Jellyfin (Windows host) reports the same file as C:\…, '\'.
+        # A raw `==` never matched → every landed track NOT_INDEXED forever. The bridge
+        # matches on the library-relative tail across both format gaps.
+        import app.beets_engine as beets_engine
+
+        monkeypatch.setattr(
+            beets_engine, "LIBRARY_DIRECTORY", "/mnt/c/Users/aj/Music/CleanMuzik"
+        )
+        http = _Http(get_resp=_Resp(json_body={"Items": [
+            {"Id": "root", "Path": r"C:\Users\aj\Music\CleanMuzik"},
+            {"Id": "hit", "Path": r"C:\Users\aj\Music\CleanMuzik\Nas\Illmatic\N.Y. State of Mind.mp3"},
+        ]}))
+        landed = "/mnt/c/Users/aj/Music/CleanMuzik/Nas/Illmatic/N.Y. State of Mind.mp3"
+        result = resolve_item_id(landed, settings=_cfg(), http=http)
+        assert result == ResolveResult(ResolveStatus.RESOLVED, "hit")
+
+    def test_bridge_does_not_match_a_different_file_with_a_shorter_tail(self, monkeypatch):
+        # The tail match is anchored on a separator + the FULL library-relative path, so a
+        # same-titled track under a different album must not be a false positive.
+        import app.beets_engine as beets_engine
+
+        monkeypatch.setattr(
+            beets_engine, "LIBRARY_DIRECTORY", "/mnt/c/Users/aj/Music/CleanMuzik"
+        )
+        http = _Http(get_resp=_Resp(json_body={"Items": [
+            {"Id": "wrong", "Path": r"C:\Users\aj\Music\CleanMuzik\Nas\Other\N.Y. State of Mind.mp3"},
+        ]}))
+        landed = "/mnt/c/Users/aj/Music/CleanMuzik/Nas/Illmatic/N.Y. State of Mind.mp3"
+        result = resolve_item_id(landed, settings=_cfg(), http=http)
+        assert result.status is ResolveStatus.NOT_INDEXED
+
+    def test_bridge_does_not_cross_match_another_library_with_the_same_tail(self, monkeypatch):
+        # /Items is unscoped across every Jellyfin library, so a same Artist/Album/Title tail
+        # under a DIFFERENT library folder (e.g. this verify run's temp library beside the real
+        # one) must not resolve — the anchor includes the library folder name (T-316 review F1).
+        import app.beets_engine as beets_engine
+
+        monkeypatch.setattr(
+            beets_engine, "LIBRARY_DIRECTORY", "/mnt/c/Users/aj/Music/CleanMuzik"
+        )
+        http = _Http(get_resp=_Resp(json_body={"Items": [
+            {"Id": "otherlib", "Path": r"C:\Users\aj\Music\OtherLibrary\Nas\Illmatic\N.Y. State of Mind.mp3"},
+        ]}))
+        landed = "/mnt/c/Users/aj/Music/CleanMuzik/Nas/Illmatic/N.Y. State of Mind.mp3"
+        result = resolve_item_id(landed, settings=_cfg(), http=http)
+        assert result.status is ResolveStatus.NOT_INDEXED
+
+    def test_bridge_is_case_insensitive_across_the_ntfs_boundary(self, monkeypatch):
+        # The bridged boundary is a case-insensitive NTFS mount; a component whose case differs
+        # between beets' path and Jellyfin's report must still match (T-316 review F2).
+        import app.beets_engine as beets_engine
+
+        monkeypatch.setattr(
+            beets_engine, "LIBRARY_DIRECTORY", "/mnt/c/Users/aj/Music/CleanMuzik"
+        )
+        http = _Http(get_resp=_Resp(json_body={"Items": [
+            {"Id": "hit", "Path": r"C:\Users\aj\Music\CleanMuzik\NAS\illmatic\N.Y. State of Mind.mp3"},
+        ]}))
+        landed = "/mnt/c/Users/aj/Music/CleanMuzik/Nas/Illmatic/N.Y. State of Mind.mp3"
+        result = resolve_item_id(landed, settings=_cfg(), http=http)
+        assert result == ResolveResult(ResolveStatus.RESOLVED, "hit")
+
     def test_no_matching_path_is_not_indexed(self):
         http = _Http(get_resp=_Resp(json_body={"Items": [{"Id": "z", "Path": "/lib/A/other.mp3"}]}))
         result = resolve_item_id("/lib/A/x.mp3", settings=_cfg(), http=http)
