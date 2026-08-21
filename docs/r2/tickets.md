@@ -680,7 +680,31 @@ integrate onto `main` with the status line flipped in the closing commit, transc
   under a different album is not a false positive). Suites green on `main`. **[done]**
 
 ### T-311 — End-to-end `/verify` against the acceptance checklist + R1 non-regression
-- **Status:** todo
+- **Status:** done (2026-08-21) — full live sweep against the real Jellyfin, offline-isolated (temp
+  `DB_PATH` + a temp `/mnt/c` library registered to Jellyfin as a second VirtualFolder for the run, both
+  removed after). **Surfaced + fixed one blocker (T-316)**, then proved the checklist:
+  - **T-316 (blocker, found here):** the real pipeline lands POSIX `/mnt/c/…` paths but Jellyfin (Windows
+    host) reports `C:\…\`, so the exact-string resolve match never succeeded — no landed track ever joined
+    its playlist. Fixed under T-316; re-verified working end-to-end (playlist populated 0→5→6 live).
+  - **Items proven live:** 1 (expand · sequential · one SSE stream), 2 (JF playlist created + populated),
+    3 (canonical folder · one copy · playlist holds pointers), 4 (**Nines "Franklin" parked in the batch →
+    resolved → backfilled into its playlist** via the reconcile pass), 5 (re-paste skips owned silently,
+    adds new — skip=5 + Franklin added), 6 (exact-video dedup skip), 7 (`waiting_on_you` while parked>0;
+    **survived a real process restart** — T-312), 9 (T-037 fold: `JAŸ-Z` → `JAY-Z/`, artist tag `JAY-Z`),
+    10 (`track.done` genre == disk), 11 (single-song R1 auto-land: `a-ha/Take On Me.mp3`, MP3 320, art),
+    12 (727 tests green on `main` + real playlist created/populated/backfilled). Real library untouched
+    throughout (`find -mmin` empty on every land).
+  - **T-315 deferred live proofs (rode this ticket), both confirmed:** a deleted playlist's
+    `GET /Playlists/{id}/Items` returns **HTTP 404 → probe ABSENT** (not 200-empty); and the full
+    **delete → 404 → re-create container → rebuild all members from the membership store** cycle ran live
+    (Jellyfin re-issued the same id because it derives the id from the playlist name — the recreate still
+    genuinely fired: create + `repend_appended_members` logged).
+  - **Two residuals, not drivable this way (owner-accepted):** item 7's *failed-doesn't-stop-batch* — a
+    deleted/unavailable video is filtered out at playlist **expansion**, so it never reaches the failing
+    download stage; rests on **ADR-003** + its unit tests. Item 8's *aggregate card* — signed off at
+    T-310's design gate, and the batch-state **data contract** it renders (state · total · landed ·
+    in_review · failed · skipped · title) was watched changing correctly across every state this run; the
+    React client was not relaunched. (Owner call, 2026-08-21.)
 - **Depends on:** T-302–T-310, T-312 (all)
 - **Agent:** verify
 - **Live findings [RESOLVED 2026-08-17 by T-314] (surfaced by T-313's `/verify` against the real Jellyfin —

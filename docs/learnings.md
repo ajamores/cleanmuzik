@@ -1061,3 +1061,14 @@ Format: `- <date> — what went wrong → the correction / rule now in place`
   separators normalised), and be suspicious of any deferral whose premise is an untested "they're the
   same". The T-313/T-314 lesson generalises: a seam's unit tests prove the logic, only a live run proves
   the *shapes* agree.
+- 2026-08-21 — (T-311 full live sweep) **Two verify-staging gotchas, and a process note.** (1) You
+  cannot stage a *download-stage failure* by adding a deleted/unavailable video to a playlist: yt-dlp
+  drops `[Deleted video]`/`[Private video]` entries at **expansion**, so the bad entry never becomes a
+  batch job and never reaches the stage where it'd fail. To watch one-failure-continues (ADR-003) live
+  you need a video that *expands* but *fails to download* (region-lock/age-gate) — otherwise rely on the
+  unit tests. (2) **Jellyfin derives a playlist's id from its name**, so deleting `test` and re-creating
+  `test` yields the **same id** — do NOT read an unchanged `jellyfin_playlist_id` as "the recreate didn't
+  happen" (T-315's recreate fired correctly; only the log — `re-creating its container` + `Re-queued N
+  members` — proves it, not the id). Process note for myself: I proposed the deleted-video failure test
+  *before* checking whether a deleted video even survives expansion; producing the concrete URL is what
+  exposed it. Confirm a verification path is mechanically stageable before recommending it.
