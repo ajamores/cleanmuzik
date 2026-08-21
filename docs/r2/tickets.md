@@ -47,7 +47,7 @@ to the playlist* through T-304's append (they are **not** parallel — cold-revi
 **Phase C — compose the batch behaviours.** Backfill and idempotent re-paste sit on top of the seams.
 
 - **T-306** backfill (review→playlist) · **T-307** idempotent re-paste · **T-315** recover a stale/deleted
-  playlist id (T-306 follow-up).
+  playlist id (T-306 follow-up) *(done)*.
 
 **Phase D — T-037.** Independent of the batch spine; can run alongside Phase B once ADR-028 (T-301) lands.
 
@@ -493,7 +493,30 @@ integrate onto `main` with the status line flipped in the closing commit, transc
   **Live observable folded into T-311** — its "What" already drives the real re-paste (owner call, this session).
 
 ### T-315 — Recover a stale/deleted playlist id (create-if-missing only guards NULL)
-- **Status:** todo
+- **Status:** done — shipped 2026-08-20. The pre-check (`get_playlist_item_ids`) now returns a
+  3-state `PlaylistProbe` (READABLE / ABSENT / UNREADABLE), un-collapsing T-313's `set|None` the
+  way `ResolveStatus` un-collapsed the resolve call. **ABSENT** is keyed on a *positive 404* — the
+  one signal that says "created then deleted", distinct from an outage — so the reconcile pass
+  re-creates the container (shared `_create_and_persist` machinery, double-create-guarded per
+  T-306), persists the new id (re-pointing every pending member), and lands the appends the same
+  pass. **UNREADABLE** (unreachable / non-JSON / malformed, incl. a non-404 5xx/401) defers
+  untouched and never re-creates — a transient blip cannot orphan a live playlist with a
+  duplicate. Proof (offline stubs, live across-restart proof rides T-311): `test_playlist_append.py`
+  — deleted→recreated+drained, recreated-once-for-two-members, recreate-still-failing-defers,
+  transiently-unreachable-not-recreated, plus the 404→ABSENT / non-404→UNREADABLE pre-check split
+  and the probe invariant. One live assumption documented in code: a deleted playlist's `/Items`
+  GET 404s (vs a 200-empty body) — the ticket's own symptom confirms it; T-311 verifies against the
+  real server. `/code-review high` — 5 findings adjudicated: (F1) **fixed** — the rebuild now
+  re-queues already-appended members (`repend_appended_members`) so a container deleted mid-drain /
+  re-pasted-into rebuilds from `playlist_members` (source of truth), not just whatever was still
+  pending, closing a silent track-loss gap; (F3) **fixed** — dropped `frozen` on `PlaylistProbe`
+  (its `set` is mutated by the per-pass dedup, so frozen was a lie + a `__hash__` footgun); (F4)
+  **fixed** — the re-created container's re-precheck now logs if it reads back unreadable; (F2)
+  **declined** — the "create returns falsy but succeeded server-side → duplicate containers" gap is
+  the *pre-existing* T-306 create contract, reused verbatim via the shared `_create_and_persist`
+  helper (create idempotency-by-name is a separate ticket touching both paths); (F5) **declined** —
+  treating a positive 404 as deletion is the ticket-sanctioned trigger, and only a literal 404 (not
+  5xx/401/network) qualifies. 723 server tests green.
 - **Depends on:** T-306, T-304
 - **Why (T-306 follow-up #1):** T-306's **create-if-missing** reconcile branch only guards a **NULL**
   `jellyfin_playlist_id`. A **non-null-but-stale** id — the owner deleted the playlist in Jellyfin after it

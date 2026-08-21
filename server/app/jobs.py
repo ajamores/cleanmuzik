@@ -76,6 +76,7 @@ from app.import_seam import (
 from app.jellyfin import (
     JellyfinAppendError,
     JellyfinScanError,
+    PlaylistProbeStatus,
     ResolveStatus,
     append_to_playlist,
     create_playlist,
@@ -320,18 +321,22 @@ def reconcile_pending_appends(
       new id (refreshing the per-pass cache so a second member of the same playlist reuses it and
       cannot double-create). If the create still fails (Jellyfin absent/flaky), defer the member
       untouched — no stuck flag: the container's fault, not the member's — and retry next pass.
-    - **Pre-check unreadable** (`precheck_fn` → `None`: Jellyfin unreachable, or the stored
-      playlist id is stale/deleted) → skip *every* member of this playlist this pass and defer
-      untouched, **no stuck flag** — exactly like resolve-UNREACHABLE. The two `None` causes
-      (transient outage vs. missing container) are indistinguishable at this layer, so flagging
-      here would paint a whole backlog stuck on any multi-minute outage — the very outage/give-up
-      conflation the reframe exists to kill. We never blind-append when we cannot first read the
-      playlist (repair 3). A persistently-unreadable container is logged once per pass. Note the
-      recovery split: a **NULL** id (never created) is fixed by T-306 create-if-missing *above*,
-      before the pre-check runs; a **stale/deleted non-null** id reaches here and is only
-      deferred+logged — create-if-missing does NOT fire for it (that guards NULL only). Auto-
-      recovering a stale id is a tracked follow-up, not this pass's job. Only a
-      *reachable-but-unindexed* row (NOT_INDEXED, below) is ever flagged stuck.
+    - **Pre-check** (`precheck_fn` → a 3-state `PlaylistProbe`, T-315) resolves the container:
+        - **ABSENT** (Jellyfin 404s the read: the id was created, then *deleted* in the UI) →
+          **re-create it** with the same create-if-missing machinery and re-point every pending
+          member (persisting the new id does that), then read the fresh container so the member
+          lands this pass. Distinct from unreadable: a 404 is a *positive* "gone", not an outage,
+          so recovering it cannot orphan a still-live playlist. This closes the T-306 gap where a
+          non-null-but-stale id deferred every pass forever.
+        - **UNREADABLE** (unreachable / non-JSON / malformed — we *cannot tell* if it still
+          exists) → skip *every* member of this playlist this pass and defer untouched, **no
+          stuck flag** — exactly like resolve-UNREACHABLE. Flagging here would paint a whole
+          backlog stuck on any multi-minute outage (the outage/give-up conflation the reframe
+          kills), and re-creating here would risk orphaning a live playlist on a transient blip.
+          We never blind-append when we cannot first read the playlist (repair 3). Logged once
+          per container per pass. Only a *reachable-but-unindexed* row (NOT_INDEXED) is ever
+          flagged stuck.
+        - **READABLE** → proceed with the member id set (below).
     - **Resolve UNREACHABLE** → defer this member untouched: no append, no stuck flag, no
       state change. The pre-check just succeeded, so this is a transient blip on the resolve
       call — an outage must strand nothing and spend no budget (repair 2, bug 3).
@@ -351,9 +356,29 @@ def reconcile_pending_appends(
     if not pending:
         return 0
     playlists: dict[str, object] = {}  # cache: one get_playlist per playlist per pass
-    item_ids: dict[str, set[str] | None] = {}  # cache: one pre-check GET per playlist per pass
+    probes: dict[str, PlaylistProbe] = {}  # cache: one pre-check GET per jf playlist id per pass
     now = datetime.now(timezone.utc)
     appended = 0
+
+    def _create_and_persist(app_playlist_id, playlist) -> str | None:
+        """(Re)create the Jellyfin container for `playlist`, persist + cache the new id.
+
+        Shared by the NULL (never created, T-306) and ABSENT (created then deleted, T-315)
+        paths. Returns the new jellyfin id, or None to defer (no title to create under, or the
+        create still failing — the container's fault, not the member's). Refreshes the per-pass
+        `playlists` cache so a later member of the same playlist reads the new id and cannot
+        create a second container (the double-create guard).
+        """
+        title = getattr(playlist, "title", None)
+        if not title:
+            return None  # no name to create the playlist under — nothing to recover here
+        new_id = create_fn(title, settings=settings)
+        if not new_id:
+            return None  # create still failing — defer, retry a later pass
+        store.set_jellyfin_playlist_id(app_playlist_id, new_id)
+        playlists[app_playlist_id] = store.get_playlist(app_playlist_id)
+        return new_id
+
     for member in pending:
         # Each member is isolated: a store error on one (e.g. a row deleted out from under
         # us between the query and the UPDATE) must not abort the drain for the rest — the
@@ -364,41 +389,72 @@ def reconcile_pending_appends(
             playlist = playlists[member.playlist_id]
             jf_playlist_id = getattr(playlist, "jellyfin_playlist_id", None)
             if not jf_playlist_id:
-                # T-306 create-if-missing: the container was never created (config absent at
-                # expansion, or the create POST degraded — both leave a NULL id). Create it now
-                # so a parked-then-resolved member can join, rather than skipping its container
-                # forever. A still-absent/-flaky Jellyfin returns None: defer untouched (no stuck
-                # — the container's fault, not the member's), retried next pass.
-                title = getattr(playlist, "title", None)
-                if not title:
-                    continue  # no name to create the playlist under — nothing to recover here
-                jf_playlist_id = create_fn(title, settings=settings)
+                # NULL id → the container was never created (config absent at expansion, or the
+                # create POST degraded). Create it now (T-306 create-if-missing) so a parked-
+                # then-resolved member can join, rather than skipping its container forever.
+                jf_playlist_id = _create_and_persist(member.playlist_id, playlist)
                 if not jf_playlist_id:
-                    continue  # create still failing — defer, retry a later pass
-                store.set_jellyfin_playlist_id(member.playlist_id, jf_playlist_id)
-                # Refresh the per-pass cache so a later member of THIS playlist reads the new
-                # id and does not create a second container (the double-create guard).
-                playlists[member.playlist_id] = store.get_playlist(member.playlist_id)
+                    continue  # no title / create still failing → defer, no stuck (container's fault)
+                playlist = playlists[member.playlist_id]  # refreshed by the helper
 
             past_ceiling = _is_past_stuck_ceiling(member.created_at, now)
 
-            # Pre-check the playlist's current members, once per playlist per pass. None means
-            # we can't read the container — Jellyfin is unreachable, or the stored playlist id is
-            # stale. Defer the whole playlist untouched (never blind-append) and — crucially — do
-            # NOT flag stuck: this is indistinguishable from resolve-UNREACHABLE (both are "can't
-            # read"), so flagging would paint the backlog stuck on any outage, the conflation the
-            # reframe kills. Log once per playlist per pass so a persistently-missing container is
-            # still visible in the log (T-306's create-if-missing is its real recovery).
-            if jf_playlist_id not in item_ids:
-                item_ids[jf_playlist_id] = precheck_fn(jf_playlist_id, settings=settings)
-                if item_ids[jf_playlist_id] is None:
+            # Pre-check the container's current members, once per jf id per pass (T-315 3-state).
+            # Log once per distinct id per pass — not per member — so a 50-member playlist logs
+            # its container's fate once, not fifty times.
+            if jf_playlist_id not in probes:
+                probes[jf_playlist_id] = precheck_fn(jf_playlist_id, settings=settings)
+                st = probes[jf_playlist_id].status
+                if st is PlaylistProbeStatus.UNREADABLE:
                     logger.warning(
-                        "Jellyfin playlist %s unreadable this pass (unreachable, or the stored "
-                        "id is stale) — deferring its pending appends untouched", jf_playlist_id,
+                        "Jellyfin playlist %s unreadable this pass (unreachable / malformed) — "
+                        "deferring its pending appends untouched", jf_playlist_id,
                     )
-            current = item_ids[jf_playlist_id]
-            if current is None:
-                continue  # can't read membership → defer, no stuck (like resolve-UNREACHABLE)
+                elif st is PlaylistProbeStatus.ABSENT:
+                    logger.warning(
+                        "Jellyfin playlist %s is gone (deleted in Jellyfin) — re-creating its "
+                        "container (T-315)", jf_playlist_id,
+                    )
+            probe = probes[jf_playlist_id]
+
+            if probe.status is PlaylistProbeStatus.ABSENT:
+                # T-315: created-then-vanished. A 404 is a positive "gone", not an outage, so
+                # re-creating cannot orphan a still-live playlist. Re-create with the same
+                # machinery (persisting the new id re-points EVERY member of this playlist).
+                new_id = _create_and_persist(member.playlist_id, playlist)
+                if not new_id:
+                    continue  # re-create still failing → defer untouched, retry next pass
+                jf_playlist_id = new_id
+                playlist = playlists[member.playlist_id]
+                # The new container is empty; re-queue the members that appended to the DELETED
+                # one so the playlist rebuilds from playlist_members (the source of truth) rather
+                # than silently holding only whatever was still pending at deletion time.
+                requeued = store.repend_appended_members(member.playlist_id)
+                if requeued:
+                    logger.info(
+                        "Re-queued %d already-appended member(s) of playlist %s to rebuild the "
+                        "re-created container (T-315)", requeued, member.playlist_id,
+                    )
+                # Read the fresh container (once per new id per pass) so this member can land
+                # THIS pass. Log if even the just-created container reads back unreadable — an
+                # observability blind spot otherwise, since the top-of-loop log block ran on the
+                # OLD (now-abandoned) id.
+                if jf_playlist_id not in probes:
+                    probes[jf_playlist_id] = precheck_fn(jf_playlist_id, settings=settings)
+                    if probes[jf_playlist_id].status is not PlaylistProbeStatus.READABLE:
+                        logger.warning(
+                            "Re-created Jellyfin playlist %s reads back unreadable — deferring "
+                            "its pending appends untouched", jf_playlist_id,
+                        )
+                probe = probes[jf_playlist_id]
+
+            if probe.status is not PlaylistProbeStatus.READABLE:
+                # UNREADABLE (or a re-created id that itself read back unreadable): can't read the
+                # membership → defer the whole playlist untouched, never blind-append, and — as
+                # with resolve-UNREACHABLE — NO stuck flag (that would paint the backlog stuck on
+                # any outage, the conflation the T-313 reframe kills).
+                continue
+            current = probe.items
 
             result = resolve_fn(member.landed_path, settings=settings)
             if result.status is ResolveStatus.UNREACHABLE:

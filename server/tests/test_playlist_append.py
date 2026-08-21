@@ -27,6 +27,8 @@ from app.db import Store
 from app.import_seam import Outcome
 from app.jellyfin import (
     JellyfinAppendError,
+    PlaylistProbe,
+    PlaylistProbeStatus,
     ResolveResult,
     ResolveStatus,
     append_to_playlist,
@@ -48,9 +50,26 @@ def _resolve_status(status):
     return lambda path, settings=None: ResolveResult(status)
 
 
-def _empty_precheck(pl_id, settings=None):
-    """A precheck_fn for a reachable, currently-empty playlist (the common case)."""
-    return set()
+def _readable(*item_ids):
+    """A precheck_fn for a reachable playlist holding `item_ids` (empty = the common case)."""
+    return lambda pl_id, settings=None: PlaylistProbe(
+        PlaylistProbeStatus.READABLE, set(item_ids)
+    )
+
+
+_empty_precheck = _readable()  # reachable, currently-empty playlist — the common case
+
+
+def _probe_status(status):
+    """A precheck_fn that always returns `status` (ABSENT / UNREADABLE) with no member set."""
+    return lambda pl_id, settings=None: PlaylistProbe(status)
+
+
+def _http_error(status_code):
+    """A `requests.HTTPError` carrying a response with `status_code` (for a 404 pre-check)."""
+    resp = requests.Response()
+    resp.status_code = status_code
+    return requests.HTTPError(f"{status_code}", response=resp)
 
 
 def _store(tmp_path):
@@ -198,45 +217,79 @@ class TestResolveItemId:
 
 
 class TestGetPlaylistItemIds:
-    """The pre-check GET behind the idempotent append (T-313, repair 3)."""
+    """The 3-state pre-check GET (T-313 repair 3; T-315 un-collapses its `None`). Every current
+    failure maps to exactly one of READABLE / ABSENT / UNREADABLE — the split that lets the
+    reconcile pass tell 'deleted, re-create it' from 'unreachable, defer untouched'."""
 
     def test_returns_the_set_of_library_item_ids(self):
         http = _Http(get_resp=_Resp(json_body={"Items": [{"Id": "a"}, {"Id": "b"}]}))
         got = get_playlist_item_ids("pl-1", settings=_cfg(), http=http)
-        assert got == {"a", "b"}
+        assert got == PlaylistProbe(PlaylistProbeStatus.READABLE, {"a", "b"})
         endpoint, kw = http.get_call
         assert endpoint == "http://jf:8096/Playlists/pl-1/Items"
         assert kw["params"] == {"userId": "user-1"}  # T-311: the read is user-scoped
 
-    def test_empty_playlist_is_an_empty_set_not_none(self):
+    def test_empty_playlist_is_readable_empty_not_a_failure(self):
         """A valid answer distinct from failure — an empty playlist means 'append freely'."""
         http = _Http(get_resp=_Resp(json_body={"Items": []}))
-        assert get_playlist_item_ids("pl-1", settings=_cfg(), http=http) == set()
+        got = get_playlist_item_ids("pl-1", settings=_cfg(), http=http)
+        assert got.status is PlaylistProbeStatus.READABLE and got.items == set()
 
-    def test_absent_config_is_none(self):
+    def test_deleted_playlist_404_is_absent(self):
+        """T-315: a 404 is a positive 'this playlist is gone' — distinct from unreachable, so
+        the reconcile pass may safely re-create it."""
+        http = _Http(get_resp=_Resp(raise_exc=_http_error(404)))
+        got = get_playlist_item_ids("pl-1", settings=_cfg(), http=http)
+        assert got.status is PlaylistProbeStatus.ABSENT and got.items is None
+
+    def test_non_404_http_error_is_unreadable_not_absent(self):
+        """A 500 (or 401) is an outage/auth failure, NOT a deletion — must NOT trigger a
+        re-create (that would orphan a still-live playlist)."""
+        http = _Http(get_resp=_Resp(raise_exc=_http_error(500)))
+        assert get_playlist_item_ids("pl-1", settings=_cfg(), http=http).status is (
+            PlaylistProbeStatus.UNREADABLE
+        )
+
+    def test_absent_config_is_unreadable(self):
         http = _Http(get_resp=_Resp(json_body={"Items": []}))
-        assert get_playlist_item_ids("pl-1", settings=_ABSENT, http=http) is None
+        assert get_playlist_item_ids("pl-1", settings=_ABSENT, http=http).status is (
+            PlaylistProbeStatus.UNREADABLE
+        )
         assert http.get_call is None
 
-    def test_unresolvable_user_id_is_none(self):
-        """No user id → can't scope the read → None → reconcile defers (never blind-append)."""
+    def test_unresolvable_user_id_is_unreadable(self):
+        """No user id → can't scope the read → UNREADABLE → reconcile defers (never blind-append)."""
         http = _Http(get_resp=_Resp(json_body={"Items": []}), users_resp=_Resp(json_body=[]))
-        assert get_playlist_item_ids("pl-1", settings=_cfg(), http=http) is None
+        assert get_playlist_item_ids("pl-1", settings=_cfg(), http=http).status is (
+            PlaylistProbeStatus.UNREADABLE
+        )
         assert http.get_call is None  # never reached the playlist read
 
-    def test_request_failure_is_none(self):
+    def test_request_failure_is_unreadable(self):
         http = _Http(get_resp=_Resp(raise_exc=requests.RequestException("boom")))
-        assert get_playlist_item_ids("pl-1", settings=_cfg(), http=http) is None
+        assert get_playlist_item_ids("pl-1", settings=_cfg(), http=http).status is (
+            PlaylistProbeStatus.UNREADABLE
+        )
 
-    def test_non_dict_body_is_none(self):
+    def test_non_dict_body_is_unreadable(self):
         http = _Http(get_resp=_Resp(json_body=["nope"]))
-        assert get_playlist_item_ids("pl-1", settings=_cfg(), http=http) is None
+        assert get_playlist_item_ids("pl-1", settings=_cfg(), http=http).status is (
+            PlaylistProbeStatus.UNREADABLE
+        )
 
     def test_malformed_items_entries_are_skipped(self):
         http = _Http(get_resp=_Resp(
             json_body={"Items": [{"Id": "a"}, {"Name": "no id"}, "junk", {"Id": ""}]}
         ))
-        assert get_playlist_item_ids("pl-1", settings=_cfg(), http=http) == {"a"}
+        got = get_playlist_item_ids("pl-1", settings=_cfg(), http=http)
+        assert got.status is PlaylistProbeStatus.READABLE and got.items == {"a"}
+
+    def test_probe_invariant_rejects_a_non_readable_with_items(self):
+        """The load-bearing invariant: an ABSENT/UNREADABLE probe can't smuggle a member set."""
+        with pytest.raises(ValueError):
+            PlaylistProbe(PlaylistProbeStatus.ABSENT, set())
+        with pytest.raises(ValueError):
+            PlaylistProbe(PlaylistProbeStatus.READABLE, None)
 
 
 class _UsersHttp:
@@ -475,6 +528,20 @@ class TestPendingAppendDAO:
         store.mark_member_stuck(m.id)  # a later pass notices it's still stuck
         assert store.list_members(pl.id)[0].stuck_since == first  # first time kept, not bumped
 
+    def test_repend_appended_members_requeues_only_appended_rows(self, tmp_path):
+        """T-315: rebuild after a container deletion re-queues the stamped-done rows (clearing
+        their item id + stuck flag) and leaves already-pending rows alone. Idempotent."""
+        store = _store(tmp_path)
+        pl = store.upsert_playlist("PL", "P")
+        store.add_member(pl.id, "vidA", position=1,
+                         jellyfin_item_id="itA", landed_path="/lib/a.mp3")  # appended
+        store.add_member(pl.id, "vidB", position=2, landed_path="/lib/b.mp3")  # already pending
+        n = store.repend_appended_members(pl.id)
+        assert n == 1  # only the appended row was re-queued
+        pending = {m.youtube_video_id for m in store.list_pending_appends(10)}
+        assert pending == {"vidA", "vidB"}  # A re-queued, B still pending
+        assert store.repend_appended_members(pl.id) == 0  # idempotent once nothing is appended
+
 
 # --- 3. reconcile orchestration ---------------------------------------------
 
@@ -584,6 +651,132 @@ class TestReconcile:
         assert {pl_id for pl_id, _ in appends} == {"jf-once"}
         assert store.get_playlist(pl.id).jellyfin_playlist_id == "jf-once"
 
+    # --- T-315: a created-then-deleted container is re-created, not deferred forever ---
+
+    def _absent_then_readable(self, dead_id):
+        """A precheck_fn: ABSENT for the stale id, READABLE-empty for the re-created one."""
+        def fn(pl_id, settings=None):
+            if pl_id == dead_id:
+                return PlaylistProbe(PlaylistProbeStatus.ABSENT)
+            return PlaylistProbe(PlaylistProbeStatus.READABLE, set())
+        return fn
+
+    def test_deleted_container_is_recreated_and_drained(self, tmp_path):
+        """A non-null-but-deleted jellyfin id (Jellyfin 404s it) is re-created, its new id
+        persisted, and the pending member appends to the NEW container — the T-306 gap where a
+        stale id deferred every pass forever."""
+        store, pl = _playlist_with_pending(tmp_path, jellyfin_playlist_id="jf-dead")
+        creates, appends = [], []
+        n = reconcile_pending_appends(
+            store, limit=10,
+            create_fn=lambda name, settings=None: creates.append(name) or "jf-fresh",
+            resolve_fn=_resolved("item-42"),
+            append_fn=lambda pl_id, item_id, settings=None: (
+                appends.append((pl_id, item_id)) or True
+            ),
+            precheck_fn=self._absent_then_readable("jf-dead"),
+        )
+        assert n == 1
+        assert creates == ["P"]  # re-created under the playlist's title
+        assert appends == [("jf-fresh", "item-42")]  # appended to the NEW container, not the dead one
+        assert store.get_playlist(pl.id).jellyfin_playlist_id == "jf-fresh"  # id re-pointed
+        assert store.list_pending_appends(10) == []  # drained
+
+    def test_deleted_container_recreated_once_for_two_members(self, tmp_path):
+        """Double-create guard on the recovery path: two members of one deleted playlist
+        re-create exactly one container and both append to it (the per-pass cache refresh)."""
+        store = _store(tmp_path)
+        pl = store.upsert_playlist("PL", "P")
+        store.set_jellyfin_playlist_id(pl.id, "jf-dead")
+        store.add_member(pl.id, "vidA", position=1, landed_path="/lib/a.mp3")
+        store.add_member(pl.id, "vidB", position=2, landed_path="/lib/b.mp3")
+        creates, appends = [], []
+        n = reconcile_pending_appends(
+            store, limit=10,
+            create_fn=lambda name, settings=None: creates.append(name) or "jf-fresh",
+            resolve_fn=lambda path, settings=None: ResolveResult(
+                ResolveStatus.RESOLVED, f"item-{path[-5]}"
+            ),
+            append_fn=lambda pl_id, item_id, settings=None: (
+                appends.append((pl_id, item_id)) or True
+            ),
+            precheck_fn=self._absent_then_readable("jf-dead"),
+        )
+        assert n == 2
+        assert creates == ["P"]  # re-created ONCE, not once per member
+        assert {pl_id for pl_id, _ in appends} == {"jf-fresh"}
+        assert store.get_playlist(pl.id).jellyfin_playlist_id == "jf-fresh"
+
+    def test_deleted_container_recreate_still_failing_defers_untouched(self, tmp_path):
+        """ABSENT but the re-create POST still fails (Jellyfin flaky) → defer untouched, no
+        stuck, nothing resolved/appended (the container's fault, not the member's)."""
+        store, pl = _playlist_with_pending(tmp_path, jellyfin_playlist_id="jf-dead")
+        (m0,) = store.list_pending_appends(10)
+        _backdate(store, m0.id, minutes=120)  # would be 'stuck' if we mistook this for unindexed
+        n = reconcile_pending_appends(
+            store, limit=10,
+            create_fn=lambda name, settings=None: None,  # re-create still failing
+            resolve_fn=lambda *a, **k: pytest.fail("must not resolve without a live container"),
+            append_fn=lambda *a, **k: pytest.fail("must not append"),
+            precheck_fn=self._absent_then_readable("jf-dead"),
+        )
+        assert n == 0
+        (m,) = store.list_pending_appends(10)
+        assert m.stuck_since is None  # the container's fault, not the member's
+        assert store.get_playlist(pl.id).jellyfin_playlist_id == "jf-dead"  # unchanged
+
+    def test_transiently_unreachable_container_is_not_recreated(self, tmp_path):
+        """The safety half of T-315: an UNREADABLE pre-check (outage / down Jellyfin, NOT a 404)
+        must NOT re-create — that would orphan a still-live playlist with a duplicate. Defer
+        untouched, no create, no append, no stuck."""
+        store, pl = _playlist_with_pending(tmp_path, jellyfin_playlist_id="jf-live")
+        (m0,) = store.list_pending_appends(10)
+        _backdate(store, m0.id, minutes=120)
+        n = reconcile_pending_appends(
+            store, limit=10,
+            create_fn=lambda *a, **k: pytest.fail("must not re-create a merely-unreachable playlist"),
+            resolve_fn=lambda *a, **k: pytest.fail("must not resolve when membership unreadable"),
+            append_fn=lambda *a, **k: pytest.fail("must not blind-append"),
+            precheck_fn=_probe_status(PlaylistProbeStatus.UNREADABLE),
+        )
+        assert n == 0
+        (m,) = store.list_pending_appends(10)
+        assert m.jellyfin_item_id is None and m.stuck_since is None  # untouched
+        assert store.get_playlist(pl.id).jellyfin_playlist_id == "jf-live"  # NOT re-pointed
+
+    def test_deleted_container_rebuilds_previously_appended_members(self, tmp_path):
+        """The recovered playlist rebuilds from playlist_members (source of truth), not just the
+        rows that were still pending at deletion: a member already appended to the DELETED
+        container is re-queued and re-drains into the NEW one — no silent track loss."""
+        store = _store(tmp_path)
+        pl = store.upsert_playlist("PL", "P")
+        store.set_jellyfin_playlist_id(pl.id, "jf-dead")
+        store.add_member(pl.id, "vidA", position=1,
+                         jellyfin_item_id="old-A", landed_path="/lib/a.mp3")  # appended to jf-dead
+        store.add_member(pl.id, "vidB", position=2, landed_path="/lib/b.mp3")  # still pending
+
+        appends = []
+
+        def resolve(path, settings=None):
+            return ResolveResult(
+                ResolveStatus.RESOLVED, "item-A" if path == "/lib/a.mp3" else "item-B"
+            )
+
+        kw = dict(
+            create_fn=lambda name, settings=None: "jf-fresh",
+            resolve_fn=resolve,
+            append_fn=lambda pl_id, item_id, settings=None: appends.append((pl_id, item_id)) or True,
+            precheck_fn=self._absent_then_readable("jf-dead"),
+        )
+        # pass 1: B (pending) lands in the re-created container; A is re-queued by the rebuild
+        reconcile_pending_appends(store, limit=10, **kw)
+        # pass 2: A now re-drains into the new container too
+        reconcile_pending_appends(store, limit=10, **kw)
+
+        assert set(appends) == {("jf-fresh", "item-A"), ("jf-fresh", "item-B")}  # both, on jf-fresh
+        assert store.list_pending_appends(10) == []  # fully rebuilt, nothing left pending
+        assert store.get_playlist(pl.id).jellyfin_playlist_id == "jf-fresh"
+
     # --- bug 3: an outage strands nothing and spends no budget, on BOTH organs ---------
 
     def test_resolve_unreachable_defers_untouched(self, tmp_path):
@@ -608,7 +801,7 @@ class TestReconcile:
             store, limit=10,
             resolve_fn=lambda *a, **k: pytest.fail("must not resolve when membership unreadable"),
             append_fn=lambda *a, **k: pytest.fail("must not blind-append"),
-            precheck_fn=lambda pl_id, settings=None: None,  # unreachable
+            precheck_fn=_probe_status(PlaylistProbeStatus.UNREADABLE),  # can't read
         )
         assert n == 0
         (m,) = store.list_pending_appends(10)
@@ -625,7 +818,7 @@ class TestReconcile:
             store, limit=10,
             resolve_fn=lambda *a, **k: pytest.fail("must not resolve when membership unreadable"),
             append_fn=lambda *a, **k: pytest.fail("must not blind-append"),
-            precheck_fn=lambda pl_id, settings=None: None,  # unreadable / outage
+            precheck_fn=_probe_status(PlaylistProbeStatus.UNREADABLE),  # unreadable / outage
         )
         assert n == 0
         (m,) = store.list_pending_appends(10)  # still pending + retryable...
@@ -668,7 +861,7 @@ class TestReconcile:
             store, limit=10,
             resolve_fn=_resolved("item-42"),
             append_fn=lambda *a, **k: pytest.fail("must not re-POST an already-present item"),
-            precheck_fn=lambda pl_id, settings=None: {"item-42"},  # already there
+            precheck_fn=_readable("item-42"),  # already there
         )
         assert n == 1
         assert store.list_pending_appends(10) == []  # stamped

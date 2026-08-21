@@ -851,6 +851,27 @@ class Store:
             if cur.rowcount == 0:
                 raise KeyError(f"no playlist_member with id {member_id!r}")
 
+    def repend_appended_members(self, playlist_id: str) -> int:
+        """Re-queue every already-appended member of a playlist for a fresh append (T-315).
+
+        When a Jellyfin playlist is deleted and the reconcile pass re-creates its container, the
+        new container is empty — but the members that appended to the *old* container are stamped
+        done (`jellyfin_item_id` set) and so are no longer in `list_pending_appends`. Left alone,
+        the recovered playlist would silently hold only whatever was still pending at deletion
+        time (e.g. only a re-paste's new tracks, missing the originals). This clears their stamp
+        (and any stuck flag) so they re-drain into the new container, rebuilding the playlist from
+        `playlist_members` — the source of truth. Only touches appended rows (returns how many),
+        so a pending-only playlist is a no-op. Idempotent: a second call after the re-drains
+        completes finds nothing to re-queue.
+        """
+        with self._connect() as conn:
+            cur = conn.execute(
+                "UPDATE playlist_members SET jellyfin_item_id = NULL, stuck_since = NULL "
+                "WHERE playlist_id = ? AND jellyfin_item_id IS NOT NULL",
+                (playlist_id,),
+            )
+            return cur.rowcount
+
     def list_members(self, playlist_id: str) -> list[PlaylistMember]:
         """Every membership row for a playlist, in playlist order (T-306/T-312 read this).
 

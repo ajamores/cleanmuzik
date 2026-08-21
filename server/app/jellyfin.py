@@ -419,14 +419,64 @@ def resolve_item_id(
     return ResolveResult(ResolveStatus.RESOLVED, item_id)
 
 
+class PlaylistProbeStatus(enum.Enum):
+    """The three outcomes of pre-checking a Jellyfin playlist's members (T-315).
+
+    T-313's pre-check collapsed everything into `set | None`, where `None` conflated two
+    causes the reconcile pass must tell apart — the same un-collapsing ResolveStatus did for
+    the resolve call:
+      - READABLE   — we read the playlist; `.items` is its current member id set (maybe empty).
+      - ABSENT     — Jellyfin positively reports the playlist gone (a 404): it was created,
+                     then deleted in the UI. Safe to re-create — a 404 is not an outage, so
+                     recovering it cannot orphan a still-live playlist (T-315).
+      - UNREADABLE — config absent, unreachable, non-2xx (≠404), non-JSON, or malformed body.
+                     We *cannot tell* if the container still exists, so the caller must defer
+                     the whole playlist untouched and NEVER re-create (that would orphan a live
+                     playlist on a transient blip) and never blind-append.
+    """
+
+    READABLE = "readable"
+    ABSENT = "absent"
+    UNREADABLE = "unreadable"
+
+
+@dataclass
+class PlaylistProbe:
+    """The outcome of `get_playlist_item_ids`: a status and, iff READABLE, its member id set.
+
+    The invariant mirrors ResolveResult: `items` is a `set[str]` **iff** `status is READABLE`
+    (an empty set is a valid READABLE answer — an empty playlist), else `None`. `__post_init__`
+    enforces it, so an UNREADABLE/ABSENT probe can never smuggle a member set the reconcile
+    pass would blind-append against.
+
+    Deliberately NOT `frozen`: unlike ResolveResult (an immutable `str`), the reconcile pass
+    *mutates* `items` — it adds each freshly appended id so a later member of the same playlist
+    in the same pass won't double-POST. A frozen dataclass over a mutable `set` is a lie (its
+    auto `__hash__` would raise on the unhashable field the moment anyone hashed it); a plain
+    dataclass is unhashable by default, which is the honest contract for a mutable container.
+    """
+
+    status: PlaylistProbeStatus
+    items: set[str] | None = None
+
+    def __post_init__(self) -> None:
+        readable = self.status is PlaylistProbeStatus.READABLE
+        has_items = self.items is not None
+        if readable != has_items:
+            raise ValueError(
+                f"PlaylistProbe invariant violated: status={self.status} items={self.items!r} "
+                "(a set iff READABLE)"
+            )
+
+
 def get_playlist_item_ids(
     playlist_id: str,
     *,
     settings: Settings | None = None,
     timeout: int = _PRECHECK_TIMEOUT,
     http=requests,
-) -> set[str] | None:
-    """The library item ids currently in a Jellyfin playlist, or `None` if unreadable (T-313).
+) -> PlaylistProbe:
+    """Pre-check a Jellyfin playlist's members as a 3-state `PlaylistProbe` (T-313, T-315).
 
     The pre-check half of the idempotent append (repair 3): the reconcile pass reads a
     playlist's current members **once per pass** and appends a resolved item only if it is
@@ -439,23 +489,31 @@ def get_playlist_item_ids(
     check. The `userId` is required (T-311): without it the live server returns an empty/odd
     body, which read back as a bogus empty set and would let a duplicate append through.
 
-    Returns:
-      - a `set[str]` of item ids on success — **an empty set is a valid answer** (an empty
-        playlist), distinct from a failure;
-      - `None` on config absent, an unresolvable user id, a network error, a non-2xx, non-JSON,
-        or a malformed body. The caller treats `None` as UNREACHABLE and defers the whole
-        playlist this pass — it must **never** blind-append when it cannot first read what's
-        already there.
+    Returns a `PlaylistProbe` (see its docstring for the invariant):
+      - `READABLE` with the item id set on a 2xx — **an empty set is a valid answer** (an empty
+        playlist), distinct from any failure;
+      - `ABSENT` on a **404** — Jellyfin positively reports this playlist gone (created, then
+        deleted). This is the one signal the caller may safely re-create on (T-315); it is *not*
+        an outage, so it cannot orphan a still-live playlist. Our stored ids come from a real
+        create, so a 404 means "the id is valid but no longer exists", not "malformed id".
+      - `UNREADABLE` on config absent, an unresolvable user id, a network error, any non-2xx
+        other than 404, non-JSON, or a malformed body. The caller defers the whole playlist this
+        pass and must **never** re-create or blind-append when it cannot first read what's there.
+
+    (Whether a deleted playlist's `/Items` GET returns 404 vs a 200-empty body is the one live-
+    Jellyfin detail behind the ABSENT branch — the ticket's own symptom (pre-check *fails*, not
+    reads-empty, on a stale id) says 404; T-311's live verify confirms it against a real server.)
     """
     s = settings or get_settings()
     url = s.jellyfin_url.strip().rstrip("/")
     key = s.jellyfin_api_key.strip()
     if not (url and key):
-        return None  # absent config → can't read membership → defer (never blind-append)
+        # absent config → can't read membership → defer (never re-create, never blind-append)
+        return PlaylistProbe(PlaylistProbeStatus.UNREADABLE)
 
     user_id = resolve_user_id(settings=s, http=http)
     if not user_id:
-        return None  # can't scope the read → treat as unreadable → defer (never blind-append)
+        return PlaylistProbe(PlaylistProbeStatus.UNREADABLE)  # can't scope the read → defer
 
     endpoint = f"{url}{_PLAYLISTS_PATH}/{playlist_id}{_ITEMS_PATH}"
     try:
@@ -467,25 +525,43 @@ def get_playlist_item_ids(
         )
         resp.raise_for_status()
         data = resp.json()
+    except requests.HTTPError as exc:
+        status = getattr(getattr(exc, "response", None), "status_code", None)
+        if status == 404:
+            # A positive "this playlist does not exist" — deleted in Jellyfin. Distinct from an
+            # outage: the caller may re-create without risking a duplicate of a live playlist.
+            logger.info(
+                "Jellyfin playlist %s not found (404) — treating as deleted (T-315)", playlist_id
+            )
+            return PlaylistProbe(PlaylistProbeStatus.ABSENT)
+        logger.warning(
+            "Jellyfin playlist pre-check failed (%s) for playlist %s: %s",
+            endpoint, playlist_id, exc,
+        )
+        return PlaylistProbe(PlaylistProbeStatus.UNREADABLE)
     except (requests.RequestException, ValueError) as exc:
         logger.warning(
             "Jellyfin playlist pre-check failed (%s) for playlist %s: %s",
             endpoint, playlist_id, exc,
         )
-        return None
+        return PlaylistProbe(PlaylistProbeStatus.UNREADABLE)
 
     if not isinstance(data, dict):
-        return None
+        return PlaylistProbe(PlaylistProbeStatus.UNREADABLE)
     items = data.get("Items")
     if items is None:
-        return None  # a well-formed response always carries an Items array; its absence is broken
+        # a well-formed response always carries an Items array; its absence is broken → defer
+        return PlaylistProbe(PlaylistProbeStatus.UNREADABLE)
     if not isinstance(items, list):
-        return None
-    return {
-        it["Id"]
-        for it in items
-        if isinstance(it, dict) and isinstance(it.get("Id"), str) and it["Id"]
-    }
+        return PlaylistProbe(PlaylistProbeStatus.UNREADABLE)
+    return PlaylistProbe(
+        PlaylistProbeStatus.READABLE,
+        {
+            it["Id"]
+            for it in items
+            if isinstance(it, dict) and isinstance(it.get("Id"), str) and it["Id"]
+        },
+    )
 
 
 def append_to_playlist(
