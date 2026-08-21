@@ -1,7 +1,7 @@
 ---
 type: meta
 title: "Hot — cleanmuzik"
-updated: 2026-08-19
+updated: 2026-08-20
 tags:
   - meta
   - hot-cache
@@ -19,42 +19,37 @@ status: evergreen
 CleanMuzik — personal YouTube → Jellyfin music tool. Purpose, stack, constraints, read-order in
 `CLAUDE.md`; scope in `cleanmuzik-prd.md`. Not restated here.
 
-## Current State (2026-08-19)
+## Current State (2026-08-20)
 
-- **On `main`.** Uncommitted: `docs/learnings.md` (this save's yt-dlp entry) + this board; `.vscode/` untracked.
-  **683 server + 91 client tests green.** R2 (Playlists) `in-build` — batch spine now essentially done
-  (T-300–307/T-310/T-312/T-313/T-314 all merged).
-- **Three commits landed today** (detail in git): **T-307 closed** (idempotent re-paste — no prod delta, it
-  emerged from shipped seams; the deliverable was the composition proof), **yt-dlp 2026.7.4→2026.8.19** (fixed
-  a total 403 download blackout on the first live batch — stale pin, see learnings), **T-216** (bounded the
-  Cover Art fetch: timeout 10→5, cap kept at 3 for recall — live-verified ~39s→~26s/track).
-- **Live run left running:** `May2024pt2` sits ~22 done / 23 parked in the review inbox / 31 error — but **most
-  errors are dev-server restarts** (my kills + `--reload` edits re-erroring in-flight jobs), not pipeline
-  failures. A re-paste (T-307) retries the errored, skips the landed.
-- Servers may still be up: uvicorn `:8137` + vite `:5173`, both running the new code.
+- **On `main`, clean tree** (only `.vscode/` untracked). **723 server tests green on main.** Ahead of
+  `origin/main` by **8 commits — not pushed** (push is the owner's call).
+- **T-315 SHIPPED** — merged to `main` (`f9afe83` + merge `5241f67`). A **deleted** Jellyfin playlist id
+  is now recovered: the pre-check returns a 3-state `PlaylistProbe` (READABLE / ABSENT / UNREADABLE);
+  a positive **404 = ABSENT** → re-create the container + rebuild it from `playlist_members` (re-queue
+  already-appended members too, not just pending); UNREADABLE (outage) defers, never re-creates.
+  `/code-review high`: F1/F3/F4 fixed, F2/F5 declined — all adjudicated in the ticket.
 
 ## ⟹ NEXT
 
-1. **Owner wants to try a different experiment** (his words, 2026-08-19 — details pending; ask before assuming).
-2. **T-308 / T-309** — the T-037 tag fixes (`git mv docs/backlog/T-037.md` context): artist-credit
-   normalisation in the write path (ADR-028 filed), and the genre-report read-off-disk bug.
-3. **T-315** — recover a stale/deleted Jellyfin playlist id (create-if-missing only guards NULL).
-4. **T-311** — the FULL end-to-end `/verify` (whole acceptance checklist); carries T-307's live re-paste.
-5. Backlog speed follow-ons if wanted: **T-217** (Jellyfin scan debounce, filed), **T-215** (Shazam overlap),
+1. **T-311** — the FULL end-to-end `/verify` (whole R2 acceptance checklist). It now also owns two
+   deferred live proofs: T-315's **404-vs-200-empty** assumption (does a deleted playlist's `/Items`
+   GET actually 404?) and the playlist recovery across a restart. This is the last open R2 ticket.
+2. Backlog speed follow-ons if wanted: **T-217** (Jellyfin scan debounce), **T-215** (Shazam overlap),
    **T-208** (MB de-hydration — R2.5-deferred, engine change).
 
 ## Recent sessions (rolling — last 2–3)
 
-- **2026-08-19 (this session)** — Closed **T-307**. Then, driving a real batch: diagnosed + fixed the **yt-dlp
-  403 blackout**; dispatched an agent to profile the pipeline (~35–40s/track), built **T-216** (Cover Art tail
-  bound — `/code-review` caught an art-recall regression in the first draft, reverted to a recall-preserving
-  shape), filed **T-216/T-217** to backlog. Solo (Opus).
-- **2026-08-19 (earlier)** — Built + merged **T-310** (batch aggregate card + acquire dial).
-- **2026-08-18** — Built + merged **T-312** (durable batch snapshot) and **T-305** (batch-scoped SSE).
+- **2026-08-20 (this session)** — Shipped **T-315** (recover a deleted playlist id). 3-state pre-check +
+  re-create/rebuild path; applied review F1 (rebuild from source-of-truth), F3 (dropped frozen), F4
+  (log re-precheck); declined F2/F5. Merged to main (723 green). Solo (Opus).
+- **2026-08-20 (earlier)** — Closed **T-309** (genre off disk); filed **T-050**. 714 green.
+- **2026-08-19** — Shipped **T-308** (ADR-028 credit fold); filed **T-049**. Built T-309; closed T-307;
+  fixed the yt-dlp 403; built **T-216**.
 
 ## Where the rest of the context lives
 
-`docs/roadmap.md` (R2 `in-build`) · `docs/r2/tickets.md` (**T-308/T-309/T-315/T-311 open**; rest done) ·
+`docs/roadmap.md` (R2 `in-build`) · `docs/r2/tickets.md` (**T-311 open**; T-308/309/310/315 done) ·
 `docs/r1/adr.md` (ADR-027 batch model · ADR-028 artist-credit · ADR-029 acquire dial) ·
-`docs/learnings.md` (**2026-08-19: yt-dlp 403 = stale pin**; T-310 reload-orphan + stream-race traps) ·
-`docs/backlog/` (**T-216 built · T-217** · the T-208/214/215 speed family · T-037). Business → `/graft`.
+`docs/learnings.md` (yt-dlp 403 = stale pin; T-310 reload-orphan + stream-race traps) ·
+`docs/backlog/` (**T-050** lyrics-lag · **T-049** ADR-028 field-coverage · T-216/217 · T-208/214/215).
+Business → `/graft`.
