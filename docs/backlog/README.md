@@ -34,6 +34,12 @@ Two tiers live here:
   - [`T-215.md`](T-215.md) — hoist Shazam to run *during* the beets candidate lookup *(safe, non-engine, ~2s + moves the ≤8s hang tail off the critical path; rides the `shazam_fn` seam; buildable anytime)*
   - [`T-216.md`](T-216.md) — bound the Cover Art Archive fetch (5s per-release timeout; cap kept at 3 for recall) *(safe, non-engine, best-effort art; lifted a live run from ~39s to ~26s/track; from the 2026-08-19 profile; **built** 2026-08-19)*
   - [`T-217.md`](T-217.md) — debounce the Jellyfin library scan to once per batch *(safe, non-engine; kills 29-scan indexer thrash; from the 2026-08-19 profile; append seam is retry-based, doesn't depend on the per-track scan)*
+  - **T-40x — listening-layer set** *(the 2026-08-23 Navidrome pivot: keep CleanMuzik as the acquire/tag engine, add Navidrome + Symfonium/Feishin + Tailscale as the car listening layer, phased alongside Jellyfin; graduates when R3 / a "listening layer" release is specced)*:
+    - [`T-400.md`](T-400.md) — `.m3u8` playlist file beside the tracks (server-agnostic playlists; **port `~/github/muziktest` ADR-0005** merge-across-reruns)
+    - [`T-401.md`](T-401.md) — Navidrome as a serving layer alongside Jellyfin (reads tags off disk; zero pipeline change)
+    - [`T-402.md`](T-402.md) — Tailscale + keep-awake: reach the library from the car (server-agnostic; buildable now)
+    - [`T-403.md`](T-403.md) — `.lrc` synced-lyrics sidecars (scrolling lyrics in Symfonium; nice-to-have; ties to R1.6)
+    - [`T-404.md`](T-404.md) — verdict gate: Jellyfin's fate after ~a week of real car use (keep-both vs Navidrome-only ADR reversal)
 - **Unscoped ideas** — broader directions not yet worked into tickets:
 
 - Playlist support (batch of tracks from one URL)
