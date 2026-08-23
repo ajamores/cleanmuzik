@@ -34,6 +34,7 @@ Two tiers live here:
   - [`T-215.md`](T-215.md) — hoist Shazam to run *during* the beets candidate lookup *(safe, non-engine, ~2s + moves the ≤8s hang tail off the critical path; rides the `shazam_fn` seam; buildable anytime)*
   - [`T-216.md`](T-216.md) — bound the Cover Art Archive fetch (5s per-release timeout; cap kept at 3 for recall) *(safe, non-engine, best-effort art; lifted a live run from ~39s to ~26s/track; from the 2026-08-19 profile; **built** 2026-08-19)*
   - [`T-217.md`](T-217.md) — debounce the Jellyfin library scan to once per batch *(safe, non-engine; kills 29-scan indexer thrash; from the 2026-08-19 profile; append seam is retry-based, doesn't depend on the per-track scan)*
+  - [`T-218.md`](T-218.md) — **measure-first gate:** profile the identify block for the real per-sub-step split (AcoustID / Shazam / MB / LLM) before pulling any speed lever — decides T-215 vs T-208 *(from the 2026-08-23 verify run: 28s total, ~19.4s identify, currently un-split)*
   - **T-40x — listening-layer set** *(the 2026-08-23 Navidrome pivot: keep CleanMuzik as the acquire/tag engine, add Navidrome + Symfonium/Feishin + Tailscale as the car listening layer, phased alongside Jellyfin; graduates when R3 / a "listening layer" release is specced)*:
     - [`T-400.md`](T-400.md) — `.m3u8` playlist file beside the tracks (server-agnostic playlists; **port `~/github/muziktest` ADR-0005** merge-across-reruns)
     - [`T-401.md`](T-401.md) — Navidrome as a serving layer alongside Jellyfin (reads tags off disk; zero pipeline change)
