@@ -1388,3 +1388,133 @@ def test_canonicalize_credit_logs_only_when_a_codepoint_changes(caplog):
     with caplog.at_level(logging.INFO, logger="cleanmuzik"):
         canonicalize_credit(_track_match(artist="JAŸ‐Z"))
     assert any("canonicalized artist credit" in r.getMessage() for r in caplog.records)
+
+
+# --- T-208: thin-candidate re-hydration (never land thin) --------------------
+#
+# Steps 2/3 make beets' candidates THIN (track_id/title/artist/length + a `cm_thin`
+# marker). The gate must re-fetch the ONE recording that lands to full tags before it
+# touches the file; a thin winner that lands un-hydrated writes a file missing
+# ISRC/genre/art, silently. These pin that guard (`_ensure_full_match`) and the
+# per-track hydration cache.
+
+
+def _thin_candidate(track_id: str):
+    """A candidate whose info is thin — the shape Steps 2/3 emit."""
+    return TrackMatch(
+        Distance(), SimpleNamespace(track_id=track_id, artist="A", cm_thin=True), None
+    )
+
+
+def _thin_task(track_ids):
+    return SimpleNamespace(
+        item=SimpleNamespace(path=b"/staging/song.mp3"),
+        candidates=[_thin_candidate(t) for t in track_ids],
+        rec=Recommendation.strong,
+    )
+
+
+def test_thin_winner_is_rehydrated_to_full_tags_before_landing(store, monkeypatch):
+    calls = []
+
+    def fake_track_for_id(rid, source):
+        calls.append(rid)
+        return SimpleNamespace(track_id=rid, artist="A", isrc="GB123", cm_thin=False)
+
+    monkeypatch.setattr(seam.metadata_plugins, "track_for_id", fake_track_for_id)
+    session = _session(store, Dominance(0.97, 0.30, ("rec-A",)))
+
+    choice = session.choose_item(_thin_task(["rec-A"]))
+
+    assert choice.info.track_id == "rec-A"
+    assert choice.info.isrc == "GB123"  # a tag only full hydration carries
+    assert getattr(choice.info, "cm_thin", False) is False
+    assert calls == ["rec-A"]  # the winner, hydrated exactly once
+    assert store.list_reviews() == []
+
+
+def test_thin_winner_that_fails_rehydration_parks_never_lands(store, monkeypatch):
+    monkeypatch.setattr(
+        seam.metadata_plugins, "track_for_id", lambda rid, source: None
+    )
+    session = _session(store, Dominance(0.97, 0.30, ("rec-A",)))
+
+    choice = session.choose_item(_thin_task(["rec-A"]))
+
+    assert choice is Action.SKIP
+    assert len(store.list_reviews()) == 1  # parked, not landed hollow
+    assert session._accepted == []
+
+
+def test_full_candidate_lands_without_any_rehydration(store, monkeypatch):
+    # Pre-Step-2 behavior is untouched: a non-thin candidate never triggers a lookup.
+    def boom(rid, source):
+        raise AssertionError("a full candidate must not be re-hydrated")
+
+    monkeypatch.setattr(seam.metadata_plugins, "track_for_id", boom)
+    session = _session(store, Dominance(0.97, 0.30, ("rec-A",)))
+
+    choice = session.choose_item(_task(["rec-A"]))
+
+    assert choice.info.track_id == "rec-A"
+    assert store.list_reviews() == []
+
+
+def test_cached_track_for_id_dedupes_within_a_session(monkeypatch):
+    calls = []
+
+    monkeypatch.setattr(
+        seam.metadata_plugins,
+        "track_for_id",
+        lambda rid, source: calls.append(rid) or SimpleNamespace(track_id=rid),
+    )
+    cache: dict = {}
+    first = seam._cached_track_for_id("rec-A", cache)
+    second = seam._cached_track_for_id("rec-A", cache)
+
+    assert first is second  # served from cache the second time
+    assert calls == ["rec-A"]  # exactly one network call
+
+
+def test_cached_track_for_id_caches_a_dead_id(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        seam.metadata_plugins,
+        "track_for_id",
+        lambda rid, source: calls.append(rid) or None,
+    )
+    cache: dict = {}
+    assert seam._cached_track_for_id("dead", cache) is None
+    assert seam._cached_track_for_id("dead", cache) is None
+    assert calls == ["dead"]  # a None result is not re-fetched
+
+
+# --- T-208: park candidate list is capped, ISRC row is never dropped ----------
+
+
+def _row(cid: str):
+    return {"candidate_id": cid, "title": cid, "artist": "A", "score": None}
+
+
+def test_cap_park_rows_truncates_to_three():
+    rows = [_row(f"r{i}") for i in range(5)]
+    out = seam._cap_park_rows(rows, None)
+    assert [r["candidate_id"] for r in out] == ["r0", "r1", "r2"]
+
+
+def test_cap_park_rows_keeps_isrc_row_past_the_cap():
+    rows = [_row(f"r{i}") for i in range(5)]  # the ISRC candidate ranked last
+    out = seam._cap_park_rows(rows, "r4")
+    assert [r["candidate_id"] for r in out] == ["r0", "r1", "r4"]
+
+
+def test_cap_park_rows_is_a_no_op_under_the_limit():
+    rows = [_row("r0"), _row("r1")]
+    assert seam._cap_park_rows(rows, None) == rows
+
+
+def test_park_persists_at_most_three_candidates(store):
+    session = _session(store, Dominance(0.10, 0.0, ()))  # low score → park
+    choice = session.choose_item(_task(["r1", "r2", "r3", "r4", "r5"]))
+    assert choice is Action.SKIP
+    assert store.list_reviews()[0].candidate_ids == ["r1", "r2", "r3"]
