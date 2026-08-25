@@ -133,6 +133,15 @@ def configure_beets(settings: Settings | None = None):
     install_thin_candidates()
     install_thin_chroma()
 
+    # T-210: bound the MusicBrainz retry ladder (6 → 1). The per-request socket
+    # timeout is already 10s; the 18–34s identify spikes are beets' deep retry
+    # backoff, not an uncapped fetch. One retry keeps a single transient absorb
+    # while collapsing the tail. Both hot-path callers degrade a lookup miss to a
+    # blank year / dropped hydration, so a shorter ladder never crashes. ADR-031.
+    from app.mb_retry import install_bounded_mb_retries
+
+    install_bounded_mb_retries()
+
     _configured = True
     return config
 
