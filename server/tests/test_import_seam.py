@@ -1008,18 +1008,21 @@ def _isrc_recording(mbid="mb-real", artist="Pa Salieu", title="Frontline"):
     return SimpleNamespace(mbid=mbid, artist=artist, title=title)
 
 
-def test_gate_fingerprint_shazam_yt_all_agree_lands(store):
-    # The R1 happy path under reconcile: all three senses back the beets candidate → land.
+def test_fast_path_dominant_fp_and_yt_agree_lands_without_llm(store):
+    # T-219: a dominant fingerprint whose recording is a beets candidate AND whose
+    # artist/title the YouTube source corroborates is fp+yt = the 2-of-3 bar in code —
+    # so the ~3-6s reconcile LLM (and Shazam) is skipped entirely and the track lands.
     art_seen: list = []
+    reconcile_calls: list = []
+    shazam_calls: list = []
     session = _session(
         store,
         Dominance(0.95, 0.20, ("rec-A",), ("rel-A",)),
         source_signals=_signals("Pa Salieu", "Frontline"),
-        shazam_fn=lambda _p: _matched_shazam(),
-        isrc_fn=lambda _isrc: None,  # ISRC didn't resolve; the fp candidate is enough
-        reconcile_fn=lambda _ev: Verdict(
-            verdict="accept", chosen_candidate=0, agreeing_senses=["yt", "fp", "sz"]
-        ),
+        shazam_fn=lambda _p: shazam_calls.append(1) or _matched_shazam(),
+        isrc_fn=lambda _isrc: None,
+        reconcile_fn=lambda ev: reconcile_calls.append(ev)
+        or Verdict(verdict="park", chosen_candidate=None),  # would park — must not run
         art_fn=lambda **kw: art_seen.append(kw.get("release_ids")) or None,
     )
 
@@ -1028,10 +1031,109 @@ def test_gate_fingerprint_shazam_yt_all_agree_lands(store):
 
     assert choice.info.track_id == "rec-A"
     assert outcomes[-1].action == "landed"
+    assert reconcile_calls == []  # the LLM was never consulted
+    assert shazam_calls == []  # nor was sense 3 gathered — the whole reconcile is skipped
+    assert session.verdict is None  # a fast-path land produces no Verdict
     # fp backs the chosen recording → the real dominance is carried (correct art source).
     assert outcomes[-1].top_score == 0.95
     assert art_seen == [("rel-A",)]  # cover fetched by the landed recording's releases
     assert store.list_reviews() == []
+
+
+def test_gate_accept_lands_via_yt_sz_when_fp_absent(store):
+    # The reconcile gate's accept-land path, reachable only when the fast-path can't fire
+    # (fp absent): yt + Shazam both back the beets candidate and the LLM accepts → the
+    # 2-of-3 gate lands it through _reconcile_gate. This is the all-senses-agree land
+    # coverage the fast-path test displaced — here fp simply isn't one of the two.
+    session = _session(
+        store,
+        Dominance(0.0, 0.0, ()),  # fp absent → fast-path off, the LLM path runs
+        source_signals=_signals("Pa Salieu", "Frontline"),
+        shazam_fn=lambda _p: _matched_shazam(),  # sz agrees on the candidate
+        isrc_fn=lambda _isrc: None,
+        reconcile_fn=lambda _ev: Verdict(
+            verdict="accept", chosen_candidate=0, agreeing_senses=["yt", "sz"]
+        ),
+    )
+
+    choice = session.choose_item(_rich_task([("rec-A", "Pa Salieu", "Frontline")]))
+    outcomes = session.finalize_outcomes()
+
+    assert choice.info.track_id == "rec-A"
+    assert outcomes[-1].action == "landed"
+    assert session.verdict.verdict == "accept"  # landed via the gate, not the fast-path
+    assert store.list_reviews() == []
+
+
+def _fall_through_session(store, dominance, source_signals):
+    """A reconcile-wired session whose stub reconcile_fn records that it ran and parks.
+
+    The shared fixture for the T-219 fall-through tests: each asserts the fast-path did
+    NOT pre-empt the LLM by proving `reconcile_fn` was still called (and the track
+    parked, per the stub's park verdict).
+    """
+    calls: list = []
+    session = _session(
+        store,
+        dominance,
+        source_signals=source_signals,
+        shazam_fn=lambda _p: {"matched": False, "error": "x"},
+        isrc_fn=lambda _isrc: None,
+        reconcile_fn=lambda ev: calls.append(ev)
+        or Verdict(verdict="park", chosen_candidate=None),
+    )
+    return session, calls
+
+
+def test_fast_path_falls_through_when_yt_title_disagrees(store):
+    # Pa Salieu shape: fp dominant on a recording that IS a candidate, but yt disagrees
+    # with it → the fast-path must NOT fire; the LLM still adjudicates (and here parks).
+    session, calls = _fall_through_session(
+        store,
+        Dominance(0.95, 0.20, ("rec-A",)),
+        _signals("Someone Else", "Other Title"),
+    )
+    choice = session.choose_item(_rich_task([("rec-A", "Pa Salieu", "Frontline")]))
+    assert choice is Action.SKIP
+    assert len(calls) == 1  # the LLM ran — the fast-path did not short-circuit it
+    assert len(store.list_reviews()) == 1
+
+
+def test_fast_path_falls_through_when_fp_recording_absent(store):
+    # fp is dominant but its winning recording is not among beets' candidates → no
+    # fp support, so the fast-path can't claim two senses → fall through to the gate.
+    session, calls = _fall_through_session(
+        store,
+        Dominance(0.95, 0.20, ("rec-missing",)),
+        _signals("Pa Salieu", "Frontline"),
+    )
+    choice = session.choose_item(_rich_task([("rec-A", "Pa Salieu", "Frontline")]))
+    assert choice is Action.SKIP
+    assert len(calls) == 1
+
+
+def test_fast_path_falls_through_on_weak_fingerprint(store):
+    # yt corroborates, but the fingerprint is below SCORE_MIN → fp doesn't support, so
+    # only one sense agrees → the LLM must still weigh in (the fast-path stays off).
+    session, calls = _fall_through_session(
+        store,
+        Dominance(0.80, 0.30, ("rec-A",)),  # below SCORE_MIN
+        _signals("Pa Salieu", "Frontline"),
+    )
+    choice = session.choose_item(_rich_task([("rec-A", "Pa Salieu", "Frontline")]))
+    assert choice is Action.SKIP
+    assert len(calls) == 1
+
+
+def test_fast_path_falls_through_when_no_source_signals(store):
+    # Defensive: a reconcile-wired session with no source_signals (yt can't vote) never
+    # fast-paths, even on a dominant fp — it falls through to the full gate.
+    session, calls = _fall_through_session(
+        store, Dominance(0.95, 0.20, ("rec-A",)), None
+    )
+    choice = session.choose_item(_rich_task([("rec-A", "Pa Salieu", "Frontline")]))
+    assert choice is Action.SKIP
+    assert len(calls) == 1
 
 
 def test_gate_lands_the_isrc_correction_when_fp_dissents(store, monkeypatch):
@@ -1166,14 +1268,16 @@ def test_gate_re_derivation_is_load_bearing(store):
 
 def test_gate_park_verdict_parks_even_with_agreement(store):
     # A "park" verdict parks regardless of how many senses agree — accept is required.
+    # fp is absent here so the T-219 fast-path can't fire (which would land before the
+    # LLM ever ran): the veto is exercised on the gate path, where yt+sz genuinely agree.
     session = _session(
         store,
-        Dominance(0.95, 0.20, ("rec-A",)),
+        Dominance(0.0, 0.0, ()),  # fp absent → reaches the LLM, not the fast-path
         source_signals=_signals("Pa Salieu", "Frontline"),
-        shazam_fn=lambda _p: _matched_shazam(),
+        shazam_fn=lambda _p: _matched_shazam(),  # sz agrees
         isrc_fn=lambda _isrc: None,
         reconcile_fn=lambda _ev: Verdict(
-            verdict="park", chosen_candidate=0, agreeing_senses=["yt", "fp", "sz"]
+            verdict="park", chosen_candidate=0, agreeing_senses=["yt", "sz"]
         ),
     )
 
@@ -1195,7 +1299,9 @@ def test_gate_rejected_key_degrades_to_r1_gate(store):
     session = _session(
         store,
         Dominance(0.95, 0.20, ("rec-A",)),
-        source_signals=_signals("Pa Salieu", "Frontline"),
+        # yt deliberately disagrees so the T-219 fast-path can't pre-empt the LLM: the
+        # rejected key must be reached for the degrade to be what lands the track.
+        source_signals=_signals("Someone Else", "Other Title"),
         shazam_fn=lambda _p: {"matched": False, "error": "x"},
         isrc_fn=lambda _isrc: None,
         reconcile_fn=boom,

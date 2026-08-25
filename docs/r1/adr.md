@@ -1147,3 +1147,39 @@ Format: `ADR-NNN — decision. Rationale. [date]`
     multi-failure-then-success sequence. Worth it for the tail cap. The other half of T-210 — a single shared rate limiter across `isrc.py` and beets
     (the Pa Salieu double-hit correctness concern) — is **orthogonal and stays open**; this decision is the
     speed half only. Local MB mirror (removes the limit and the retries entirely) stays R3. [2026-08-25]
+
+- **ADR-032 — A corroborated fingerprint auto-lands without the reconcile LLM; fp + yt agreement IS the
+  2-of-3 bar, re-derived in code.** (T-219.) After ADR-030/031 killed the MusicBrainz call count and capped
+  its latency tail, the reconcile LLM became the largest *steady* per-track cost — ~3–6s on **every** track
+  (T-218: ~3.5s/call, rock-stable). The muziktest head-to-head (T-218) showed its Confidence gate skips the
+  AI entirely on the corroborated majority (8 of 12 matched tracks fast-pathed). Ported here as
+  `FingerprintTrustSession._corroboration_fast_path`, run in `choose_item` **before** `_reconcile`: when the
+  fingerprint is dominant (score ≥ `score_min`, gap ≥ `gap_min`) and its winning recording is a beets
+  candidate (`fp` supports) **and** the YouTube source signals corroborate that candidate on artist AND title
+  (`yt` supports, via `normalize.loose_match`), the track lands through the shared `_accept` tail with **no
+  Shazam call, no ISRC lookup, and no LLM call**. Everything weaker falls through to the full gate unchanged.
+  - **Why this is safe, not a shortcut.** The 2-of-3 rule (ADR/T-205, the safety spine) lands on **two
+    present senses agreeing**, re-derived in code — never the LLM's self-report. The fast-path computes fp+yt
+    in exactly the terms `_agreeing_senses` uses (recording-MBID identity for `fp`; loose artist+title
+    containment for `yt`), so a track it lands is one the gate would also have found two senses for. It is
+    **additive**: it only ever *skips* the LLM on a strong+corroborated match, and it can only *land* (never
+    park differently) — a `None` return falls straight through. The Pa Salieu marquee case (fp dominant on the
+    **wrong** recording, yt dissents) does not corroborate, so it still goes to the LLM. This does **not**
+    reintroduce the "trust fp when dominant" shortcut ADR-030's *Not* section forbids: dominance alone never
+    fast-paths — the source title must independently agree.
+  - **What genuinely changes (accepted).** The fast-path drops the LLM from the corroborated path, which
+    removes two LLM behaviours *for that path only*: (i) its **veto** — the LLM can no longer park a
+    strong+corroborated match on a judgment-only signal (album/year mismatch); (ii) its **override** — where
+    the audio is a remaster (fp → recording X) but Shazam→ISRC resolves the *original* recording Y of the same
+    song, the LLM might have landed Y, whereas the fast-path lands X. Both are accepted: a ≥0.90 fingerprint
+    identifies the **actual audio bytes** (T-008: every correct match measured ≥0.955, every non-match 0.0),
+    so landing the fingerprint's own recording is the faithful identity, and the original *year* is stamped
+    independently by `_stamp_original_year` (ADR-014) regardless of which recording landed. The corroboration
+    requirement (yt must agree) is what makes "trust the fingerprint" safe here where dominance alone is not.
+  - **Acceptance is the ADR-030 measured compare, owner-adjudicated.** Engine-touching (it changes the land
+    decision path), so the bar is the same per-song land/park + tag + timing side-by-side over the spike
+    corpus, differences surfaced for owner judgement — expected result: land/park and tags unchanged **except**
+    corroborated tracks that now land without the LLM (and any remaster-vs-original recording-MBID shift per
+    the point above, which the owner adjudicates). Unit-level additivity is proved by the fall-through tests
+    (`test_fast_path_falls_through_*`) and the no-LLM land test (`test_fast_path_dominant_fp_and_yt_agree_lands_without_llm`).
+    T-035 (Shazam fallback tier) is the orthogonal coverage sibling, unaffected. [2026-08-25]
