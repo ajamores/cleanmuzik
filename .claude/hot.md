@@ -19,18 +19,17 @@ status: evergreen
 CleanMuzik — personal YouTube → Jellyfin music tool. Purpose, stack, constraints, read-order in
 `CLAUDE.md`; scope in `cleanmuzik-prd.md`. Not restated here.
 
-## Current State (2026-08-24)
+## Current State (2026-08-25)
 
-- **T-208 BUILT + acceptance-compare PASSED — awaiting integration.** Branch `t208-mb-fanout-collapse`,
-  **working tree only, NOT committed** (per owner: commit only when asked). Steps 1–4 + 6, **743 tests
-  green** (16 new). New code: `app/mb_thin.py` (thin MB + chroma patches + chroma-fork drift guard),
-  `_ensure_full_match` + per-track hydration cache + `_cap_park_rows` in `import_seam.py`, install wired
-  in `beets_engine.py`, **ADR-030**. Step 5 (fpcalc fold-in) **deferred**; `cache_control` fold-in dropped.
-  - **Compare (baseline `main` worktree vs branch, 5 corpus tracks):** 0 outcome changes, 0 tag changes,
-    **MB `get_recording` 33→6** (landings ~8→2, parks 5→0). Beats the owner-relaxed bar (no diffs to judge).
-    Also a live 14-track playlist: 10 land / 4 park, 2 MB calls/landing, full tags+art, 0 real-library writes.
-  - **Integration is the open action** (commit branch → merge to `main`, suite green there per DoD). Not done
-    until integrated.
+- **T-208 DONE — integrated to `main`, pushed, ledger synced.** Commits `717a73c` (perf) + `ced56c4`
+  (merge) on `origin/main`; **743 tests green on `main`** (re-confirmed 2026-08-25, 32.6s). New code:
+  `app/mb_thin.py` (thin MB + chroma patches + chroma-fork drift guard), `_ensure_full_match` + per-track
+  hydration cache + `_cap_park_rows` in `import_seam.py`, install wired in `beets_engine.py`, **ADR-030**.
+  Step 5 (fpcalc fold-in) **deferred** → T-210 orbit; `cache_control` fold-in dropped.
+  - **Was the integration action** — done this session: the code had already merged/pushed mid-build; only
+    the backlog README index line + this board were stale. Both now flipped. T-208's own status line was
+    already DONE. Nothing further open on T-208.
+  - **Result (compare, 5 corpus tracks):** 0 outcome changes, 0 tag changes, **MB `get_recording` 33→6**.
 - **The bottleneck flipped (owner-clarified 2026-08-24):** T-208 killed the MB *call-count* (11→2). What's
   left, in order: (1) **MB *latency* tail** — a single call can still hang 18–34s, the #1 remaining time cost,
   → **T-210** (per-call timeout); (2) a steady ~15s non-MB floor (transcode + LLM + senses). No single new
@@ -45,16 +44,14 @@ CleanMuzik — personal YouTube → Jellyfin music tool. Purpose, stack, constra
 
 ## ⟹ NEXT
 
-1. **Integrate T-208** — commit the branch, merge to `main`, confirm suite green there, flip the ledger.
-   (Built ≠ done; done = integrated, per DoD.)
-2. **T-210 — the per-call MB timeout.** The #1 remaining time lever (caps the 18–34s tail so wall-clock
-   becomes predictable). Cheap, non-engine-identity. **Do this next after integration.**
-3. **T-219 — corroboration fast-path** (skip the LLM when the fingerprint agrees with the source title;
+1. **T-210 — the per-call MB timeout.** The #1 remaining time lever (caps the 18–34s tail so wall-clock
+   becomes predictable). Cheap, non-engine-identity. **Do this next.** (T-208 is integrated — done.)
+2. **T-219 — corroboration fast-path** (skip the LLM when the fingerprint agrees with the source title;
    the muziktest transplant, ~3–6s/track steady win) · **T-035 — Shazam fallback fingerprint tier**
    (coverage: converts AcoustID-miss parks like Franklin into lands). Both engine-touching → T-208's
    acceptance bar.
-4. Also unstarted, non-engine: **T-214** (narrate freeze), **T-217** (debounce scan).
-5. Bigger: reshape **roadmap R3** (Navidrome) · start **R2.5** (migrate/clean — fingerprint dedup is its spine).
+3. Also unstarted, non-engine: **T-214** (narrate freeze), **T-217** (debounce scan).
+4. Bigger: reshape **roadmap R3** (Navidrome) · start **R2.5** (migrate/clean — fingerprint dedup is its spine).
 
 ## Recent sessions (rolling — last 2–3)
 
