@@ -123,6 +123,16 @@ def configure_beets(settings: Settings | None = None):
     # config["plugins"] itself and takes no args in 2.12.
     plugins.load_plugins()
 
+    # T-208: collapse the MusicBrainz candidate fan-out. Both patches build thin
+    # `TrackInfo` from data already in hand (the MB search response; the AcoustID
+    # lookup) instead of re-fetching each id; the seam re-hydrates only the recording
+    # that lands. Installed here so every entry point — acquire, resolve, re-search —
+    # shares one engine. Must run AFTER load_plugins() (they patch loaded instances).
+    from app.mb_thin import install_thin_candidates, install_thin_chroma
+
+    install_thin_candidates()
+    install_thin_chroma()
+
     _configured = True
     return config
 

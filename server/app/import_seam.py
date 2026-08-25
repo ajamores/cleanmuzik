@@ -519,6 +519,11 @@ class FingerprintTrustSession(ImportSession):
         # land; whether beets actually copied the file is known only after run()
         # (its duplicate stage may skip it). See finalize_outcomes().
         self._accepted: list[tuple[object, object, Dominance]] = []
+        # T-208: memoize full MusicBrainz hydrations for this ONE track. Session = one
+        # song, so there is no staleness question; routing every `track_for_id` through
+        # it (`_cached_track_for_id`) collapses the same-MBID-twice repeats T-218 caught
+        # before they hit MusicBrainz's 1/sec limiter.
+        self._trackinfo_cache: dict[str, object] = {}
 
     # --- the gate ---------------------------------------------------------
 
@@ -647,6 +652,17 @@ class FingerprintTrustSession(ImportSession):
         release ids drive the cover-art fetch); the reconcile gate zeroes it when the
         fingerprint dissented, so art never comes from a recording we didn't land.
         """
+        # T-208 (load-bearing): re-hydrate a thin winner to full tags BEFORE anything
+        # reads it. Steps 2/3 make beets' candidates thin (track_id/title/artist/length
+        # only); the single recording that actually lands is re-fetched here — the one
+        # point both gates cross — so it can never write a file missing ISRC/genre/art
+        # silently. A hydration failure parks (never land thin); a full match (Step-1
+        # today, or a full winner) passes straight through.
+        full = self._ensure_full_match(task, match)
+        if full is None:
+            self._park(task, list(task.candidates or []), dominance)
+            return Action.SKIP
+        match = full
         match = canonicalize_credit(match)  # ADR-028 (T-308): fold before the match is applied
         existing = self._library_duplicates(match.info.track_id)
         if existing:
@@ -659,6 +675,33 @@ class FingerprintTrustSession(ImportSession):
             detail,
         )
         return match
+
+    def _ensure_full_match(self, task, match):
+        """Re-hydrate a thin candidate to a full `TrackInfo`, or `None` if it can't (T-208).
+
+        The single guard behind the no-thin-landing rule. Steps 2/3 emit `cm_thin`
+        candidates carrying only the fields scoring reads; every other tag (ISRC, genre,
+        artist relations, the data cover-art keys off) exists only on a full
+        `track_for_id`. A full match — or any match with no `cm_thin` marker, which is
+        every match before Step 2 ships — returns unchanged, so this is a no-op today.
+        A thin match is re-fetched through the per-track cache (the winner is hydrated
+        exactly once); a lookup miss returns `None` so the caller parks rather than land
+        a hollow file. The recording MBID and distance are preserved.
+        """
+        info = getattr(match, "info", None)
+        if not getattr(info, "cm_thin", False):
+            return match
+        full = _cached_track_for_id(
+            getattr(info, "track_id", None), self._trackinfo_cache
+        )
+        if full is None:
+            logger.warning(
+                "thin winner %s did not re-hydrate for %s — parking (never land thin)",
+                getattr(info, "track_id", None),
+                self.staging_path,
+            )
+            return None
+        return TrackMatch(match.distance, full, task.item)
 
     # --- the 2-of-3 reconcile gate (R1.5 T-205) ---------------------------
 
@@ -691,7 +734,9 @@ class FingerprintTrustSession(ImportSession):
             # run (spec §5: a reconcile-path failure is never a silent land, and never a
             # crash either). A `None` return (recording no longer resolves) parks too.
             try:
-                match = match_for_recording(task, chosen["mbid"])
+                match = match_for_recording(
+                    task, chosen["mbid"], cache=self._trackinfo_cache
+                )
             except Exception as exc:  # noqa: BLE001 — a live-lookup failure parks, not errors
                 logger.warning(
                     "reconcile land-lookup failed for %s (recording %s: %s) — parking",
@@ -1101,6 +1146,19 @@ class FingerprintTrustSession(ImportSession):
                 rows = _ranked_candidate_rows(
                     self.reconcile_candidates, verdict.ranking, beets_rows
                 )
+        # T-208: park at most the top few candidates. T-218 showed weak-match guesses are
+        # often wrong (the real answer was off the list — the owner re-searches), so a full
+        # fan-out is waste; a small cap keeps the one-click pick for a near-miss, with
+        # re-search as the real fallback. The ISRC candidate is never capped out.
+        isrc_mbid = next(
+            (
+                c["mbid"]
+                for c in self.reconcile_candidates
+                if c.get("source") == "isrc" and c.get("mbid")
+            ),
+            None,
+        )
+        rows = _cap_park_rows(rows, isrc_mbid)
         candidate_ids = [row["candidate_id"] for row in rows if row["candidate_id"]]
         # The rich rows ride along for T-013's event only — the row still persists IDs
         # alone. Both come off `rows`, so the event and the row can never disagree.
@@ -1160,22 +1218,46 @@ def _matching_candidate(candidates, recording_ids: tuple[str, ...]):
     return None
 
 
-def match_for_recording(task, recording_id: str | None):
+def _cached_track_for_id(recording_id: str | None, cache: dict | None = None):
+    """Full MusicBrainz hydration for one recording id, memoized per track (T-208).
+
+    The ONE place a full `track_for_id` runs for the seam, so every hydration routes
+    through it and same-MBID repeats within a track (T-218 saw the same id fetched
+    twice, uncached) collapse before reaching MusicBrainz's 1/sec limiter. `cache` is a
+    per-session dict — one session is one song, so there is no staleness question;
+    `None` disables memoization for callers with no session. A `None` result (the id no
+    longer resolves) is cached too, so a dead id isn't re-fetched.
+    """
+    if not recording_id:
+        return None
+    if cache is not None and recording_id in cache:
+        return cache[recording_id]
+    info = metadata_plugins.track_for_id(recording_id, "musicbrainz")
+    if cache is not None:
+        cache[recording_id] = info
+    return info
+
+
+def match_for_recording(task, recording_id: str | None, *, cache: dict | None = None):
     """A `TrackMatch` for `recording_id`, from `task.candidates` or a MusicBrainz lookup.
 
     The one place a settled recording id becomes a landable match — shared by the
     reconcile gate's accept (T-205, where the id can be the synthetic ISRC candidate
     beets never generated) and `ResolveSession._forced_match` (the owner's explicit
     pick). Prefers a beets candidate: it carries the full `TrackInfo` (album, year, …)
-    a bare recording lookup lacks. Falls back to `track_for_id` for a recording that
-    isn't among this task's candidates. `None` when the id no longer resolves.
+    a bare recording lookup lacks — but once Steps 2/3 make candidates thin, that
+    preference returns a thin match, which `_ensure_full_match` re-hydrates at the accept
+    point (kept there deliberately, not here, because the surviving candidate is thin or
+    full nondeterministically under beets' plugin ThreadPool). Falls back to a cached
+    `track_for_id` for a recording that isn't among this task's candidates. `None` when
+    the id no longer resolves.
     """
     if not recording_id:
         return None
     match = _matching_candidate(task.candidates or [], (recording_id,))
     if match is not None:
         return match
-    info = metadata_plugins.track_for_id(recording_id, "musicbrainz")
+    info = _cached_track_for_id(recording_id, cache)
     if info is None:
         return None
     # Distance() is an empty (zero) distance: nothing is being ranked — the identity is
@@ -1223,6 +1305,30 @@ def _ranked_candidate_ids(candidates: list[dict], ranking: list[int]) -> list[st
         if mbid and mbid not in ids:
             ids.append(mbid)
     return ids
+
+
+PARK_CANDIDATE_LIMIT = 3  # T-208: the review card's pick-list cap
+
+
+def _cap_park_rows(rows: list[dict], isrc_mbid: str | None) -> list[dict]:
+    """The top `PARK_CANDIDATE_LIMIT` park rows, always keeping the ISRC row (T-208).
+
+    Rows arrive best-first (the reconcile ranking, or beets' distance order). Capping to
+    the top few keeps a one-click pick for a near-miss without persisting a full fan-out;
+    re-search (`POST /api/reviews/{id}/search`) is the fallback when none fit. The ISRC
+    candidate, if the ranking pushed it past the cap, displaces the last kept row rather
+    than dropping — it is the ADR-021 marquee-correction vehicle and never expendable.
+    """
+    if len(rows) <= PARK_CANDIDATE_LIMIT:
+        return rows
+    capped = rows[:PARK_CANDIDATE_LIMIT]
+    if isrc_mbid and not any(r.get("candidate_id") == isrc_mbid for r in capped):
+        isrc_row = next(
+            (r for r in rows if r.get("candidate_id") == isrc_mbid), None
+        )
+        if isrc_row is not None:
+            capped = capped[: PARK_CANDIDATE_LIMIT - 1] + [isrc_row]
+    return capped
 
 
 def _ranked_candidate_rows(
@@ -1540,6 +1646,10 @@ class ResolveSession(FingerprintTrustSession):
         """Apply the owner's recording. Raises rather than parks — a park here would
         put the song straight back in the queue it was just resolved out of."""
         match = self._forced_match(task)
+        if match is not None:
+            # T-208: the owner's pick can resolve to a thin beets candidate (Steps 2/3);
+            # this path bypasses _accept, so hydrate here too or a resolve lands hollow.
+            match = self._ensure_full_match(task, match)
         if match is None:
             raise ResolveError(
                 f"recording {self.recording_id} no longer resolves at MusicBrainz"
@@ -1566,7 +1676,9 @@ class ResolveSession(FingerprintTrustSession):
         drifted since the park or the row's recording is the existing library copy's (a
         duplicate park, never in this task's candidates). `None` if it no longer resolves.
         """
-        return match_for_recording(task, self.recording_id)
+        return match_for_recording(
+            task, self.recording_id, cache=self._trackinfo_cache
+        )
 
 
 def _no_dominance(*args, **kwargs):

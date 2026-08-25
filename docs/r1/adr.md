@@ -1060,3 +1060,52 @@ Format: `ADR-NNN — decision. Rationale. [date]`
     for the explicit case only). **T-310** grows by the dial screens (D1–D4: three resting stops, the
     song+list-on-Single quiet note, the Multi "soon" state — batch card untouched); design-gate screens signed
     off first (ADR-016). The full **Multi** input build is a separate backlog ticket (**T-046**). [2026-08-16]
+
+- **ADR-030 — The acquire path serves THIN MusicBrainz candidates and hydrates only the recording that
+  lands; a thin candidate must never reach disk un-hydrated.** (T-208.) Identifying one song fired ~11
+  serialized MusicBrainz `recording/<id>` lookups behind MB's 1/sec limit — 80–90% of the identify gate and
+  its entire variance (T-218). The waste had **two** independent sources that meet in
+  `beets.autotag.match.tag_item`: chroma's `item_candidates` (one `track_for_id` per fingerprint id) and the
+  MusicBrainz plugin's inherited `item_candidates` (one search, then a hydration per result). Both already
+  hold everything scoring reads — `track_id/title/artist/length` — in a response they *already* fetched (the
+  MB search response; the AcoustID lookup's `meta=recordings`), and throw it away to re-fetch each id. Both
+  are patched (`app/mb_thin.py`, installed from `configure_beets()` after `load_plugins()`) to build a **thin
+  `TrackInfo`** from the in-hand data instead. Auto-land: ~11 MB calls → **1** (the winner); the search and
+  the AcoustID lookup are themselves untouched.
+  - **Hydrate-at-accept is load-bearing, not an optimization detail.** A thin candidate carries only the
+    scored fields; ISRC, genre, artist/work relations and the release ids cover art keys off exist only on a
+    full `track_for_id`. So the ONE recording that lands is re-fetched at the single point both gates cross
+    (`import_seam._ensure_full_match`, called from `_accept` **and** `ResolveSession.choose_item`, which
+    bypasses `_accept`) **before** `canonicalize_credit` and any tag write. A thin winner that landed
+    un-hydrated would write a four-field file — no error, green suite, and *intermittent* (the surviving
+    candidate is thin-or-full nondeterministically under beets' plugin ThreadPool). A hydration miss **parks**
+    (resolve **raises**); it never lands thin. Do not "simplify" this guard away — that reintroduces the exact
+    silent-degradation this ADR exists to forbid, and it is the reason hydration lives at accept, not inside
+    `match_for_recording`. Marked by a `cm_thin` field on the `TrackInfo`; a per-track cache
+    (`_cached_track_for_id`) collapses the same-MBID-twice repeat T-218 found.
+  - **Parity is the correctness contract.** A thin row's `title`/`artist`/`length` must equal what full
+    hydration produces — they feed `track_distance` (candidate order, the persisted score) and the reconcile
+    LLM's evidence. Titles/artists are built with the MB plugin's **own** helpers
+    (`_key_with_preferred_alias`, `_parse_artist_credits`), with a guarded hand-join fallback for the lighter
+    fields a search row can omit; `length` stays `None` when absent, never 0.0 (a wrong length corrupts
+    ranking worse than a missing one). The chroma path **forks** `acoustid_match` to capture the metadata
+    stock discards — pinned byte-for-byte to beets 2.12.0 by a source-hash drift guard
+    (`STOCK_ACOUSTID_MATCH_SHA256`, `test_mb_thin.py`) so a beets upgrade forces a re-review, not a silent
+    divergence.
+  - **Park serves the top 3, never the full fan-out; the ISRC row is never capped out.** T-218 showed
+    weak-match guesses are often wrong (the real answer off the list — the owner re-searches), so persisting a
+    full candidate list is waste. `_cap_park_rows` keeps the top `PARK_CANDIDATE_LIMIT` (3) of the ranked
+    list, force-keeping the ADR-021 ISRC-correction candidate if the ranking pushed it past the cap;
+    re-search (`POST /api/reviews/{id}/search`) is the real fallback. Park-time **re-hydration of the 3 was
+    deliberately NOT added** — thin rows already carry title/artist for the live card, `GET /api/reviews`
+    re-hydrates on load, and adding 3 MB calls per park would re-introduce the fan-out cost this ticket
+    removes. Resolve still lands full via `_ensure_full_match`.
+  - **Acceptance was a measured compare, owner-relaxed from byte-identical (2026-08-23).** The gate is a
+    per-song land/park + tag + timing side-by-side of the new engine vs the current one over the spike corpus,
+    with per-song differences surfaced for owner judgement — not a zero-diff assertion (single-user tool; the
+    owner reviews landings, and this also captures the timing win). **Deferred fold-ins:** the fpcalc
+    de-dupe (reuse chroma's cached fingerprint — orthogonal, touches the score-critical dominance sense, held
+    out so score drift in the compare is attributable only to candidate parity) and the inert `cache_control`
+    reconcile-prompt tweak (verified a no-op on Haiku 4.5: 4096-token cache minimum vs a ~1.1k per-track
+    prompt — the ADR-011 failure mode; dropped, not built). Local MB mirror (removes the limit entirely) stays
+    R3. [2026-08-23]
