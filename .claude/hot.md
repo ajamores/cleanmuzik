@@ -30,10 +30,17 @@ CleanMuzik — personal YouTube → Jellyfin music tool. Purpose, stack, constra
     the backlog README index line + this board were stale. Both now flipped. T-208's own status line was
     already DONE. Nothing further open on T-208.
   - **Result (compare, 5 corpus tracks):** 0 outcome changes, 0 tag changes, **MB `get_recording` 33→6**.
-- **The bottleneck flipped (owner-clarified 2026-08-24):** T-208 killed the MB *call-count* (11→2). What's
-  left, in order: (1) **MB *latency* tail** — a single call can still hang 18–34s, the #1 remaining time cost,
-  → **T-210** (per-call timeout); (2) a steady ~15s non-MB floor (transcode + LLM + senses). No single new
-  villain — it's still mostly MB, just the tail not the count.
+- **T-210 SPEED HALF DONE — integrated 2026-08-25 (ADR-031).** The premise was wrong and the fix changed:
+  beets already sets `timeout=10` per request; the 18–34s tail was beets' **retry ladder** (`Retry(total=6)`
+  backoff, ~30s of sleep), not an uncapped socket. `app/mb_retry.py` bounds it to one retry (6→1) via
+  `Retry.new()`, preserving backoff/status-list/spacing/limiter. 751 green (8 new). Caps the tail (~503-storm
+  spike gone; hung-endpoint worst case ~20s, was ~30s+), **does not lower the median**. One accepted trade:
+  a transient error the 6-deep ladder would've ridden out can now miss → blank year / re-searchable park,
+  never a wrong tag. **Rate-limiter/ISRC half of T-210 stays OPEN** (correctness, orthogonal).
+- **The bottleneck now:** T-208 killed the call-count (11→2); T-210 capped the latency tail. What's left is
+  the **steady per-track floor** — the ~15s non-MB baseline (transcode + LLM + senses). The big *steady* win
+  is **T-219** (LLM fast-path, ~3–6s/track every track); **T-035** adds coverage. T-210 made the baseline
+  predictable; T-219 is the one that visibly lowers it.
 - **muziktest head-to-head (2026-08-24, same 14-track playlist):** Lever B ~**8× faster** wall-clock
   (~69s vs ~551s), same 10/4 split, both embed art. **Complementary fingerprint coverage** — AcoustID got
   Tower of Power, Shazam got Franklin; neither dominates. Gap is **closable in cleanmuzik w/o a rewrite**:
@@ -44,14 +51,15 @@ CleanMuzik — personal YouTube → Jellyfin music tool. Purpose, stack, constra
 
 ## ⟹ NEXT
 
-1. **T-210 — the per-call MB timeout.** The #1 remaining time lever (caps the 18–34s tail so wall-clock
-   becomes predictable). Cheap, non-engine-identity. **Do this next.** (T-208 is integrated — done.)
-2. **T-219 — corroboration fast-path** (skip the LLM when the fingerprint agrees with the source title;
-   the muziktest transplant, ~3–6s/track steady win) · **T-035 — Shazam fallback fingerprint tier**
+1. **T-219 — corroboration fast-path** — the big *steady* speed win now that T-208 + T-210 are in (skip the
+   LLM when the fingerprint agrees with the source title; the muziktest transplant, ~3–6s/track every track).
+   This is the lever that visibly lowers the median. · **T-035 — Shazam fallback fingerprint tier**
    (coverage: converts AcoustID-miss parks like Franklin into lands). Both engine-touching → T-208's
    acceptance bar.
-3. Also unstarted, non-engine: **T-214** (narrate freeze), **T-217** (debounce scan).
-4. Bigger: reshape **roadmap R3** (Navidrome) · start **R2.5** (migrate/clean — fingerprint dedup is its spine).
+2. Also unstarted, non-engine: **T-214** (narrate freeze), **T-217** (debounce scan). Also open: **T-210
+   rate-limiter/ISRC half** (correctness — shared MB limiter, Pa Salieu ISRC) · a small **T-208 follow-up**
+   (review nits: chroma thin-length rounding, unbounded `_chroma_recording_meta`, misleading resolve log).
+3. Bigger: reshape **roadmap R3** (Navidrome) · start **R2.5** (migrate/clean — fingerprint dedup is its spine).
 
 ## Recent sessions (rolling — last 2–3)
 

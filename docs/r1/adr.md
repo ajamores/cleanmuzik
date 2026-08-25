@@ -1109,3 +1109,41 @@ Format: `ADR-NNN — decision. Rationale. [date]`
     reconcile-prompt tweak (verified a no-op on Haiku 4.5: 4096-token cache minimum vs a ~1.1k per-track
     prompt — the ADR-011 failure mode; dropped, not built). Local MB mirror (removes the limit entirely) stays
     R3. [2026-08-23]
+
+- **ADR-031 — The MusicBrainz retry ladder is bounded to one retry; the identify tail is beets' retry
+  backoff, not an uncapped socket.** (T-210.) After ADR-030 killed the MB call *count* (~11 → 1–2), the
+  remaining time cost was the *latency tail*: a single `get_recording`/`track_for_id` could still spike
+  18–34s (once 98s). The premise T-210 was filed on — an uncapped fetch needing a timeout — was wrong: beets'
+  `TimeoutAndRetrySession.request` already sets `timeout=10` per request. The tail is the **retry ladder**.
+  That session mounts a `RateLimitAdapter` carrying `Retry(total=6, backoff_factor=0.5,
+  status_forcelist=[500,502,503,504,429])`; on a slow/flaky MB endpoint that is up to six attempts with
+  exponential backoff (~0.5 → 16s, summing past 30s), and each attempt can itself burn the 10s socket
+  timeout. `app/mb_retry.install_bounded_mb_retries()` (installed from `configure_beets()` after
+  `load_plugins()`, beside the ADR-030 patches) re-stamps the adapter's `max_retries` in place via
+  `Retry.new(total=1)` — **only the count changes**; the backoff factor, the 5xx/429 status list, the 0.25s
+  adapter spacing, and the session-level 1/sec limiter are all preserved. One retry keeps a single absorb for
+  a genuine transient 5xx while collapsing the deep backoff tail: the common 503-storm spike (~30s of pure
+  backoff sleep across six attempts) is gone, and only a rare genuinely-hung endpoint still costs ~two socket
+  timeouts (~20s) rather than the ~30s+ ladder. `total=1` (not `0`) is deliberate — it keeps one transient
+  absorb; the residual cost of that choice is finding-#1 below.
+  - **Degradation-to-miss is inherited, not added.** After a bounded ladder exhausts, beets *raises*. Both
+    hot-path callers already turn that into a clean miss: `_stamp_original_year` wraps `fetch_original_date`
+    and lands the track without a year (ADR-014 tolerates a blank year), and beets'
+    `maybe_handle_plugin_error` turns a raising `track_for_id` into `None` (we never set `raise_on_error`, so
+    the default guard is live) → a dropped hydration, which ADR-030's hydrate-at-accept **parks**, never lands
+    thin. So a shorter ladder never crashes and never stalls the batch — it just reaches the existing miss
+    faster. The candidate *search* was always exception-capable; bounding retries changes *when* it gives up,
+    not *that* it can.
+  - **This caps the tail; it does not lower the median.** A slow-but-successful MB call is unaffected (capped
+    at the existing 10s socket timeout, as before). The win is predictability — no more one track blowing up a
+    batch — not a faster typical track; the steady per-track floor (transcode + LLM + senses) is T-219/T-035's
+    ground, not this one.
+  - **The one non-latency effect (accepted).** Bounding 6 → 1 is not *purely* tail-capping: a transient
+    5xx/429 or reset that the six-deep ladder would have ridden out on attempt 2–6 now exhausts after one
+    retry, so a lookup that previously recovered can miss. It degrades exactly as above — a blank year or a
+    parked (re-searchable) track, **never a wrong tag or a crash** — so the failure mode is recoverable, and at
+    single-user volume MB is almost always healthy (the T-203 spike never tripped its limiter). We keep the one
+    absorb (`total=1`, not `0`) precisely to ride out the single-blip case; the residual is the rare
+    multi-failure-then-success sequence. Worth it for the tail cap. The other half of T-210 — a single shared rate limiter across `isrc.py` and beets
+    (the Pa Salieu double-hit correctness concern) — is **orthogonal and stays open**; this decision is the
+    speed half only. Local MB mirror (removes the limit and the retries entirely) stays R3. [2026-08-25]
