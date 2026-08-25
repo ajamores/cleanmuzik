@@ -580,6 +580,18 @@ class FingerprintTrustSession(ImportSession):
             # session) — R1's fingerprint-only gate, unchanged (spec §6 degrade row).
             return self._fingerprint_gate(task, dominance, candidates)
 
+        # T-219 corroboration fast-path: land a dominant, source-corroborated fingerprint
+        # WITHOUT gathering the reconcile senses (Shazam/ISRC/LLM — the ~3–6s steady
+        # per-track cost, T-218). fp + yt agreeing is the 2-of-3 accept bar re-derived in
+        # code (the same two senses `_agreeing_senses` would count), so it lands what the
+        # gate lands on that evidence. It is NOT purely the gate minus latency: skipping
+        # reconcile also drops the LLM's veto and the Shazam→ISRC correction for this
+        # case — the deliberate T-219 trade, recorded and owner-adjudicated in ADR-032.
+        # Everything weaker falls through to the full gate below.
+        fast = self._corroboration_fast_path(task, dominance, candidates)
+        if fast is not None:
+            return fast
+
         # An adjudicator IS wired (R1.5): reconcile the three senses into a Verdict,
         # then let the 2-of-3 gate decide. A rejected/expired key degrades to the R1
         # gate — a stale key must not park every track; a transient failure on a valid
@@ -599,7 +611,70 @@ class FingerprintTrustSession(ImportSession):
             return Action.SKIP
         return self._reconcile_gate(task, dominance, candidates, result)
 
+    # --- T-219 corroboration fast-path (skip the LLM when fp + yt agree) ---
+
+    def _corroboration_fast_path(self, task, dominance, candidates):
+        """Land a dominant, source-corroborated fingerprint without the LLM (T-219, ADR-032).
+
+        Returns a `TrackMatch`/`Action.SKIP` when the fast-path fires and settles the
+        track, or `None` to fall through to the full reconcile gate. Fires iff the two
+        senses the 2-of-3 gate accepts on already agree, re-derived here through the SAME
+        helpers the gate uses so the two cannot drift:
+
+        - `fp` supports: `_dominant_match` — a dominant fingerprint (score ≥ `score_min`,
+          gap ≥ `gap_min`) whose winning recording is among beets' candidates (the exact
+          test `_fingerprint_gate` lands on; recording-MBID identity, not text).
+        - `yt` supports: `_yt_supports` — the YouTube source signals corroborate that
+          candidate on artist AND title.
+
+        That is fp + yt = the 2-of-3 accept bar, so this lands what the gate would land
+        on that same evidence. It is NOT merely the gate minus latency: skipping
+        reconcile also skips the LLM's *veto* (it can no longer park a corroborated match
+        on album/year context) and the Shazam→ISRC *correction* (a wrong-recording-of-the-
+        right-song is not re-picked). Both are the deliberate T-219 trade — a ≥0.90
+        fingerprint identifies the actual audio, the yt agreement guards the Pa Salieu
+        mis-fire, and the original year is stamped independently (ADR-014) — recorded and
+        owner-adjudicated in ADR-032. Anything weaker returns `None` and runs the full
+        gate. Lands through the shared `_accept` tail, so the T-009 duplicate check,
+        ADR-028 credit fold, and T-208 re-hydration all run exactly as on the gate paths.
+        """
+        match = self._dominant_match(dominance, candidates)
+        if match is None:
+            return None
+        info = match.info
+        if not self._yt_supports(
+            getattr(info, "artist", None), getattr(info, "title", None)
+        ):
+            return None
+        return self._accept(
+            task,
+            match,
+            dominance,
+            detail=(
+                f"score={dominance.top_score:.3f} gap={dominance.gap:.3f} "
+                "senses=['fp', 'yt'] (corroboration fast-path)"
+            ),
+        )
+
     # --- R1 fingerprint gate (the degrade target) -------------------------
+
+    def _dominant_match(self, dominance, candidates):
+        """The beets candidate that IS the dominant fingerprint's recording, or `None`.
+
+        The single 'is this a dominant fingerprint whose recording is on the candidate
+        list' test (ADR-006), shared by `_fingerprint_gate` and the T-219 fast-path so
+        both agree on what *dominant* means. Dominant = there are candidates, the score
+        clears `score_min`, the gap clears `gap_min`, AND a candidate matches the winning
+        recording MBID. `None` when any part fails — the caller distinguishes the reasons
+        only if it needs to (the gate re-checks the threshold for its distinct log).
+        """
+        if not (
+            candidates
+            and dominance.top_score >= self.score_min
+            and dominance.gap >= self.gap_min
+        ):
+            return None
+        return _matching_candidate(candidates, dominance.top_recording_ids)
 
     def _fingerprint_gate(self, task, dominance, candidates):
         """R1's fingerprint-trust gate (ADR-006), also R1.5's degrade path.
@@ -607,27 +682,28 @@ class FingerprintTrustSession(ImportSession):
         Auto-land a dominant fingerprint (score ≥ `score_min`, gap ≥ `gap_min`) whose
         winning recording is among beets' candidates; anything else parks.
         """
+        match = self._dominant_match(dominance, candidates)
+        if match is not None:
+            # The fingerprint IS the identity here, so its dominance describes the
+            # landed recording — correct release ids for the cover-art fetch.
+            return self._accept(
+                task,
+                match,
+                dominance,
+                detail=(
+                    f"score={dominance.top_score:.3f} "
+                    f"gap={dominance.gap:.3f} (fingerprint)"
+                ),
+            )
+        # Dominant fingerprint but its recording isn't among beets' candidates (rare):
+        # trusting a *different* candidate would betray the fingerprint, so park rather
+        # than mis-tag. Re-check the threshold (diagnostic only — the land decision is
+        # `_dominant_match` above) so the log fires solely on that in-between case.
         if (
             candidates
             and dominance.top_score >= self.score_min
             and dominance.gap >= self.gap_min
         ):
-            match = _matching_candidate(candidates, dominance.top_recording_ids)
-            if match is not None:
-                # The fingerprint IS the identity here, so its dominance describes the
-                # landed recording — correct release ids for the cover-art fetch.
-                return self._accept(
-                    task,
-                    match,
-                    dominance,
-                    detail=(
-                        f"score={dominance.top_score:.3f} "
-                        f"gap={dominance.gap:.3f} (fingerprint)"
-                    ),
-                )
-            # Dominant fingerprint but its recording isn't among beets' candidates
-            # (rare). Trusting a *different* candidate would betray the fingerprint,
-            # so park rather than mis-tag.
             logger.info(
                 "dominant fingerprint for %s but no matching candidate — parking",
                 self.staging_path,
@@ -778,6 +854,26 @@ class FingerprintTrustSession(ImportSession):
         self._park(task, candidates, dominance)
         return Action.SKIP
 
+    def _yt_supports(self, artist, title) -> bool:
+        """Does the YouTube source sense (sense 1) support a candidate with this artist/title?
+
+        The ONE yt-vote rule, shared by `_agreeing_senses` (the 2-of-3 gate) and the
+        T-219 fast-path so the two can never drift out of lockstep — the fast-path's
+        safety claim (fp+yt here == the gate's fp+yt) holds only while this is the sole
+        definition. A None `yt_artist` is an unrecoverable claim that supports nothing
+        (T-201); BOTH fields must loose-match (`normalize.loose_match`) or yt can't vote
+        — what parks Strawberry Swing (yt "frankocean" ⊄ candidate "coldplay"). Callers
+        pass the candidate's artist/title: a dict entry in the gate, a `TrackInfo`'s
+        fields in the fast-path.
+        """
+        ss = self.source_signals
+        return bool(
+            ss is not None
+            and ss.yt_artist
+            and normalize.loose_match(ss.yt_artist, artist)
+            and normalize.loose_match(ss.yt_title, title)
+        )
+
     def _agreeing_senses(self, chosen, dominance, shazam) -> list[str]:
         """Which PRESENT senses genuinely support `chosen`, re-derived in code (spec §5).
 
@@ -788,16 +884,7 @@ class FingerprintTrustSession(ImportSession):
         ISRC-sourced candidate, which IS Shazam's own identity.
         """
         senses: list[str] = []
-        ss = self.source_signals
-        # yt: present always; but a None yt_artist is an unrecoverable claim → supports
-        # nothing (T-201). Needs BOTH artist and title to match, or it can't vote — this
-        # is what parks Strawberry Swing (yt "frankocean" ⊄ candidate "coldplay").
-        if (
-            ss is not None
-            and ss.yt_artist
-            and normalize.loose_match(ss.yt_artist, chosen["artist"])
-            and normalize.loose_match(ss.yt_title, chosen["title"])
-        ):
+        if self._yt_supports(chosen["artist"], chosen["title"]):
             senses.append("yt")
         # fp: present iff the fingerprint named any recording; supports iff the chosen
         # candidate IS one of them — recording identity, not a text match.

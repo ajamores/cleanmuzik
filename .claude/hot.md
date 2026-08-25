@@ -1,7 +1,7 @@
 ---
 type: meta
 title: "Hot — cleanmuzik"
-updated: 2026-08-24
+updated: 2026-08-25
 tags:
   - meta
   - hot-cache
@@ -20,6 +20,24 @@ CleanMuzik — personal YouTube → Jellyfin music tool. Purpose, stack, constra
 `CLAUDE.md`; scope in `cleanmuzik-prd.md`. Not restated here.
 
 ## Current State (2026-08-25)
+
+- **T-219 BUILT on branch `perf/t-219-corroboration-fast-path` (ADR-032) — NOT integrated.** Commit
+  `a457f25`; **756 green on the branch**. `FingerprintTrustSession._corroboration_fast_path` runs in
+  `choose_item` *before* `_reconcile`: a dominant fp whose recording is a beets candidate (`fp`) AND whose
+  artist+title the YouTube source corroborates (`yt`) lands via the shared `_accept` tail with **no
+  Shazam/ISRC/LLM call** — fp+yt = the 2-of-3 bar re-derived in code (muziktest Confidence-gate transplant).
+  Additive on the common path but NOT purely gate-minus-latency: it also drops the LLM's veto + the Shazam→ISRC
+  correction for the corroborated case (the accepted T-219 trade; ADR-032). Shared `_yt_supports` /
+  `_dominant_match` helpers keep the fast-path bit-identical to the gate. Code-review (5 findings) all
+  addressed: 2 were the intended trade (comments made honest), 2 dedup (the helpers), 1 test gap (added
+  gate-accept-land test).
+  - **Remaining before DONE:** the **ADR-030 measured corpus compare** (engine-touching, owner-adjudicated —
+    expect land/park + tags unchanged except corroborated tracks now landing LLM-free, plus any
+    remaster-vs-ISRC-original recording-MBID shift), then **integrate to `main`** + flip T-219's status line in
+    the closing commit. The `t208_compare.py` scratchpad harness was reaped — needs rebuild for the compare.
+  - **Hazard for the compare run:** a `--reload` uvicorn is live on **:8137** (the DB-pollution trap — isolate
+    `DB_PATH` + beets lib per `/verify`). Left the pre-existing unrelated `README.md` "Run in WSL" edit unstaged.
+
 
 - **T-208 DONE — integrated to `main`, pushed, ledger synced.** Commits `717a73c` (perf) + `ced56c4`
   (merge) on `origin/main`; **743 tests green on `main`** (re-confirmed 2026-08-25, 32.6s). New code:
@@ -51,11 +69,12 @@ CleanMuzik — personal YouTube → Jellyfin music tool. Purpose, stack, constra
 
 ## ⟹ NEXT
 
-1. **T-219 — corroboration fast-path** — the big *steady* speed win now that T-208 + T-210 are in (skip the
-   LLM when the fingerprint agrees with the source title; the muziktest transplant, ~3–6s/track every track).
-   This is the lever that visibly lowers the median. · **T-035 — Shazam fallback fingerprint tier**
-   (coverage: converts AcoustID-miss parks like Franklin into lands). Both engine-touching → T-208's
-   acceptance bar.
+1. **T-219 — corroboration fast-path — BUILT on branch (ADR-032), NOT integrated.** Finish it: run the
+   ADR-030 corpus compare (owner-adjudicated), then merge `perf/t-219-corroboration-fast-path` to `main` and
+   flip the ticket status in the closing commit. The steady speed win (skip the LLM on the corroborated
+   majority) is coded + tested + reviewed; only the live compare + integration remain. · **T-035 — Shazam
+   fallback fingerprint tier** (coverage: converts AcoustID-miss parks like Franklin into lands; still
+   unstarted). Both engine-touching → T-208's acceptance bar.
 2. Also unstarted, non-engine: **T-214** (narrate freeze), **T-217** (debounce scan). Also open: **T-210
    rate-limiter/ISRC half** (correctness — shared MB limiter, Pa Salieu ISRC) · a small **T-208 follow-up**
    (review nits: chroma thin-length rounding, unbounded `_chroma_recording_meta`, misleading resolve log).
