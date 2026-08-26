@@ -19,7 +19,16 @@ status: evergreen
 CleanMuzik — personal YouTube → Jellyfin music tool. Purpose, stack, constraints, read-order in
 `CLAUDE.md`; scope in `cleanmuzik-prd.md`. Not restated here.
 
-## Current State (2026-08-25)
+## Current State (2026-08-26)
+
+- **T-220 EPIC SPEC'D + ADR-033 RATIFIED 2026-08-26 (this session). READY-FOR-BUILD (not yet built). Base
+  COMMITTED to `main` `755ab9c`.** Shazam becomes the tag+art source of record; retire beets → mutagen
+  writes; one thin `get_recording` for the AcoustID-only case; genre from Shazam (LLM enum deferred to
+  polish); MP3-320 held (codec = T-225, NOT yet filed — just referenced). Reverses ADR-005, supersedes R1.5
+  art-via-beets. Base = `docs/backlog/T-220.md` (epic) + `T-221`–`T-224` (wave) + **ADR-033** in
+  `docs/r1/adr.md` + this board + backlog README index (all in `755ab9c`; not pushed). **Next action: build
+  T-221.** Still uncommitted (intentional scratch, per /verify): `t219_*`, `mt_ab_report.html`, root
+  `README.md`, `.vscode/`. See ⟹ NEXT.
 
 - **T-219 DONE — integrated to `main` 2026-08-25 (ADR-032), pushed, ledger synced.** Work `a457f25` + merge
   on `main`; **756 green on `main`**. `FingerprintTrustSession._corroboration_fast_path` runs in `choose_item`
@@ -66,21 +75,42 @@ CleanMuzik — personal YouTube → Jellyfin music tool. Purpose, stack, constra
 - **On `main`:** T-219 merged + about to push; **756 green on `main`**. **R2.5** (migrate/clean) is still the
   designated next *release*. **Roadmap R3 line still stale** (Navidrome pivot reshape pending — owner edit).
 
-## ⟹ NEXT
+## ⟹ NEXT — build the T-220 wave in order
 
-1. **T-035 — Shazam fallback fingerprint tier** — the coverage sibling now that the T-21x *speed* series
-   (T-208 + T-210 + T-219) is all in. Converts AcoustID-miss parks like Franklin into lands; still unstarted.
-   Engine-touching → T-208's acceptance bar (the `t219_compare.py` harness generalizes to it).
-2. Also unstarted, non-engine: **T-214** (narrate freeze), **T-217** (debounce scan). Also open: **T-210
-   rate-limiter/ISRC half** (correctness — shared MB limiter, Pa Salieu ISRC) · a small **T-208 follow-up**
-   (review nits: chroma thin-length rounding, unbounded `_chroma_recording_meta`, misleading resolve log).
-   NB: the acceptance run surfaced a **live MB 503 storm** making land/park noisy for any engine — a T-210
-   correctness-half signal, not a T-219 issue.
-3. Bigger: reshape **roadmap R3** (Navidrome) · start **R2.5** (migrate/clean — fingerprint dedup is its spine).
+**T-220 EPIC is the active work: Shazam becomes the tag+art source of record; retire beets (mutagen writes).
+ADR-033 RATIFIED 2026-08-26.** Read `docs/backlog/T-220.md` (epic, corrected frame) + **ADR-033** in
+`docs/r1/adr.md` (line ~1187) FIRST — they hold the full rationale. Key correction this session: cleanmuzik
+already identifies with 3 senses + Shazam-every-track + 2-of-3 vote (ADR-021/024) and already *fetches*
+Shazam's tags + `art_url` every track, then **throws them away** and re-derives via MusicBrainz hydration +
+fetchart. The epic is a **subtraction** — use what we already fetch — NOT a port of muziktest.
+
+1. **T-221 — widen the Shazam record** (album/year/genre into `shazam_runner.py` + `shazam.py` §6 record).
+   First brick, pure capture, no behaviour change. → then
+2. **T-222 — tag+art from the accepted identity in `_accept`** (Shazam record + `art_url`; AcoustID-only =
+   ONE thin `get_recording`, owner option 1, no fan-out). The heart. → then
+3. **T-223 — mutagen ID3/MP3-320 writer + art embed** (replaces beets tag-write + fetchart). → then
+4. **T-224 — retire beets + drop slow fetchers.** ⚠ **TRAP:** dedup (ADR-009) + NTFS/`%aunique` path
+   sanitization lived in beets `choose_item` — carry them forward or acquire regresses. Do this LAST.
+   Epic acceptance = generalised `t219_compare.py` before/after (faster, covers correct, outcomes unchanged,
+   Frank Ocean/Coldplay still parks).
+
+- **Identification is UNTOUCHED** by this epic (senses, 2-of-3, LLM adjudicator, T-219 fast-path all stand).
+- **T-035 is SUPERSEDED by T-220** (its evidence — 4/5 rescue, Frank Ocean fixture — carried into ADR-033).
+- **Deferred, not in this epic:** the LLM+mutagen polish pass (owner, by hand, R2.5 clean-work — genre's
+  LLM curated enum re-homes there) · **T-225** codec reconsideration (MP3-320 held for now; transcoding a
+  lossy YT source up to 320 buys no quality — remux-don't-reencode is the real win, separate ticket).
+- Also still open, non-epic: **T-210** rate-limiter/ISRC half · **T-214** (narrate freeze) · **T-217**
+  (debounce scan) · small **T-208 follow-up** nits. Bigger: reshape **roadmap R3** (Navidrome) · **R2.5**.
 
 ## Recent sessions (rolling — last 2–3)
 
-- **2026-08-25 (this session)** — **Built + integrated T-219** (corroboration fast-path, ADR-032, 756 green
+- **2026-08-26 (this session)** — **Ran a fresh muziktest head-to-head** (A/B, per-track timed, artwork-forward
+  Artifact report) → **designed + spec'd the T-220 engine-reshape epic** and **ratified ADR-033**. Key finding:
+  cleanmuzik already has the Shazam senses + 2-of-3 gate + fetches Shazam art every track, then discards it;
+  the epic is a subtraction (use what we fetch; retire beets/MB tag path → mutagen), not a muziktest port.
+  Corrected two of my own misframes mid-session (the "port" premise; a genre-LLM that was never built). Wrote
+  T-220 + T-221–224 + ADR-033 + board + README index. **Uncommitted.** Solo (Opus).
+- **2026-08-25** — **Built + integrated T-219** (corroboration fast-path, ADR-032, 756 green
   on `main`). Reviewed (5 findings closed, incl. two shared helpers `_yt_supports`/`_dominant_match`).
   **Rebuilt the acceptance harness** (`t219_compare.py` — build/run/control) and ran a 16-track live compare:
   ~20% faster on fast-pathed tracks, 9/16 fast-pathed, outcome-neutral (flips = MB-503 noise, proven by a

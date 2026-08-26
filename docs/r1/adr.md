@@ -1183,3 +1183,64 @@ Format: `ADR-NNN — decision. Rationale. [date]`
     the point above, which the owner adjudicates). Unit-level additivity is proved by the fall-through tests
     (`test_fast_path_falls_through_*`) and the no-LLM land test (`test_fast_path_dominant_fp_and_yt_agree_lands_without_llm`).
     T-035 (Shazam fallback tier) is the orthogonal coverage sibling, unaffected. [2026-08-25]
+
+- **ADR-033 — Shazam is the tag + art source of record; retire beets from tag-writing (mutagen writes);
+  MusicBrainz kept only as a thin, rare AcoustID-only fallback. Reverses ADR-005; supersedes the R1.5
+  "art/lyrics land via the beets path" rule (ADR-024 note / spec §3). Does NOT touch the identification
+  gate.** — **Owner ratified 2026-08-26.** Epic [`T-220`](../backlog/T-220.md).
+
+  The engine already identifies with three senses (yt-dlp title / AcoustID / Shazam) and a 2-of-3 vote
+  (ADR-021 amendment, T-205), already runs Shazam on every track (ADR-024, T-202), and already fetches
+  Shazam's tags **and** its `coverarthq` URL every track — then discards them, re-deriving tags through
+  MusicBrainz hydration (`_ensure_full_match` → `get_recording`, T-208) and art through `fetchart` / the
+  Cover Art Archive (spec §3). That re-derivation is the acquire path's dominant latency and its entire
+  MusicBrainz-outage exposure, and the release-picking in `fetchart` is the wrong-cover class (the
+  *Greatest Hits* cover on a *Trouble Man* soundtrack track, T-218 head-to-head — measured while Shazam
+  already held the correct soundtrack cover URL). This ADR changes only the land tail (`_accept`): the
+  **source** of the tags and cover that get written, and what writes them. The senses, the 2-of-3 gate,
+  the LLM adjudicator, and the T-219 fast-path are unchanged.
+
+  **The decisions:**
+  1. **Tags + art come from the accepted identity, not a re-lookup.** When the landed identity is
+     Shazam-corroborated (Shazam among the ≥2 agreeing senses), its artist / title / album / year / genre
+     come from the Shazam record already in hand, and its cover from Shazam's `art_url` (→ YouTube
+     thumbnail, centre-cropped, when absent). No MusicBrainz hydration, no `fetchart`.
+  2. **AcoustID-only case keeps exactly one thin MusicBrainz call (owner option 1, 2026-08-26).** When
+     Shazam missed but AcoustID + the title still corroborate, one `get_recording` by the AcoustID
+     recording MBID supplies tags + art — **no fan-out** (the T-208 discipline), fail-soft to
+     provisional/review, never blocking. ~99% of tracks (Shazam hits) never touch MusicBrainz, so its
+     outage no longer stalls acquisition; AcoustID's unique coverage (Tower of Power, Ryder × Skepta) is
+     preserved. MusicBrainz is retained as a rare non-fan-out fallback, **not deleted** — "off the critical
+     path," not "gone."
+  3. **beets is retired from tag-writing (reverses ADR-005).** Matching already lives in the senses; with
+     tag-writing moved to a mutagen ID3/MP3-320 writer, beets and its `musicbrainz` / `chroma` /
+     `fetchart` / `embedart` plugins have no remaining job. The AcoustID rescue sense moves to the
+     `acoustid` library directly; the one AcoustID-only `get_recording` uses `musicbrainzngs` directly —
+     so no beets survives. ADR-005's rationale ("plugins are more capable") is spent: we are no longer
+     matching in beets, and we deliberately want *fewer* capabilities on the write path, not more.
+  4. **Write what Shazam supplies free; never a standalone fetcher for a field.** artist / album / title /
+     cover always; year + genre when the Shazam response carries them; lyrics best-effort when clean. No
+     MusicBrainz year lookup, no Last.fm call, no lyrics-plugin fetch.
+  5. **Genre auto-writes from Shazam; ADR-023's LLM-enum genre is deferred to the polish pass.** ADR-023
+     (LLM-authored genre against a curated enum) was ratified 2026-08-09 but **never built** — genre today
+     comes from the `lastgenre` / Last.fm plugin (`beets_engine.py` PLUGINS), which this epic removes. The
+     reconcile LLM (ADR-021) runs **only on conflict tracks** and authors *identity*, not genre, so it
+     cannot supply genre on the corroborated majority (the T-219 fast-path skips it entirely). Therefore
+     genre now auto-writes from **Shazam's genre** whenever the Shazam response carries it (free, every
+     Shazam hit, happy path included); a track Shazam does not cover gets no auto genre. ADR-023 is **not
+     repealed** — its LLM curated-enum genre is re-homed to the deferred owner polish pass (R2.5
+     clean-work), where a subjective curated genre belongs and may override Shazam's coarse default.
+
+  **What stays binding / untouched:** the three-sense 2-of-3 gate and "Shazam never lands alone"
+  (ADR-021); Shazam-every-track + the subprocess quarantine (ADR-024); the T-219 corroboration fast-path
+  (ADR-032); serial land, pool = 1 (ADR-022); MP3-320 output (the writer is mutagen's ID3 path — codec
+  reconsideration is the separate T-225, not this ADR).
+
+  **Safety:** corroboration — not raw sense confidence — authorises trusting Shazam's tags, the same
+  argument ADR-032 made for the fingerprint. A Shazam record is written as tags only when Shazam is among
+  the ≥2 agreeing senses; the Frank Ocean / Coldplay cover (Shazam says *Coldplay*, the title says *Frank
+  Ocean* → disagreement → park) is safe exactly as today. Rationale + evidence: T-218 head-to-head report,
+  [`T-220`](../backlog/T-220.md). **Acceptance:** the ADR-030/032 measured compare — engine-touching, so
+  the corpus land/park + tag + timing side-by-side, owner-adjudicated; expected result is materially
+  faster, artwork correct on landed tracks, identification outcomes unchanged modulo the accepted
+  tag-source change. (Owner ratified 2026-08-26 on the T-220 spec gate.) [2026-08-26]
