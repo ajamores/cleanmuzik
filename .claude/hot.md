@@ -21,14 +21,22 @@ CleanMuzik — personal YouTube → Jellyfin music tool. Purpose, stack, constra
 
 ## Current State (2026-08-26)
 
-- **T-220 EPIC SPEC'D + ADR-033 RATIFIED 2026-08-26 (this session). READY-FOR-BUILD (not yet built). Base
+- **T-221 DONE — built + committed to `main` 2026-08-26 (this session). 770 green on `main`.** Wave 1 of the
+  T-220 epic: widened the Shazam §6 record with **album / year / genre** (runner `shazam_runner.py` +
+  `shazam.py` normalise/`_RECORD_KEYS`/`_non_vote`), all keys always present, non-vote → Nones (fail-soft
+  unchanged). album+year from the SONG section's metadata rows, genre from `genres.primary` — all already in
+  the `recognize` `track` dict, so pure capture, no network. `year` extracted to a **4-digit int** (Shazam's
+  'Released' can be a full date). Spec §6 amended (`docs/r1.5/spec.md`). 14 new tests (`test_shazam_runner.py`
+  new + 2 in `test_shazam.py`). **Identity/voting/T-219 fast-path UNTOUCHED.** Code-review's 3 findings
+  (locale label caveat, year-as-int extraction, spec drift) all addressed. **Next action: build T-222.**
+
+- **T-220 EPIC SPEC'D + ADR-033 RATIFIED 2026-08-26. IN BUILD (T-221 done; T-222–224 remain). Base
   COMMITTED to `main` `755ab9c`.** Shazam becomes the tag+art source of record; retire beets → mutagen
   writes; one thin `get_recording` for the AcoustID-only case; genre from Shazam (LLM enum deferred to
   polish); MP3-320 held (codec = T-225, NOT yet filed — just referenced). Reverses ADR-005, supersedes R1.5
   art-via-beets. Base = `docs/backlog/T-220.md` (epic) + `T-221`–`T-224` (wave) + **ADR-033** in
-  `docs/r1/adr.md` + this board + backlog README index (all in `755ab9c`; not pushed). **Next action: build
-  T-221.** Still uncommitted (intentional scratch, per /verify): `t219_*`, `mt_ab_report.html`, root
-  `README.md`, `.vscode/`. See ⟹ NEXT.
+  `docs/r1/adr.md` + this board + backlog README index (all in `755ab9c`; not pushed). Still uncommitted
+  (intentional scratch, per /verify): `t219_*`, `mt_ab_report.html`, root `README.md`, `.vscode/`. See ⟹ NEXT.
 
 - **T-219 DONE — integrated to `main` 2026-08-25 (ADR-032), pushed, ledger synced.** Work `a457f25` + merge
   on `main`; **756 green on `main`**. `FingerprintTrustSession._corroboration_fast_path` runs in `choose_item`
@@ -75,7 +83,7 @@ CleanMuzik — personal YouTube → Jellyfin music tool. Purpose, stack, constra
 - **On `main`:** T-219 merged + about to push; **756 green on `main`**. **R2.5** (migrate/clean) is still the
   designated next *release*. **Roadmap R3 line still stale** (Navidrome pivot reshape pending — owner edit).
 
-## ⟹ NEXT — build the T-220 wave in order
+## ⟹ NEXT — build the rest of the T-220 wave in order (T-221 done)
 
 **T-220 EPIC is the active work: Shazam becomes the tag+art source of record; retire beets (mutagen writes).
 ADR-033 RATIFIED 2026-08-26.** Read `docs/backlog/T-220.md` (epic, corrected frame) + **ADR-033** in
@@ -85,7 +93,7 @@ Shazam's tags + `art_url` every track, then **throws them away** and re-derives 
 fetchart. The epic is a **subtraction** — use what we already fetch — NOT a port of muziktest.
 
 1. **T-221 — widen the Shazam record** (album/year/genre into `shazam_runner.py` + `shazam.py` §6 record).
-   First brick, pure capture, no behaviour change. → then
+   **DONE 2026-08-26** — pure capture, 770 green, on `main`. → now
 2. **T-222 — tag+art from the accepted identity in `_accept`** (Shazam record + `art_url`; AcoustID-only =
    ONE thin `get_recording`, owner option 1, no fan-out). The heart. → then
 3. **T-223 — mutagen ID3/MP3-320 writer + art embed** (replaces beets tag-write + fetchart). → then

@@ -79,6 +79,36 @@ def test_record_is_always_full_shape(tmp_path):
     assert set(rec) == set(shazam._RECORD_KEYS)
 
 
+# --- T-221: the widened tag payload (album/year/genre) rides the record --------
+
+def test_widened_fields_round_trip(tmp_path):
+    """A matched record carrying album/year/genre passes them through _normalise."""
+    rec = _recognize(
+        tmp_path,
+        """
+        import json, sys
+        print(json.dumps({
+            "shazam_artist": "Pa Salieu", "shazam_title": "Frontline",
+            "album": "Send Them to Coventry", "year": 2020, "genre": "Hip-Hop/Rap",
+            "matched": True,
+        }))
+        """,
+    )
+    assert rec["matched"] is True
+    assert rec["album"] == "Send Them to Coventry"
+    assert rec["year"] == 2020
+    assert rec["genre"] == "Hip-Hop/Rap"
+
+
+def test_widened_fields_are_none_on_a_non_vote(tmp_path):
+    """A short/non-vote record normalises to album/year/genre = None (fail-soft)."""
+    rec = _recognize(tmp_path, 'import json; print(json.dumps({"matched": False}))')
+    assert rec["matched"] is False
+    assert rec["album"] is None
+    assert rec["year"] is None
+    assert rec["genre"] is None
+
+
 # --- Fail-soft: error / empty / garbage all become a non-vote ------------------
 
 def test_runner_error_record_is_a_non_vote(tmp_path):

@@ -20,7 +20,10 @@ Two properties this module owns (ticket T-202, spec §5):
    only guarantee the record shape and that no failure escapes as an exception.
 
 `art_url` / `lyrics` ride in the record for the record's sake only — R1.5 writes
-neither (spec §3; art/lyrics land via the existing beets path).
+neither (spec §3; art/lyrics land via the existing beets path). `album` / `year`
+/ `genre` (T-221) likewise ride along as the tag payload the T-220 reshape will
+write from the accepted identity downstream (T-222/T-223); this module only keeps
+the shape whole (all §6 keys present) and never writes on Shazam's authority.
 """
 
 import json
@@ -47,6 +50,9 @@ _RECORD_KEYS = (
     "isrc",
     "art_url",
     "lyrics",
+    "album",
+    "year",
+    "genre",
     "matched",
     "error",
 )
@@ -60,6 +66,9 @@ def _non_vote(error: str) -> dict:
         "isrc": None,
         "art_url": None,
         "lyrics": None,
+        "album": None,
+        "year": None,
+        "genre": None,
         "matched": False,
         "error": error,
     }

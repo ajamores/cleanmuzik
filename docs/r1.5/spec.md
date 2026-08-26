@@ -45,7 +45,8 @@ Three properties, all binding:
   (YouTube's year is the *upload* year; its album is often a `"- Topic"` auto-album), so written facts
   still come only from a real MusicBrainz/ISRC lookup (§5 facts-from-a-real-lookup).
 - **Shazam as sense 3** (`app/shazam.py`) — one recognition call per track → `{ shazam_artist, shazam_title,
-  isrc, art_url?, lyrics?, matched, error }`. **Fail-soft with a hard timeout** (§5). Called per-track (not
+  isrc, art_url?, lyrics?, album?, year?, genre?, matched, error }` (album/year/genre added T-221 — see §6
+  record). **Fail-soft with a hard timeout** (§5). Called per-track (not
   only on an AcoustID miss — a widening of ADR-019's "backup tier," safe only under the serial pipeline).
 - **The reconcile call** at `import_seam.py :: choose_item`, injected the way `dominance_fn` is (offline
   tests inject a stub). Given the 3 senses + the augmented candidate list, it returns a `Verdict` (§6): a
@@ -216,8 +217,14 @@ it can never author an identity or an MBID. No `confidence` field (dropped at th
 ```jsonc
 { "shazam_artist": "Pa Salieu", "shazam_title": "Frontline", "isrc": "GBxxx...",
   "art_url": "https://...", "lyrics": "<text|null>",   // captured; R1.5 still writes art/lyrics via beets
+  "album": "<text|null>", "year": 2020, "genre": "<text|null>",  // T-221: tag payload for the T-220 reshape
   "matched": true, "error": null }                     // error set (matched:false) on any failure/timeout
 ```
+
+> **T-221 widening (2026-08-26).** `album` / `year` / `genre` were added to the record as the tag payload
+> the T-220 reshape writes from the accepted identity (album + year from the SONG section's metadata rows,
+> genre from `genres.primary` — all already in the `recognize` `track` dict). `year` is the 4-digit year
+> extracted from Shazam's 'Released' text. Captured here; *written* downstream (T-222/T-223).
 
 ### ISRC → MusicBrainz (facts)
 
