@@ -21,6 +21,20 @@ CleanMuzik — personal YouTube → Jellyfin music tool. Purpose, stack, constra
 
 ## Current State (2026-08-26)
 
+- **T-222 DONE — built + committed to `main` 2026-08-26 (this session). 779 green on `main`.** Wave 2 (the
+  HEART) of the T-220 epic: the tag/art SOURCE on a land is now the accepted identity, not a MusicBrainz
+  re-derivation. **Owner-approved Option 1** (this session): Shazam is gathered ONCE per track in
+  `choose_item` — **restoring it on the T-219 fast-path** (ADR-032 had it skip Shazam entirely; the cheap
+  recognition returns, the expensive ISRC+LLM stay skipped; ADR-032 **amended**, ADR-033 premise corrected).
+  `_resolve_tag_source` → **Shazam** when its record corroborates the landed recording (loose artist+title),
+  else **AcoustID** (one `get_recording` via `_ensure_full_match`, fail-soft, no fan-out). Shazam-backed land:
+  artist/album/title/isrc overridden on the applied match (so beets organizes folder-coherent with the tags),
+  year/genre set in finalize, cover from `art_url`→YouTube-thumbnail (`artwork.fetch_url_image`, image-magic
+  validated), **no `_ensure_full_match` MB hydration**. **Land decision, 2-of-3 gate, Frank Ocean/Coldplay
+  park all UNTOUCHED.** beets still WRITES (writer swap = T-223; genre still via lastgenre until T-224).
+  Code-review's 6 findings addressed. **Next action: build T-223** (mutagen ID3 writer). Epic live compare
+  rides at T-224.
+
 - **T-221 DONE — built + committed to `main` 2026-08-26 (this session). 770 green on `main`.** Wave 1 of the
   T-220 epic: widened the Shazam §6 record with **album / year / genre** (runner `shazam_runner.py` +
   `shazam.py` normalise/`_RECORD_KEYS`/`_non_vote`), all keys always present, non-vote → Nones (fail-soft
@@ -93,10 +107,13 @@ Shazam's tags + `art_url` every track, then **throws them away** and re-derives 
 fetchart. The epic is a **subtraction** — use what we already fetch — NOT a port of muziktest.
 
 1. **T-221 — widen the Shazam record** (album/year/genre into `shazam_runner.py` + `shazam.py` §6 record).
-   **DONE 2026-08-26** — pure capture, 770 green, on `main`. → now
+   **DONE 2026-08-26** — pure capture, 770 green, on `main`.
 2. **T-222 — tag+art from the accepted identity in `_accept`** (Shazam record + `art_url`; AcoustID-only =
-   ONE thin `get_recording`, owner option 1, no fan-out). The heart. → then
-3. **T-223 — mutagen ID3/MP3-320 writer + art embed** (replaces beets tag-write + fetchart). → then
+   ONE thin `get_recording`, owner option 1, no fan-out). The heart. **DONE 2026-08-26** — 779 green, on
+   `main`; Option 1 (Shazam every track) approved + ADR-032/033 amended. → now
+3. **T-223 — mutagen ID3/MP3-320 writer + art embed** (replaces beets tag-write + fetchart). ⚠ Note: T-222
+   leaves the WRITER as beets (item override + `embed_cover`); T-223 swaps to mutagen ID3 (APIC), owns the
+   ISRC/lyrics write, and does the YouTube-thumbnail centre-crop-to-square that T-222 deferred. → then
 4. **T-224 — retire beets + drop slow fetchers.** ⚠ **TRAP:** dedup (ADR-009) + NTFS/`%aunique` path
    sanitization lived in beets `choose_item` — carry them forward or acquire regresses. Do this LAST.
    Epic acceptance = generalised `t219_compare.py` before/after (faster, covers correct, outcomes unchanged,

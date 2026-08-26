@@ -61,7 +61,7 @@ from app import isrc as isrc_lookup
 from app import normalize
 from app import reconcile as reconcile_seam
 from app import shazam as shazam_sense
-from app.artwork import embed_cover, fetch_cover_art
+from app.artwork import embed_cover, fetch_cover_art, fetch_url_image
 from app.beets_engine import LIBRARY_DIRECTORY, configure_beets
 from app.config import Settings, get_settings
 from app.db import Review, Store
@@ -478,6 +478,7 @@ class FingerprintTrustSession(ImportSession):
         gap_min: float = GAP_MIN,
         dominance_fn=fingerprint_dominance,
         art_fn=fetch_cover_art,
+        shazam_art_fn=fetch_url_image,
         date_fn=fetch_original_date,
         source_signals: SourceSignals | None = None,
         shazam_fn=None,
@@ -496,6 +497,9 @@ class FingerprintTrustSession(ImportSession):
         self.gap_min = gap_min
         self.dominance_fn = dominance_fn
         self.art_fn = art_fn
+        # T-222 (ADR-033): the cover fetcher for the Shazam/thumbnail source — a plain
+        # URL GET, distinct from `art_fn`'s CAA/iTunes release lookup. Injected for tests.
+        self.shazam_art_fn = shazam_art_fn
         self.date_fn = date_fn
         # R1.5 reconcile seam (T-204), each stubbable offline exactly as dominance_fn is.
         # source_signals is sense 1 (T-201); shazam_fn is sense 3 (T-202, called once per
@@ -524,6 +528,20 @@ class FingerprintTrustSession(ImportSession):
         # it (`_cached_track_for_id`) collapses the same-MBID-twice repeats T-218 caught
         # before they hit MusicBrainz's 1/sec limiter.
         self._trackinfo_cache: dict[str, object] = {}
+        # T-222 (ADR-033): the Shazam record for THIS track, gathered once in
+        # choose_item and reused everywhere — the reconcile evidence AND the land tail's
+        # tag/art source. Restores ADR-024's "Shazam every track": T-219's fast-path had
+        # stopped gathering it on the corroborated majority, but the tag/art reshape
+        # needs it in hand there too (the recognition is the cheap sense; the expensive
+        # ISRC + LLM steps the fast-path skips stay skipped). `None` until gathered / when
+        # no `shazam_fn` is wired (resolve + keep-untagged subclasses).
+        self.shazam_record: dict | None = None
+        # T-222: the resolved tag/art source per accepted task (keyed by id(task)) —
+        # `{"kind": "shazam"|"acoustid", "record": <shazam dict|None>}`. Kept beside
+        # `_accepted` rather than in its tuple so the resolve/keep-untagged subclasses'
+        # own accept/finalize paths (which never set it) are untouched and default to
+        # the AcoustID/MB behaviour. Read + cleared in finalize_outcomes.
+        self._tag_sources: dict[int, dict] = {}
 
     # --- the gate ---------------------------------------------------------
 
@@ -543,6 +561,7 @@ class FingerprintTrustSession(ImportSession):
         # `_park`'s correctness independent of that invariant rather than reliant on it.
         self.verdict = None
         self.reconcile_candidates = []
+        self.shazam_record = None
         try:
             dominance = self.dominance_fn(task.item.path)
         except AcoustidPermanentError as exc:
@@ -575,19 +594,32 @@ class FingerprintTrustSession(ImportSession):
 
         candidates = list(task.candidates or [])
 
+        # T-222 (ADR-033): gather Shazam ONCE per track, here, so every land path — the
+        # degrade gate, the T-219 fast-path, and the full reconcile gate — has the record
+        # in hand as its tag/art source. Only the cheap recognition runs here; the
+        # expensive ISRC resolve + LLM adjudication stay where they were (the fast-path
+        # still skips them). `recognize` is fail-soft (never raises), but a test double
+        # might, so guard it — a Shazam miss is a non-vote, never a crash.
+        self.shazam_record = self._gather_shazam()
+
         if self.reconcile_fn is None:
-            # No adjudicator wired (no ANTHROPIC_APIKEY, or a resolve/keep-untagged
-            # session) — R1's fingerprint-only gate, unchanged (spec §6 degrade row).
+            # No LLM adjudicator wired (no ANTHROPIC_APIKEY, or a resolve/keep-untagged
+            # session) — R1's fingerprint-only *land decision* (spec §6 degrade row). The
+            # DECISION is unchanged; the tag/art SOURCE is not: with Shazam now gathered
+            # above, a corroborated land here sources tags/art from the Shazam record like
+            # any other (ADR-033) — the degrade path loses the LLM, not the Shazam tags.
             return self._fingerprint_gate(task, dominance, candidates)
 
         # T-219 corroboration fast-path: land a dominant, source-corroborated fingerprint
-        # WITHOUT gathering the reconcile senses (Shazam/ISRC/LLM — the ~3–6s steady
+        # WITHOUT the EXPENSIVE reconcile senses (ISRC resolve + LLM — the ~3–6s steady
         # per-track cost, T-218). fp + yt agreeing is the 2-of-3 accept bar re-derived in
         # code (the same two senses `_agreeing_senses` would count), so it lands what the
         # gate lands on that evidence. It is NOT purely the gate minus latency: skipping
         # reconcile also drops the LLM's veto and the Shazam→ISRC correction for this
         # case — the deliberate T-219 trade, recorded and owner-adjudicated in ADR-032.
-        # Everything weaker falls through to the full gate below.
+        # (Shazam's own recognition IS now gathered above for the tag source — ADR-032
+        # amended by T-222; only the ISRC + LLM are skipped here.) Everything weaker
+        # falls through to the full gate below.
         fast = self._corroboration_fast_path(task, dominance, candidates)
         if fast is not None:
             return fast
@@ -728,29 +760,85 @@ class FingerprintTrustSession(ImportSession):
         release ids drive the cover-art fetch); the reconcile gate zeroes it when the
         fingerprint dissented, so art never comes from a recording we didn't land.
         """
-        # T-208 (load-bearing): re-hydrate a thin winner to full tags BEFORE anything
-        # reads it. Steps 2/3 make beets' candidates thin (track_id/title/artist/length
-        # only); the single recording that actually lands is re-fetched here — the one
-        # point both gates cross — so it can never write a file missing ISRC/genre/art
-        # silently. A hydration failure parks (never land thin); a full match (Step-1
-        # today, or a full winner) passes straight through.
-        full = self._ensure_full_match(task, match)
-        if full is None:
-            self._park(task, list(task.candidates or []), dominance)
-            return Action.SKIP
-        match = full
+        # T-222 (ADR-033): the tag/art SOURCE for this land — the accepted identity, not
+        # a MusicBrainz re-derivation. When Shazam is in hand AND corroborates the landed
+        # recording, its record is the source; otherwise (Shazam missed or named a
+        # different song) the AcoustID-only path re-hydrates from MusicBrainz as before.
+        # Decided here, BEFORE hydration, because the Shazam source skips it entirely.
+        source = self._resolve_tag_source(match)
+
+        if source["kind"] == "shazam":
+            # Override the applied identity's PATH-relevant tags (artist/album/title) with
+            # the Shazam record now, so beets organizes the file coherently with what will
+            # be written — year/genre/art are non-path and get set in finalize. No
+            # `_ensure_full_match`: the Shazam-backed land never touches MusicBrainz.
+            match = self._shazam_match(match, source["record"])
+        else:
+            # T-208 (load-bearing): re-hydrate a thin winner to full tags BEFORE anything
+            # reads it. Steps 2/3 make beets' candidates thin (track_id/title/artist/length
+            # only); the single recording that actually lands is re-fetched here — the one
+            # point both gates cross — so it can never write a file missing ISRC/genre/art
+            # silently. A hydration failure parks (never land thin); a full match (Step-1
+            # today, or a full winner) passes straight through.
+            full = self._ensure_full_match(task, match)
+            if full is None:
+                self._park(task, list(task.candidates or []), dominance)
+                return Action.SKIP
+            match = full
         match = canonicalize_credit(match)  # ADR-028 (T-308): fold before the match is applied
         existing = self._library_duplicates(match.info.track_id)
         if existing:
             return self._resolve_duplicate(task, existing, dominance)
         self._accepted.append((task, match, dominance))
+        self._tag_sources[id(task)] = source
         logger.info(
-            "accepting %s: recording=%s %s",
+            "accepting %s: recording=%s source=%s %s",
             self.staging_path,
             match.info.track_id,
+            source["kind"],
             detail,
         )
         return match
+
+    # --- T-222 tag/art source (the accepted identity, not a MB re-derivation) ---
+
+    def _resolve_tag_source(self, match) -> dict:
+        """Pick the tag/art source for an accepted `match` (ADR-033 decisions 1–2).
+
+        `{"kind": "shazam", "record": <record>}` when Shazam matched this track AND
+        corroborates the landed identity — its tags + `art_url` are then the source, no
+        MusicBrainz. Otherwise `{"kind": "acoustid", "record": None}` — Shazam missed or
+        named a different song, so the AcoustID-only path re-hydrates one `get_recording`
+        (the T-208 discipline) for tags + art. Corroboration — not a lone Shazam vote —
+        authorises trusting Shazam's tags (ADR-021: Shazam never lands alone; preserved).
+        """
+        record = self.shazam_record
+        if record and record.get("matched") and _shazam_corroborates(record, match.info):
+            return {"kind": "shazam", "record": record}
+        return {"kind": "acoustid", "record": None}
+
+    def _shazam_match(self, match, record: dict):
+        """`match` with its PATH-relevant tags overridden from the Shazam record (T-222).
+
+        Deep-copies the `TrackInfo` first (it can be a beets-cached object shared across
+        candidates — the same hazard `canonicalize_credit` guards) and sets
+        artist/album/title from Shazam, keeping the recording MBID (`track_id`) so dedup
+        and `mb_trackid` are unchanged. beets applies these onto the item and organizes
+        by them, so the folder matches the tags; year/genre/art (non-path) are set in
+        finalize. A field Shazam omits leaves the existing value rather than blanking it.
+        """
+        info = copy.deepcopy(match.info)
+        if record.get("shazam_artist"):
+            info.artist = record["shazam_artist"]
+        if record.get("shazam_title"):
+            info.title = record["shazam_title"]
+        if record.get("album"):
+            info.album = record["album"]
+        # Shazam's ISRC is authoritative — carry it so skipping the MB hydration doesn't
+        # drop the ISRC tag on the Shazam path (the mutagen writer, T-223, then owns it).
+        if record.get("isrc"):
+            info.isrc = record["isrc"]
+        return TrackMatch(match.distance, info, match.item)
 
     def _ensure_full_match(self, task, match):
         """Re-hydrate a thin candidate to a full `TrackInfo`, or `None` if it can't (T-208).
@@ -904,15 +992,36 @@ class FingerprintTrustSession(ImportSession):
 
     # --- sense gathering + adjudication (R1.5 T-204/T-205) ----------------
 
-    def _reconcile(self, task, dominance, candidates) -> _Reconciliation:
-        """Gather the senses, build augmented candidates, adjudicate → a `_Reconciliation`.
+    def _gather_shazam(self) -> dict | None:
+        """Recognise this track via Shazam, fail-soft — the tag/art source (T-222).
 
-        Order (spec §6): `shazam_fn` (once per track) → resolve its ISRC via `isrc_fn` →
-        build the augmented `candidates[]` (beets' MB candidates ++ the synthetic ISRC
-        entry *iff* the ISRC resolved) → `reconcile_fn(evidence)`. Only reached when a
-        `reconcile_fn` is wired (choose_item gates on that), so the sense-gathering never
-        runs on the R1/degrade path. `dominance` was already computed by the caller and
-        rides in the evidence.
+        Called once per track in choose_item so the record is in hand on every land
+        path. `recognize` (T-202) is already fail-soft with a hard timeout and never
+        raises, but a test double or a mis-wired fn might, so a failure here degrades to
+        `None` (a Shazam miss — the AcoustID-only tag path takes over) rather than crash
+        the gate. Returns `None` when no `shazam_fn` is wired (resolve/keep-untagged).
+        """
+        if not self.shazam_fn:
+            return None
+        try:
+            return self.shazam_fn(self.staging_path)
+        except Exception as exc:  # noqa: BLE001 — a Shazam failure is a non-vote, never a crash
+            logger.warning(
+                "shazam recognition raised for %s (%s) — treating as a miss",
+                self.staging_path,
+                exc,
+            )
+            return None
+
+    def _reconcile(self, task, dominance, candidates) -> _Reconciliation:
+        """Resolve the ISRC, build augmented candidates, adjudicate → a `_Reconciliation`.
+
+        Order (spec §6): the Shazam record (already gathered once in choose_item,
+        T-222) → resolve its ISRC via `isrc_fn` → build the augmented `candidates[]`
+        (beets' MB candidates ++ the synthetic ISRC entry *iff* the ISRC resolved) →
+        `reconcile_fn(evidence)`. Only reached when a `reconcile_fn` is wired (choose_item
+        gates on that). `dominance` was already computed by the caller and rides in the
+        evidence.
 
         Failure is never a silent land. A rejected/expired key (401/403) returns
         `degraded=True` → choose_item falls back to the R1 gate (spec §6 degrade). Any
@@ -920,7 +1029,7 @@ class FingerprintTrustSession(ImportSession):
         sense that raised — returns `verdict=None` → choose_item parks this one track.
         """
         try:
-            shazam_record = self.shazam_fn(self.staging_path) if self.shazam_fn else None
+            shazam_record = self.shazam_record
             isrc_recording = None
             if self.isrc_fn and shazam_record and shazam_record.get("matched"):
                 isrc_recording = self.isrc_fn(shazam_record.get("isrc"))
@@ -980,19 +1089,28 @@ class FingerprintTrustSession(ImportSession):
         """
         for task, match, dominance in self._accepted:
             skipped = bool(getattr(task, "skip", False))
+            source = self._tag_sources.get(id(task), {"kind": "acoustid", "record": None})
             if skipped:
                 logger.info(
                     "accepted %s but beets skipped it (duplicate) — not landed",
                     self.staging_path,
                 )
-            # ADR-014: MusicBrainz gives a singleton no year, so stamp the accepted
-            # recording's earliest release year onto the landed file. Before art so the
-            # tag write can't race the cover embed; only for a real landing.
+            # T-222 (ADR-033): year/genre are non-path tags, set here from the resolved
+            # source. Shazam-backed → the widened Shazam record (no MusicBrainz);
+            # AcoustID-only → the ADR-014 MusicBrainz release-year stamp, as before.
+            # Before art so the tag write can't race the cover embed; only for a landing.
             if not skipped:
-                self._stamp_original_year(task.item, match.info.track_id)
-            # Door B: fetchart skips singletons, so embed the cover ourselves — but
-            # only for a track that actually landed, and never let it un-land one.
-            art_embedded = False if skipped else self._embed_art(task.item, dominance)
+                if source["kind"] == "shazam":
+                    self._apply_shazam_year_genre(task.item, source["record"])
+                else:
+                    self._stamp_original_year(task.item, match.info.track_id)
+            # Door B: fetchart skips singletons, so embed the cover ourselves — but only
+            # for a track that actually landed, and never let it un-land one. The cover
+            # comes from the resolved source: Shazam's `art_url` → YouTube thumbnail
+            # (T-222), or the AcoustID recording's releases via Cover Art Archive.
+            art_embedded = False if skipped else self._embed_landed_art(
+                task.item, dominance, source
+            )
             # T-013 rich payloads, read at the one moment they're all true: post-run,
             # so task.item carries the applied tags AND its final organized path, and
             # match.info is the candidate we chose to apply. Only for a real landing —
@@ -1011,6 +1129,7 @@ class FingerprintTrustSession(ImportSession):
                 )
             )
         self._accepted.clear()
+        self._tag_sources.clear()
         return self.outcomes
 
     def _stamp_original_year(self, item, recording_id: str | None) -> None:
@@ -1079,6 +1198,73 @@ class FingerprintTrustSession(ImportSession):
         except Exception as exc:  # noqa: BLE001 — art must not un-land a track
             logger.warning(
                 "cover art failed for %s (%s) — landed without a cover",
+                self.staging_path,
+                exc,
+            )
+            return False
+
+    def _apply_shazam_year_genre(self, item, record: dict) -> None:
+        """Write the Shazam record's year + genre onto a landed item (T-222, ADR-033).
+
+        The non-path half of the Shazam tag source (artist/album/title already rode the
+        applied match). Year comes from the widened record (a 4-digit int, T-221); genre
+        from Shazam's `genres.primary`, overriding whatever `lastgenre` wrote (that plugin
+        is retired in T-224). Best-effort, mirroring `_stamp_original_year`: a write error
+        rolls the in-memory values back so the `track.done` payload never reports a tag the
+        file did not get, and never un-lands the track. A field Shazam omits is left as-is.
+        """
+        year = record.get("year")
+        genre = record.get("genre")
+        if not (year or genre):
+            return
+        prev = (
+            getattr(item, "year", 0),
+            getattr(item, "month", 0),
+            getattr(item, "day", 0),
+            getattr(item, "genre", None),
+        )
+        if year:
+            item.year = year
+            item.month = 0
+            item.day = 0
+        if genre:
+            item.genre = genre
+        try:
+            if callable(write := getattr(item, "try_write", None)):
+                write()
+            if callable(store := getattr(item, "store", None)):
+                store()
+        except Exception as exc:  # noqa: BLE001 — persisting tags is best-effort, never fatal
+            item.year, item.month, item.day, item.genre = prev
+            logger.warning(
+                "could not persist Shazam year/genre for %s (%s) — reporting the prior tags",
+                self.staging_path,
+                exc,
+            )
+
+    def _embed_landed_art(self, item, dominance: Dominance, source: dict) -> bool:
+        """Embed a cover from the resolved tag source. Best-effort (Door B, T-222).
+
+        Shazam-backed → Shazam's `art_url` (the `coverarthq` already fetched), falling
+        back to the YouTube thumbnail — both plain URLs, no release-picking, which is what
+        removes the wrong-cover class. AcoustID-only → the existing Cover Art Archive /
+        iTunes fetch by the landed recording's releases. Broad except like `_embed_art`:
+        art is decorative, so any failure logs and yields False, never un-lands a track.
+        """
+        if source["kind"] != "shazam":
+            return self._embed_art(item, dominance)
+        record = source["record"] or {}
+        try:
+            image = self.shazam_art_fn(record.get("art_url"))
+            if not image:
+                image = self.shazam_art_fn(_thumbnail_url(self.source_signals))
+            if not image:
+                return False
+            embed_cover(item, image, log=logger)
+            return True
+        except Exception as exc:  # noqa: BLE001 — art must not un-land a track
+            logger.warning(
+                "shazam cover failed for %s (%s) — landed without a cover",
                 self.staging_path,
                 exc,
             )
@@ -1288,6 +1474,33 @@ def items_for_recording(lib, recording_id: str | None) -> list:
     if lib is None or not recording_id:
         return []
     return list(lib.items(dbcore.query.MatchQuery("mb_trackid", recording_id)))
+
+
+def _shazam_corroborates(record: dict, info) -> bool:
+    """Does the Shazam `record` support the landed identity `info` on artist AND title?
+
+    A pure function of `(record, info)` — the re-derived "Shazam is among the agreeing
+    senses" test for the land tail. A loose alnum-fold match (`normalize.loose_match`, the
+    shared sense-gate matcher) of the record's artist/title against the recording being
+    landed; BOTH must match. A Shazam that named a different song (the cover-over-a-master
+    case) does NOT corroborate and its tags are not trusted; the ISRC-sourced land IS
+    Shazam's own identity, so it matches by construction.
+    """
+    return bool(
+        normalize.loose_match(record.get("shazam_artist"), getattr(info, "artist", None))
+        and normalize.loose_match(record.get("shazam_title"), getattr(info, "title", None))
+    )
+
+
+def _thumbnail_url(signals: SourceSignals | None) -> str | None:
+    """The YouTube thumbnail URL for a source's video — the T-222 art fallback.
+
+    `hqdefault.jpg` always exists for a valid video id (unlike `maxresdefault`, which
+    404s on older uploads). Centre-cropping it to a square is deferred to the mutagen
+    writer (T-223); here it is only the fallback cover URL when Shazam has no `art_url`.
+    """
+    video_id = getattr(signals, "video_id", None) if signals else None
+    return f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg" if video_id else None
 
 
 def _matching_candidate(candidates, recording_ids: tuple[str, ...]):
@@ -2060,9 +2273,11 @@ def import_song(
         )
 
     # R1.5 reconcile seam (T-204). The default reconcile_fn is built from the owner's
-    # ANTHROPIC_APIKEY (T-200); absent, make_reconcile_fn returns None and the seam never
-    # gathers a sense — the R1 gate runs exactly as before. shazam_fn/isrc_fn default to
-    # the real senses; they only fire once a reconcile_fn exists (see `_reconcile`).
+    # ANTHROPIC_APIKEY (T-200); absent, make_reconcile_fn returns None and the LLM
+    # *adjudication* never runs — the R1 land decision applies (spec §6 degrade). shazam_fn
+    # / isrc_fn default to the real senses. T-222 (ADR-033): shazam_fn now fires on EVERY
+    # track (the tag/art source, gathered in choose_item, independent of reconcile_fn);
+    # isrc_fn still fires only inside `_reconcile`, so only when a reconcile_fn exists.
     if reconcile_fn is None:
         reconcile_fn = reconcile_seam.make_reconcile_fn(s)
     if shazam_fn is None:

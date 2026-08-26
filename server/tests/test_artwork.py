@@ -14,7 +14,13 @@ from pathlib import Path
 
 import pytest
 
-from app.artwork import _MAX_CAA_RELEASES, _image_suffix, embed_cover, fetch_cover_art
+from app.artwork import (
+    _MAX_CAA_RELEASES,
+    _image_suffix,
+    embed_cover,
+    fetch_cover_art,
+    fetch_url_image,
+)
 
 
 def test_image_suffix_detects_png_vs_jpeg():
@@ -51,6 +57,39 @@ class _FakeHTTP:
     def get(self, url, **kwargs):
         self.urls.append(url)
         return self.handler(url, kwargs)
+
+
+def test_fetch_url_image_returns_bytes_on_200():
+    # T-222: the Shazam art_url / thumbnail source is a single validated GET.
+    http = _FakeHTTP(lambda url, kw: _Resp(200, b"\xff\xd8SHAZAM-JPEG"))
+    assert fetch_url_image("https://shz/cover.jpg", http=http) == b"\xff\xd8SHAZAM-JPEG"
+    assert http.urls == ["https://shz/cover.jpg"]
+
+
+def test_fetch_url_image_none_url_makes_no_request():
+    http = _FakeHTTP(lambda url, kw: _Resp(200, b"x"))
+    assert fetch_url_image(None, http=http) is None
+    assert http.urls == []  # a missing art_url never hits the network
+
+
+def test_fetch_url_image_returns_none_on_error_status():
+    http = _FakeHTTP(lambda url, kw: _Resp(404, b""))
+    assert fetch_url_image("https://shz/missing.jpg", http=http) is None
+
+
+def test_fetch_url_image_rejects_a_200_non_image_body():
+    # A soft-404: HTTP 200 whose body is HTML, not an image — must not be embedded.
+    http = _FakeHTTP(lambda url, kw: _Resp(200, b"<!doctype html><html>not found</html>"))
+    assert fetch_url_image("https://shz/soft404.jpg", http=http) is None
+
+
+def test_fetch_url_image_swallows_network_error():
+    import requests
+
+    def boom(url, kw):
+        raise requests.ConnectionError("down")
+
+    assert fetch_url_image("https://shz/x.jpg", http=_FakeHTTP(boom)) is None
 
 
 def test_fetch_prefers_cover_art_archive():

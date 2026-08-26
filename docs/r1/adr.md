@@ -1183,6 +1183,14 @@ Format: `ADR-NNN — decision. Rationale. [date]`
     the point above, which the owner adjudicates). Unit-level additivity is proved by the fall-through tests
     (`test_fast_path_falls_through_*`) and the no-LLM land test (`test_fast_path_dominant_fp_and_yt_agree_lands_without_llm`).
     T-035 (Shazam fallback tier) is the orthogonal coverage sibling, unaffected. [2026-08-25]
+  - **AMENDED by T-222 (ADR-033), 2026-08-26 — the fast-path now gathers Shazam.** The "no Shazam call"
+    above was the T-219 latency win *before* Shazam became the tag/art source of record. T-220/ADR-033 needs
+    the Shazam record in hand on the corroborated majority (it is where tags + the correct cover come from),
+    so `choose_item` now runs the **cheap Shazam recognition on every track** (restoring ADR-024's letter).
+    **What the fast-path still skips is the *expensive* part** — the ISRC resolve and the LLM adjudication —
+    so the veto/override trade above stands exactly as written; only the recognition (a ~1–2s subprocess) is
+    added back. The land *decision* is unchanged (still fp+yt, no Verdict). Owner-approved on the T-222 build,
+    2026-08-26. [amended 2026-08-26]
 
 - **ADR-033 — Shazam is the tag + art source of record; retire beets from tag-writing (mutagen writes);
   MusicBrainz kept only as a thin, rare AcoustID-only fallback. Reverses ADR-005; supersedes the R1.5
@@ -1244,3 +1252,13 @@ Format: `ADR-NNN — decision. Rationale. [date]`
   the corpus land/park + tag + timing side-by-side, owner-adjudicated; expected result is materially
   faster, artwork correct on landed tracks, identification outcomes unchanged modulo the accepted
   tag-source change. (Owner ratified 2026-08-26 on the T-220 spec gate.) [2026-08-26]
+
+  - **Build note (T-222, 2026-08-26): a premise correction, owner-approved.** This ADR's preamble assumed
+    Shazam "already runs on every track", but T-219 (ADR-032) had stopped gathering it on the corroborated
+    majority (the fast-path returned before `_reconcile`). Since decisions 1 + 5 need the Shazam record in
+    hand *there*, T-222 restores Shazam-every-track: `choose_item` gathers the record once, up front, reused
+    by the fast-path, the degrade gate, and the reconcile evidence. The **land decision is still unchanged**
+    (fp+yt, no Verdict) and the fast-path still skips the expensive ISRC + LLM steps — only the cheap
+    recognition returns to the fast-path (ADR-032 amended to match). So "the T-219 fast-path is unchanged"
+    above should read: *its land decision and its skip of the LLM are unchanged; its Shazam gather is
+    restored*. [2026-08-26]

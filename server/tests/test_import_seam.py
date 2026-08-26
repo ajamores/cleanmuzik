@@ -328,6 +328,9 @@ def _session(store, dominance, **kw):
     # Default art_fn returns nothing so decision tests never touch the network;
     # art-specific tests override it.
     kw.setdefault("art_fn", lambda **_: None)
+    # T-222: the Shazam/thumbnail cover fetcher, defaulted offline too so a
+    # Shazam-source land never reaches the real network; art tests override it.
+    kw.setdefault("shazam_art_fn", lambda *_a, **_k: None)
     # date_fn no-op by default so decision tests never touch MusicBrainz; the
     # year tests inject their own.
     kw.setdefault("date_fn", lambda _rid: (None, None, None))
@@ -729,6 +732,7 @@ def _lib_with(*items) -> library.Library:
 def _session_with_lib(store, dominance, lib, **kw):
     job = store.create_job("https://youtu.be/x")
     kw.setdefault("art_fn", lambda **_: None)
+    kw.setdefault("shazam_art_fn", lambda *_a, **_k: None)  # T-222: offline by default
     # date_fn no-op by default so decision tests never touch MusicBrainz; the
     # year tests inject their own.
     kw.setdefault("date_fn", lambda _rid: (None, None, None))
@@ -859,14 +863,19 @@ def test_choose_item_dedup_single_outcome_then_finalize(store):
 from app.reconcile import Verdict  # noqa: E402
 
 
-def _matched_shazam(isrc="GB123"):
+def _matched_shazam(isrc="GB123", art_url="https://shz/cover.jpg"):
+    # The widened T-221 record: album/year/genre now ride alongside, and art_url
+    # carries a real cover so the T-222 Shazam art path has something to embed.
     return {
         "matched": True,
         "shazam_artist": "Pa Salieu",
         "shazam_title": "Frontline",
         "isrc": isrc,
-        "art_url": None,
+        "art_url": art_url,
         "lyrics": None,
+        "album": "Send Them to Coventry",
+        "year": 2020,
+        "genre": "Hip-Hop/Rap",
         "error": None,
     }
 
@@ -1008,11 +1017,15 @@ def _isrc_recording(mbid="mb-real", artist="Pa Salieu", title="Frontline"):
     return SimpleNamespace(mbid=mbid, artist=artist, title=title)
 
 
-def test_fast_path_dominant_fp_and_yt_agree_lands_without_llm(store):
+def test_fast_path_dominant_fp_and_yt_agree_lands_without_llm(store, monkeypatch):
     # T-219: a dominant fingerprint whose recording is a beets candidate AND whose
     # artist/title the YouTube source corroborates is fp+yt = the 2-of-3 bar in code —
-    # so the ~3-6s reconcile LLM (and Shazam) is skipped entirely and the track lands.
+    # so the ~3-6s reconcile LLM (and the ISRC resolve) is skipped entirely and the track
+    # lands. T-222 (ADR-033): Shazam IS now gathered once here (the cheap recognition is
+    # the land tail's tag/art source), but the expensive LLM + ISRC stay skipped.
+    monkeypatch.setattr(seam, "embed_cover", lambda item, img, **k: True)
     art_seen: list = []
+    shz_art_seen: list = []
     reconcile_calls: list = []
     shazam_calls: list = []
     session = _session(
@@ -1024,6 +1037,7 @@ def test_fast_path_dominant_fp_and_yt_agree_lands_without_llm(store):
         reconcile_fn=lambda ev: reconcile_calls.append(ev)
         or Verdict(verdict="park", chosen_candidate=None),  # would park — must not run
         art_fn=lambda **kw: art_seen.append(kw.get("release_ids")) or None,
+        shazam_art_fn=lambda url: shz_art_seen.append(url) or b"\xff\xd8jpeg",
     )
 
     choice = session.choose_item(_rich_task([("rec-A", "Pa Salieu", "Frontline")]))
@@ -1032,12 +1046,133 @@ def test_fast_path_dominant_fp_and_yt_agree_lands_without_llm(store):
     assert choice.info.track_id == "rec-A"
     assert outcomes[-1].action == "landed"
     assert reconcile_calls == []  # the LLM was never consulted
-    assert shazam_calls == []  # nor was sense 3 gathered — the whole reconcile is skipped
-    assert session.verdict is None  # a fast-path land produces no Verdict
-    # fp backs the chosen recording → the real dominance is carried (correct art source).
+    assert shazam_calls == [1]  # sense 3 IS gathered once (T-222 tag/art source), but ...
+    assert session.verdict is None  # a fast-path land produces no Verdict (LLM skipped)
     assert outcomes[-1].top_score == 0.95
-    assert art_seen == [("rel-A",)]  # cover fetched by the landed recording's releases
+    # T-222: Shazam corroborates the fp land, so tags + art come from its record —
+    # NOT MusicBrainz. The cover is Shazam's art_url; the CAA/release fetch is untouched.
+    assert art_seen == []  # the release-id cover fetch never ran
+    assert shz_art_seen == ["https://shz/cover.jpg"]  # cover from Shazam's art_url
+    # artist/album/title ride the applied match (beets' apply sets them on the file in a
+    # real run) — assert them on `chosen`; year/genre are set on the item in finalize.
+    assert outcomes[-1].chosen["artist"] == "Pa Salieu"
+    assert outcomes[-1].chosen["album"] == "Send Them to Coventry"
+    assert outcomes[-1].tags["year"] == 2020
+    assert outcomes[-1].tags["genre"] == "Hip-Hop/Rap"
+    assert outcomes[-1].art_embedded is True
     assert store.list_reviews() == []
+
+
+def test_degrade_gate_still_sources_tags_from_shazam(store, monkeypatch):
+    # T-222 (ADR-033): with no reconcile_fn wired (no ANTHROPIC_APIKEY — the spec §6
+    # degrade path), the R1 fingerprint gate makes the land DECISION, but the tag/art
+    # SOURCE is still Shazam when it corroborates. The degrade path loses the LLM, not the
+    # Shazam tags — Shazam is gathered on every track independent of reconcile_fn.
+    monkeypatch.setattr(seam, "embed_cover", lambda item, img, **k: True)
+    shz_art_seen: list = []
+    art_seen: list = []
+    session = _session(
+        store,
+        Dominance(0.96, 0.30, ("rec-A",), ("rel-A",)),
+        source_signals=_signals("Pa Salieu", "Frontline"),
+        shazam_fn=lambda _p: _matched_shazam(),  # corroborates the fp land
+        reconcile_fn=None,  # DEGRADE: no LLM adjudicator
+        art_fn=lambda **kw: art_seen.append(kw.get("release_ids")) or None,
+        shazam_art_fn=lambda url: shz_art_seen.append(url) or b"\xff\xd8jpeg",
+    )
+
+    choice = session.choose_item(_rich_task([("rec-A", "Pa Salieu", "Frontline")]))
+    outcomes = session.finalize_outcomes()
+
+    assert choice.info.track_id == "rec-A"
+    assert outcomes[-1].action == "landed"
+    assert session.verdict is None  # no LLM ran
+    assert art_seen == []  # the release-id cover fetch never ran — Shazam is the source
+    assert shz_art_seen == ["https://shz/cover.jpg"]  # cover from Shazam's art_url
+    assert outcomes[-1].chosen["album"] == "Send Them to Coventry"
+
+
+def test_shazam_land_falls_back_to_youtube_thumbnail_when_no_art_url(store, monkeypatch):
+    # T-222: a Shazam-corroborated land whose record has no art_url embeds the YouTube
+    # thumbnail (built from the source's video_id) instead — the documented fallback tier.
+    monkeypatch.setattr(seam, "embed_cover", lambda item, img, **k: True)
+    shz_art_seen: list = []
+    session = _session(
+        store,
+        Dominance(0.95, 0.20, ("rec-A",), ("rel-A",)),
+        source_signals=_signals("Pa Salieu", "Frontline"),  # video_id="vid"
+        shazam_fn=lambda _p: _matched_shazam(art_url=None),  # no Shazam cover
+        isrc_fn=lambda _isrc: None,
+        reconcile_fn=lambda _ev: Verdict(verdict="park", chosen_candidate=None),
+        shazam_art_fn=lambda url: shz_art_seen.append(url)
+        or (b"\xff\xd8thumb" if url and "ytimg" in url else None),
+    )
+
+    session.choose_item(_rich_task([("rec-A", "Pa Salieu", "Frontline")]))
+    outcomes = session.finalize_outcomes()
+
+    assert outcomes[-1].action == "landed"
+    # tried art_url (None) first, then the thumbnail built from the video id
+    assert shz_art_seen == [None, "https://i.ytimg.com/vi/vid/hqdefault.jpg"]
+    assert outcomes[-1].art_embedded is True
+
+
+def test_fast_path_acoustid_only_source_when_shazam_missed(store):
+    # T-222 (ADR-033 decision 2): Shazam missed, so the fp+yt land still fires but the tag/
+    # art source is the AcoustID recording — one get_recording hydration (T-208, no
+    # fan-out) for tags + Cover Art Archive by the landed recording's releases. Shazam's
+    # art path is NOT taken. This is the Shazam-miss minority that preserves AcoustID's
+    # unique coverage without reintroducing a per-track MusicBrainz cost on the majority.
+    art_seen: list = []
+    shz_art_seen: list = []
+    session = _session(
+        store,
+        Dominance(0.95, 0.20, ("rec-A",), ("rel-A",)),
+        source_signals=_signals("Pa Salieu", "Frontline"),
+        shazam_fn=lambda _p: {"matched": False, "error": "no match"},
+        isrc_fn=lambda _isrc: None,
+        reconcile_fn=lambda _ev: Verdict(verdict="park", chosen_candidate=None),
+        art_fn=lambda **kw: art_seen.append(kw.get("release_ids")) or None,
+        shazam_art_fn=lambda url: shz_art_seen.append(url) or b"img",
+        date_fn=lambda _rid: (1996, None, None),  # AcoustID path keeps the MB year (→ T-224)
+    )
+
+    choice = session.choose_item(_rich_task([("rec-A", "Pa Salieu", "Frontline")]))
+    outcomes = session.finalize_outcomes()
+
+    assert choice.info.track_id == "rec-A"
+    assert outcomes[-1].action == "landed"
+    assert art_seen == [("rel-A",)]  # cover fetched by the landed recording's releases (CAA)
+    assert shz_art_seen == []  # the Shazam art path was NOT taken
+    assert outcomes[-1].tags["year"] == 1996  # MB original-year stamp (AcoustID-only path)
+
+
+def test_shazam_disagreement_falls_back_to_the_acoustid_source(store):
+    # Safety (ADR-033): Shazam MATCHED but named a different song than the landed identity
+    # → it does not corroborate, so its tags are NOT trusted and the land uses the AcoustID
+    # source instead. Corroboration, not a lone Shazam vote, authorises Shazam's tags.
+    art_seen: list = []
+    shz_art_seen: list = []
+    disagreeing = _matched_shazam()
+    disagreeing.update(shazam_artist="Someone Else", shazam_title="Other Song")
+    session = _session(
+        store,
+        Dominance(0.95, 0.20, ("rec-A",), ("rel-A",)),
+        source_signals=_signals("Pa Salieu", "Frontline"),
+        shazam_fn=lambda _p: disagreeing,
+        isrc_fn=lambda _isrc: None,
+        reconcile_fn=lambda _ev: Verdict(verdict="park", chosen_candidate=None),
+        art_fn=lambda **kw: art_seen.append(kw.get("release_ids")) or None,
+        shazam_art_fn=lambda url: shz_art_seen.append(url) or b"img",
+        date_fn=lambda _rid: (1996, None, None),
+    )
+
+    session.choose_item(_rich_task([("rec-A", "Pa Salieu", "Frontline")]))
+    outcomes = session.finalize_outcomes()
+
+    assert outcomes[-1].action == "landed"
+    assert art_seen == [("rel-A",)]  # AcoustID source: CAA by release, not Shazam's art_url
+    assert shz_art_seen == []  # a disagreeing Shazam never supplies the cover
 
 
 def test_gate_accept_lands_via_yt_sz_when_fp_absent(store):
@@ -1139,11 +1274,14 @@ def test_fast_path_falls_through_when_no_source_signals(store):
 def test_gate_lands_the_isrc_correction_when_fp_dissents(store, monkeypatch):
     # Pa Salieu: the fingerprint points at the WRONG recording, but yt + Shazam both back
     # the ISRC-sourced candidate (a real MBID) → land the correction, not the fp's choice.
-    # And the WRONG recording's cover art must NOT be embedded: because the fingerprint
-    # dissented, the landed dominance is zeroed so art falls back to artist/title (F2).
+    # T-222: the landed identity IS Shazam's own (via ISRC), so Shazam corroborates and its
+    # record is the tag/art source — the wrong recording's release cover is never even
+    # considered (the CAA fetch never runs), which is a cleaner guarantee than the old
+    # zeroed-dominance fallback.
     resolved = SimpleNamespace(track_id="mb-real", artist="Pa Salieu", title="Frontline")
     monkeypatch.setattr(seam.metadata_plugins, "track_for_id", lambda *_a, **_k: resolved)
     art_seen: list = []
+    shz_art_seen: list = []
 
     session = _session(
         store,
@@ -1157,6 +1295,7 @@ def test_gate_lands_the_isrc_correction_when_fp_dissents(store, monkeypatch):
             agreeing_senses=["yt", "sz"],
         ),
         art_fn=lambda **kw: art_seen.append(kw.get("release_ids")) or None,
+        shazam_art_fn=lambda url: shz_art_seen.append(url) or b"\xff\xd8jpeg",
     )
 
     choice = session.choose_item(_rich_task([("rec-wrong", "Wrong", "Song")]))
@@ -1166,7 +1305,8 @@ def test_gate_lands_the_isrc_correction_when_fp_dissents(store, monkeypatch):
     assert outcomes[-1].action == "landed"
     assert outcomes[-1].track_id == "mb-real"
     assert outcomes[-1].top_score == 0.0  # landed dominance zeroed (fp dissented)
-    assert art_seen == [()]  # NO release ids — never rec-wrong's ("rel-wrong")
+    assert art_seen == []  # the wrong recording's release cover was never fetched
+    assert shz_art_seen == ["https://shz/cover.jpg"]  # cover from Shazam's art_url
 
 
 def test_gate_land_lookup_failure_parks_not_errors(store, monkeypatch):

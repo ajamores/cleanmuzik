@@ -65,6 +65,21 @@ def _image_suffix(image_bytes: bytes) -> str:
     return ".png" if image_bytes[:8] == _PNG_MAGIC else ".jpg"
 
 
+def _looks_like_image(data: bytes) -> bool:
+    """True when `data` starts with a known cover-image magic signature.
+
+    Guards the plain-URL fetch (`fetch_url_image`): a Shazam `art_url` or a YouTube
+    thumbnail can 200 with an HTML soft-404 body, which must not be embedded as a cover.
+    JPEG / PNG / GIF / WebP cover the formats these sources actually serve.
+    """
+    return (
+        data[:2] == b"\xff\xd8"  # JPEG
+        or data[:8] == _PNG_MAGIC  # PNG
+        or data[:4] == b"GIF8"  # GIF
+        or (data[:4] == b"RIFF" and data[8:12] == b"WEBP")  # WebP
+    )
+
+
 def _itunes_url_candidates(url100: str) -> list[str]:
     """High-res-first URL list from an `artworkUrl100`.
 
@@ -156,6 +171,40 @@ def fetch_cover_art(
             break  # right artist, but its art wouldn't fetch — don't try other hits
 
     logger.info("no cover art found for %s — %s", artist, title)
+    return None
+
+
+def fetch_url_image(
+    url: str | None,
+    *,
+    timeout: int = 5,
+    http=requests,
+) -> bytes | None:
+    """Return image bytes from a plain cover URL, or None — the T-222 art source.
+
+    ADR-033 makes Shazam's `art_url` (the `coverarthq` we already fetch every track)
+    the cover of record for a Shazam-corroborated land, with the YouTube thumbnail as
+    the fallback. Both are plain image URLs — no CAA release-picking, which is the
+    wrong-cover class this replaces — so this is a single validated GET. Best-effort,
+    like `fetch_cover_art`: any network/parse failure logs and returns None (art is
+    decorative; a hiccup must never un-land a track). `http` is injectable for tests.
+    """
+    if not url:
+        return None
+    try:
+        resp = http.get(url, headers=_UA, timeout=timeout, allow_redirects=True)
+    except requests.RequestException as exc:
+        logger.debug("cover URL fetch failed (%s): %s", url, exc)
+        return None
+    if resp.status_code == 200 and resp.content:
+        if not _looks_like_image(resp.content):
+            # A 200 that isn't an image — a soft-404 HTML body, an expired-URL page.
+            # Never embed it as a cover; treat it as no art.
+            logger.debug("cover URL returned a non-image body (%s) — ignoring", url)
+            return None
+        logger.info("cover art from URL (%s)", url)
+        return resp.content
+    logger.debug("cover URL returned no image (%s, status %s)", url, resp.status_code)
     return None
 
 
