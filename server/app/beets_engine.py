@@ -16,8 +16,14 @@ CLI) shape every line below:
      plugin list must lead with `musicbrainz` (ADR-007).
 
 Call `configure_beets()` once at startup, then `smoke_check()` for a boot receipt
-that all six plugins loaded and `chroma` can reach `fpcalc` (the Chromaprint
+that the loaded plugins are present and `chroma` can reach `fpcalc` (the Chromaprint
 binary it shells out to). Both are safe to call more than once.
+
+T-224 (ADR-033) retired beets from tag-writing: the `lastgenre` / `fetchart` /
+`embedart` / `lyrics` plugins are gone — genre + lyrics come from the Shazam record
+and the cover + all tags are written by mutagen (`app/tagwriter.py`). Only the three
+plugins beets still needs as the *import framework* remain: `musicbrainz` (candidate
+hydration), `chroma` (fingerprint candidates), and `ftintitle` (feat. fold, ADR-012).
 """
 
 import logging
@@ -44,23 +50,25 @@ PATHS = {
     "comp": "Compilations/$album%aunique{}/$track $title",
 }
 
-# Order matters: `musicbrainz` must precede `chroma` (ADR-007). The first six are
-# the spec §2 identify/tag/art/lyrics set. `ftintitle` is the one deliberate
-# addition outside it (ADR-012): without it a collaboration's artist field keeps
-# MusicBrainz's credit phrase, and `PATHS["singleton"]` turns every "A feat. B"
-# into its own Jellyfin artist.
+# Order matters: `musicbrainz` must precede `chroma` (ADR-007). These three are all
+# beets still runs: `chroma` fingerprints → candidate recordings, `musicbrainz`
+# hydrates the winner, and `ftintitle` (ADR-012) folds a featured artist out of the
+# artist field so `PATHS["singleton"]` doesn't name a folder after "A feat. B".
+#
+# T-224 (ADR-033): the tag/art plugins — `lastgenre` (genre → Last.fm), `fetchart` +
+# `embedart` (cover), `lyrics` — are RETIRED. Genre and lyrics now come from the Shazam
+# record; the cover and every tag are written by mutagen (`app/tagwriter.py`). beets no
+# longer writes tags (import `write` is off, `_configure_import_options`); it remains
+# only as the import framework (candidates + organize + dedup). Full removal is a
+# separate future sub-wave (see T-226) — this ticket drops only the dead tag plugins.
 PLUGINS = [
     "musicbrainz",
     "chroma",
-    "lastgenre",
-    "fetchart",
-    "embedart",
-    "lyrics",
     "ftintitle",
 ]
 
 # Set once configure_beets() has run so it's idempotent at *our* layer too (beets'
-# load_plugins is already guarded, but we also mutate global config + LASTFM_KEY).
+# load_plugins is already guarded, but we also mutate the global config).
 _configured = False
 
 
@@ -111,12 +119,8 @@ def configure_beets(settings: Settings | None = None):
         # chroma uses this for AcoustID *submission*; lookups use beets' built-in
         # key. Setting it raises rate limits when provided (spec §6).
         config["acoustid"]["apikey"].set(s.acoustid_apikey)
-    if s.lastfm_apikey:
-        # lastgenre binds its Last.fm key from the module global
-        # `beets.plugins.LASTFM_KEY` at import time — NOT from user config — so the
-        # override must land BEFORE load_plugins() imports the plugin. Absent →
-        # beets' built-in key stands and genre is still fetched.
-        plugins.LASTFM_KEY = s.lastfm_apikey
+    # T-224 (ADR-033): the Last.fm key wiring (`plugins.LASTFM_KEY`) is gone with the
+    # `lastgenre` plugin — genre now comes from the Shazam record, not Last.fm.
 
     # ADR-007: the library API never auto-loads plugins. Without this call chroma
     # never runs and singleton lookup degrades to tag-only. `load_plugins()` reads
@@ -192,7 +196,7 @@ def _resolve_fpcalc() -> tuple[str | None, str | None]:
 
 
 def smoke_check(settings: Settings | None = None) -> SmokeResult:
-    """Confirm all six plugins loaded and chroma can reach `fpcalc`.
+    """Confirm the `PLUGINS` set loaded and chroma can reach `fpcalc`.
 
     Non-raising: returns a `SmokeResult` whose `problems` list is empty iff the
     engine is fully wired. The startup hook logs it; a test can assert on it.

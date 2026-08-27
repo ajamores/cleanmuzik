@@ -1101,13 +1101,14 @@ class FingerprintTrustSession(ImportSession):
                     "accepted %s but beets skipped it (duplicate) — not landed",
                     self.staging_path,
                 )
-            # T-222 (ADR-033): year/genre are non-path tags, resolved onto the item
+            # T-222 (ADR-033): year/genre/lyrics are non-path tags, resolved onto the item
             # in-memory from the source (no file write here — the mutagen writer below
             # persists them). Shazam-backed → the widened Shazam record (no MusicBrainz);
-            # AcoustID-only → the ADR-014 MusicBrainz release-year stamp, as before.
+            # AcoustID-only → the ADR-014 MusicBrainz release-year stamp, as before (and no
+            # genre/lyrics — with the plugins gone, Shazam is the only free source, T-224).
             if not skipped:
                 if source["kind"] == "shazam":
-                    self._apply_shazam_year_genre(task.item, source["record"])
+                    self._apply_shazam_tags(task.item, source["record"])
                 else:
                     self._stamp_original_year(task.item, match.info.track_id)
             # T-223 (ADR-033): the ONE write on the land path — mutagen writes the
@@ -1149,7 +1150,7 @@ class FingerprintTrustSession(ImportSession):
         value onto the item that `_landed_tags` and the writer both read. Best-effort: a
         lookup failure or a recording with no dated release leaves the year blank and logs,
         never un-landing a correctly-tagged song. The AcoustID-only tag source; the Shazam
-        source uses `_apply_shazam_year_genre` instead.
+        source uses `_apply_shazam_tags` instead.
         """
         try:
             year, month, day = self.date_fn(recording_id)
@@ -1171,14 +1172,19 @@ class FingerprintTrustSession(ImportSession):
         item.month = month or 0
         item.day = day or 0
 
-    def _apply_shazam_year_genre(self, item, record: dict) -> None:
-        """Set the Shazam record's year + genre on a landed item (T-222/T-223, ADR-033).
+    def _apply_shazam_tags(self, item, record: dict) -> None:
+        """Set the Shazam record's year + genre + lyrics on a landed item (ADR-033).
 
         The non-path half of the Shazam tag source (artist/album/title already rode the
         applied match). Year comes from the widened record (a 4-digit int, T-221); genre
-        from Shazam's `genres.primary`. In-memory only — the mutagen writer (T-223)
-        persists both, so there is no separate file write to roll back here. A field
-        Shazam omits is left as-is.
+        from Shazam's `genres.primary`; lyrics from the record's LYRICS section (clean
+        plain lines, T-221). In-memory only — the mutagen writer (T-223) persists all
+        three, so there is no separate file write to roll back here. A field Shazam omits
+        is left as-is.
+
+        Genre and lyrics used to come from the `lastgenre` / `lyrics` beets plugins;
+        T-224 (ADR-033 decision 4) retires them, so the Shazam record is now the only free
+        source for both — "write what Shazam supplies free, never a standalone fetcher".
         """
         if record.get("year"):
             item.year = record["year"]
@@ -1186,6 +1192,8 @@ class FingerprintTrustSession(ImportSession):
             item.day = 0
         if record.get("genre"):
             item.genre = record["genre"]
+        if record.get("lyrics"):
+            item.lyrics = record["lyrics"]
 
     def _resolve_cover(self, item, dominance: Dominance, source: dict) -> bytes | None:
         """Fetch cover bytes from the resolved tag source (Door B, T-223). Best-effort.
@@ -1716,13 +1724,13 @@ def _chosen_tags(info) -> dict:
 def _genre_on_disk(item) -> str | None:
     """The genre tag read back off the landed file — the authoritative value (T-309).
 
-    `lastgenre`'s write does not reliably reach the in-memory `item.genre` by the time
-    the seam snapshots the receipt (T-103: `item.genre` was None while the landed file
-    on disk carried `'Soul'`), so `track.done` claimed "no genre" on a file that had
-    one. The file is the truth: read the tag straight off it. Best-effort and guarded
-    like the other read-off-disk helpers — a missing path or read error degrades to the
-    in-memory field rather than lying either way (a bare genre is a documented degrade,
-    spec §6, not a failure).
+    Genre is now the Shazam record's genre, stamped by the mutagen writer (T-224/ADR-033;
+    it used to be `lastgenre`'s Last.fm write). Reading it back off the file is still the
+    truth of "what actually landed" — robust to any drift between the in-memory `item.genre`
+    and the bytes on disk (the T-103 discrepancy that motivated this: `item.genre` None
+    while the file carried `'Soul'`). Best-effort and guarded like the other read-off-disk
+    helpers — a missing path or read error degrades to the in-memory field rather than
+    lying either way (a bare/absent genre is a documented degrade, spec §6, not a failure).
 
     Disk wins when it carries a genre, but a *bare* disk tag does not shadow a present
     in-memory value: report a genre if either source has one (T-309, review Finding 3).
@@ -1743,11 +1751,11 @@ def _genre_on_disk(item) -> str | None:
 def _landed_tags(item, has_art: bool) -> dict:
     """spec §6 `track.done.tags`: what actually landed on the file, post-organize.
 
-    `genre` is whatever `lastgenre` wrote, read back OFF THE LANDED FILE (T-309) — the
-    in-memory `item.genre` lags the write, so the file is the source of truth (null if
-    no Last.fm coverage — a documented degrade, not a failure, spec §6). `has_art` is
-    Door B's own result (whether a cover was embedded), passed in rather than re-read
-    off disk. `has_lyrics` is the presence of the `lyrics` plugin's text on the item.
+    `genre` is the Shazam genre the mutagen writer stamped, read back OFF THE LANDED FILE
+    (T-309) — the file is the source of truth (null when Shazam didn't cover the track — a
+    documented degrade, not a failure, spec §6). `has_art` is Door B's own result (whether
+    a cover was embedded), passed in rather than re-read off disk. `has_lyrics` is the
+    presence of the Shazam record's lyrics on the item (T-224 — the `lyrics` plugin is gone).
     """
     return {
         "title": getattr(item, "title", None),
@@ -1849,22 +1857,20 @@ def _configure_import_options() -> None:
     imp["duplicate_action"].set("skip")
     config["threaded"].set(False)
 
-    # ADR-013: MusicBrainz (+ the tag plugins) is the sole source of a landed track's
-    # tags — never yt-dlp's `--embed-metadata` junk. `from_scratch` makes apply clear
-    # the item before applying the match, so a field MusicBrainz doesn't supply lands
-    # BLANK instead of keeping the YouTube value. Without it the singleton path keeps
-    # the junk: genre = YouTube's category (TCON="Music", T-021) and a wrong year
-    # (a 1996 track stamped 2026, T-025) both survive because item_data drops the
-    # None fields MusicBrainz leaves unset. Item.clear() spares audio properties
-    # (models.py:717) and runs before the genre/lyrics/art plugin stages, so it wipes
-    # only stale tags, never a fetched one.
+    # ADR-013: the accepted identity is the sole source of a landed track's tags — never
+    # yt-dlp's `--embed-metadata` junk. `from_scratch` makes apply clear the item before
+    # applying the match, so a field the match doesn't supply lands BLANK instead of keeping
+    # the YouTube value. Without it the singleton path keeps the junk: genre = YouTube's
+    # category (TCON="Music", T-021) and a wrong year (a 1996 track stamped 2026, T-025) both
+    # survive because item_data drops the None fields the match leaves unset. Item.clear()
+    # spares audio properties (models.py:717) and runs before apply, so it wipes only stale
+    # tags, never one the match or the mutagen writer will set. (Pre-T-224 it also ran before
+    # the genre/lyrics/art plugin stages; those plugins are retired — tags land via
+    # `_apply_shazam_tags` + the mutagen writer in finalize, not plugin stages.)
     imp["from_scratch"].set(True)
 
-    # Lyrics: the plugin already auto-fetches on import (LRCLib is a default source,
-    # no key). Ask it to prefer *synced* lyrics so Jellyfin can scroll them with
-    # playback, and keep the plain text too as a fallback.
-    config["lyrics"]["synced"].set(True)
-    config["lyrics"]["keep_synced"].set(True)
+    # T-224 (ADR-033): the `lyrics` plugin is gone — lyrics now come from the Shazam
+    # record (`_apply_shazam_tags`), so there is no `config["lyrics"]` to tune here.
 
 
 def _beets_library_path(settings: Settings) -> Path:
@@ -2091,8 +2097,9 @@ class KeepUntaggedSession(FingerprintTrustSession):
 
     Consequences per ADR-020:
     - No `mb_trackid` (no fabricated MBID, no borrowed release).
-    - No cover art (fetchart/embedart need a release to query).
-    - No auto-genre (lastgenre runs but needs a match to seed from).
+    - No cover art and no auto-genre/lyrics — those came from the accepted identity
+      (Shazam / a release lookup), and a keep-untagged file has no accepted identity.
+      (Pre-T-224 the same held via the retired fetchart/lastgenre/lyrics plugins.)
     - `ftintitle` still fires (it reads the item's tags, not the match).
 
     The junk yt-dlp embedded (channel name, upload date, genre "Entertainment") is

@@ -868,16 +868,17 @@ def test_choose_item_dedup_single_outcome_then_finalize(store):
 from app.reconcile import Verdict  # noqa: E402
 
 
-def _matched_shazam(isrc="GB123", art_url="https://shz/cover.jpg"):
+def _matched_shazam(isrc="GB123", art_url="https://shz/cover.jpg", lyrics=None):
     # The widened T-221 record: album/year/genre now ride alongside, and art_url
     # carries a real cover so the T-222 Shazam art path has something to embed.
+    # `lyrics` is written straight through since T-224 (the lyrics plugin retired).
     return {
         "matched": True,
         "shazam_artist": "Pa Salieu",
         "shazam_title": "Frontline",
         "isrc": isrc,
         "art_url": art_url,
-        "lyrics": None,
+        "lyrics": lyrics,
         "album": "Send Them to Coventry",
         "year": 2020,
         "genre": "Hip-Hop/Rap",
@@ -1841,7 +1842,7 @@ def test_shazam_land_writes_id3_tags_and_cover_to_disk(store, tmp_path):
         store,
         Dominance(0.95, 0.20, ("rec-A",), ("rel-A",)),
         source_signals=_signals("Pa Salieu", "Frontline"),
-        shazam_fn=lambda _p: _matched_shazam(),
+        shazam_fn=lambda _p: _matched_shazam(lyrics="first line\nsecond line"),
         isrc_fn=lambda _isrc: None,
         reconcile_fn=lambda _ev: Verdict(verdict="park", chosen_candidate=None),
         shazam_art_fn=lambda url: cover if url == "https://shz/cover.jpg" else None,
@@ -1864,6 +1865,9 @@ def test_shazam_land_writes_id3_tags_and_cover_to_disk(store, tmp_path):
     assert media.year == 2020  # from the Shazam record (T-221 widening)
     assert media.genre == "Hip-Hop/Rap"  # Shazam genre, not the junk "Entertainment"
     assert media.isrc == "GB123"
+    # T-224 (ADR-033): lyrics ride straight from the Shazam record — the lyrics plugin
+    # is retired, so this is the only path lyrics now reach the file.
+    assert media.lyrics == "first line\nsecond line"
     assert ID3(str(mp3)).getall("APIC")[0].data == cover  # Shazam's art_url on disk
 
 
@@ -1898,6 +1902,7 @@ def test_acoustid_only_land_writes_tags_and_caa_cover_to_disk(store, tmp_path):
     assert media.artist == "Pa Salieu"
     assert media.title == "Frontline"
     assert media.year == 1996  # MB original-year stamp (AcoustID-only path)
+    assert not media.lyrics  # no Shazam record → no lyrics source (T-224: plugin gone)
     assert ID3(str(mp3)).getall("APIC")[0].data == cover
 
 

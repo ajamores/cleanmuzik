@@ -38,8 +38,10 @@ class Settings(BaseSettings):
     jellyfin_url: str = "http://localhost:8096"
     jellyfin_api_key: str = ""
 
-    # Last.fm genre via beets `lastgenre`. Missing → track lands without a
-    # genre tag, which is not a failure (spec §6). Owner obtains via T-018.
+    # RETAINED BUT INERT since T-224 (ADR-033): the `lastgenre` plugin is gone, so this
+    # key no longer feeds genre — genre now comes from the Shazam record. Kept only so an
+    # existing `.env` with LASTFM_APIKEY still loads without error; safe to delete once the
+    # spec §6 / .env.example references are retired in a docs pass.
     lastfm_apikey: str = ""
 
     # AcoustID via beets `chroma`. Optional — beets' built-in key works
