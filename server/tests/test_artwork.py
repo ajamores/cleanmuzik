@@ -1,24 +1,14 @@
-"""T-007 Door B tests — cover art fetch + embed.
+"""T-007 Door B tests — cover art fetch.
 
 `fetch_cover_art` is tested against a fake HTTP client (no network): the source
 order (Cover Art Archive first, iTunes fallback) and the "found nothing" path.
-`embed_cover` is a real round-trip — synthesize a tiny MP3 and JPEG with ffmpeg,
-embed, then read the APIC frame back — so it proves the actual side effect the
-done-when needs (a cover on the file), not just that the code ran.
+Cover *embedding* moved to the mutagen writer (T-223) — its round-trip lives in
+`test_tagwriter.py`; beets' `embedart` helper (`embed_cover`) was retired in T-224.
 """
-
-import logging
-import shutil
-import subprocess
-from pathlib import Path
-
-import pytest
 
 from app.artwork import (
     _MAX_CAA_RELEASES,
-    _image_suffix,
     crop_to_square,
-    embed_cover,
     fetch_cover_art,
     fetch_url_image,
 )
@@ -51,12 +41,6 @@ def test_crop_to_square_leaves_a_square_image_untouched():
 def test_crop_to_square_falls_back_to_original_on_undecodable_bytes():
     junk = b"\xff\xd8not-a-real-jpeg"
     assert crop_to_square(junk) == junk  # never raises, never drops the cover
-
-
-def test_image_suffix_detects_png_vs_jpeg():
-    assert _image_suffix(b"\x89PNG\r\n\x1a\n" + b"...") == ".png"
-    assert _image_suffix(b"\xff\xd8\xff\xe0jpegheader") == ".jpg"
-    assert _image_suffix(b"") == ".jpg"  # unknown -> assume jpeg
 
 
 class _Resp:
@@ -264,52 +248,3 @@ def test_fetch_returns_none_when_nothing_found():
         artist="x", title="y", release_ids=("rel-1",), http=_FakeHTTP(handler)
     )
     assert img is None
-
-
-ffmpeg = pytest.mark.skipif(
-    shutil.which("ffmpeg") is None, reason="ffmpeg required to synthesize test media"
-)
-
-
-@ffmpeg
-def test_embed_cover_writes_apic_frame(tmp_path: Path):
-    from beets import library
-    from mutagen.id3 import ID3
-
-    mp3 = tmp_path / "song.mp3"
-    subprocess.run(
-        ["ffmpeg", "-y", "-f", "lavfi", "-i", "sine=frequency=440:duration=1",
-         "-b:a", "320k", str(mp3)],
-        capture_output=True, check=True,
-    )
-    jpg = tmp_path / "cover.jpg"
-    subprocess.run(
-        ["ffmpeg", "-y", "-f", "lavfi", "-i", "color=c=red:s=16x16:d=1",
-         "-frames:v", "1", str(jpg)],
-        capture_output=True, check=True,
-    )
-
-    item = library.Item.from_path(str(mp3))
-    assert embed_cover(item, jpg.read_bytes(), log=logging.getLogger("test")) is True
-
-    tags = ID3(str(mp3))
-    assert any(k.startswith("APIC") for k in tags.keys())  # cover is on the file
-
-
-@ffmpeg
-def test_embed_cover_reports_false_for_invalid_image(tmp_path: Path):
-    # beets silently declines unreadable/unsupported bytes — the receipt must not
-    # claim a cover was written when none was.
-    from beets import library
-    from mutagen.id3 import ID3
-
-    mp3 = tmp_path / "song.mp3"
-    subprocess.run(
-        ["ffmpeg", "-y", "-f", "lavfi", "-i", "sine=frequency=440:duration=1",
-         "-b:a", "320k", str(mp3)],
-        capture_output=True, check=True,
-    )
-
-    item = library.Item.from_path(str(mp3))
-    assert embed_cover(item, b"not a real image", log=logging.getLogger("test")) is False
-    assert not any(k.startswith("APIC") for k in ID3(str(mp3)).keys())

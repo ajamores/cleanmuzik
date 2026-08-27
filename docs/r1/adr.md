@@ -1244,6 +1244,25 @@ Format: `ADR-NNN — decision. Rationale. [date]`
   (ADR-032); serial land, pool = 1 (ADR-022); MP3-320 output (the writer is mutagen's ID3 path — codec
   reconsideration is the separate T-225, not this ADR).
 
+  - **AMENDED by T-224, 2026-08-27 — decision 3 re-scoped: beets is RETAINED as the import framework; only
+    the tag-writing plugins are retired now.** Decision 3 above ("no beets survives") assumed beets was a
+    *tagger*. Building T-224 established it is the import *framework*: `FingerprintTrustSession` **is** a beets
+    `ImportSession`, and beets still owns candidate generation (`chroma` → recordings), MusicBrainz hydration,
+    the file organize (path template + NTFS/WSL sanitizer + `%aunique`), and the library DB that ADR-009 dedup
+    queries — none of which tag-writing ever touched. Those cannot be removed by a plugin-list edit; they are a
+    bounded-but-multi-day spine rewrite whose payoff is dead-weight removal, **not** a user-facing win (the
+    speed + correct-cover wins already shipped in T-221–223, and none of the retired plugins call MusicBrainz —
+    they call Last.fm / lyrics sites / the Cover Art Archive). So T-224 removes only the four now-dead tag
+    plugins — `lastgenre` (→ genre from Shazam), `fetchart` + `embedart` (→ cover from Shazam/mutagen),
+    `lyrics` (→ lyrics from the Shazam record) — leaving `musicbrainz` / `chroma` / `ftintitle` as the
+    framework, and pins Pillow directly (it had ridden in via `embedart`). Decision 4's "no lyrics-plugin
+    fetch" is now satisfied by wiring the Shazam record's lyrics through the mutagen writer
+    (`_apply_shazam_tags`); an AcoustID-only land (Shazam missed) gets no lyrics, matching "a track Shazam does
+    not cover gets no auto genre." **Full beets removal** — the AcoustID rescue sense → the `acoustid` library,
+    the AcoustID-only `get_recording` → `musicbrainzngs`, and the mover / dedup / driver replacement — is
+    deferred to its own sequenced sub-wave, **[`T-226`](../backlog/T-226.md)**. Decisions 1–2 and 4–5 are
+    unchanged and fully delivered. Owner-approved 2026-08-27. [amended 2026-08-27]
+
   **Safety:** corroboration — not raw sense confidence — authorises trusting Shazam's tags, the same
   argument ADR-032 made for the fingerprint. A Shazam record is written as tags only when Shazam is among
   the ≥2 agreeing senses; the Frank Ocean / Coldplay cover (Shazam says *Coldplay*, the title says *Frank

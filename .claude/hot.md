@@ -1,7 +1,7 @@
 ---
 type: meta
 title: "Hot — cleanmuzik"
-updated: 2026-08-26
+updated: 2026-08-27
 tags:
   - meta
   - hot-cache
@@ -19,7 +19,24 @@ status: evergreen
 CleanMuzik — personal YouTube → Jellyfin music tool. Purpose, stack, constraints, read-order in
 `CLAUDE.md`; scope in `cleanmuzik-prd.md`. Not restated here.
 
-## Current State (2026-08-26)
+## Current State (2026-08-27)
+
+- **T-224 DONE — built on branch `t224-drop-dead-plugins` 2026-08-27 (this session). 789 green.** Wave 4
+  (final) of the T-220 epic — **the epic is now COMPLETE**. **RE-SCOPED, owner-approved:** the ticket said
+  "remove beets from deps," but building it established beets is the **import framework**, not the tagger —
+  `FingerprintTrustSession` IS a beets `ImportSession`, and beets still owns candidate-gen (chroma),
+  MusicBrainz hydration, organize (path template + NTFS sanitizer + `%aunique`), and the library DB ADR-009
+  dedup queries. Three research agents confirmed each job is replaceable but welded into the one
+  `ImportSession` graph (all-or-nothing) — a bounded multi-day spine rewrite whose payoff is dead-weight
+  removal, NOT a user-facing win (speed + correct covers already shipped T-221–223; none of the dropped
+  plugins even call MusicBrainz). So T-224 shipped the **safe subtraction**: dropped the 4 dead tag plugins
+  (`lastgenre`/`fetchart`/`embedart`/`lyrics`), kept `musicbrainz`/`chroma`/`ftintitle` as the framework.
+  **Lyrics now wired from the Shazam record** (`_apply_shazam_year_genre`→`_apply_shazam_tags`) — the lyrics
+  plugin was the ONLY lyrics source, so dropping it needed the Shazam wire-through (ADR-033 decision 4).
+  **Pillow pinned directly** (rode in via embedart). Dead `artwork.embed_cover` + its tests deleted;
+  `lastfm_apikey` retained-but-inert. **Full beets removal split out to new [`T-226`](../../docs/backlog/T-226.md)**
+  (spine rewrite, the 3-agent research captured there); **ADR-033 decision 3 amended** (2026-08-27).
+  **Not yet committed / not merged to `main`.** Next action: `/code-review` the diff, then integrate.
 
 - **T-223 DONE — built + committed to `main` 2026-08-26 (this session). 792 green on `main`.** Wave 3 of the
   T-220 epic: **beets is retired from tag-writing.** `_configure_import_options` sets import **`write` off** —
@@ -111,10 +128,18 @@ CleanMuzik — personal YouTube → Jellyfin music tool. Purpose, stack, constra
 - **On `main`:** T-219 merged + about to push; **756 green on `main`**. **R2.5** (migrate/clean) is still the
   designated next *release*. **Roadmap R3 line still stale** (Navidrome pivot reshape pending — owner edit).
 
-## ⟹ NEXT — build the rest of the T-220 wave in order (T-221 done)
+## ⟹ NEXT — integrate T-224, then the T-220 epic is DONE
 
-**T-220 EPIC is the active work: Shazam becomes the tag+art source of record; retire beets (mutagen writes).
-ADR-033 RATIFIED 2026-08-26.** Read `docs/backlog/T-220.md` (epic, corrected frame) + **ADR-033** in
+**T-224 is built on its branch (789 green) — the immediate next action is `/code-review` the diff, then
+merge to `main` (suite green there), which closes the T-220 epic.** After that the beets *tag path* is
+fully retired (Shazam sources tags/art, mutagen writes); beets remains only as the import framework, and
+**full removal is the future [`T-226`](../../docs/backlog/T-226.md) sub-wave** (not scheduled — owner call).
+
+Historical wave context (all four waves now built):
+
+**T-220 EPIC: Shazam becomes the tag+art source of record; retire beets from tag-writing (mutagen writes).
+ADR-033 RATIFIED 2026-08-26, decision 3 AMENDED 2026-08-27.** Read `docs/backlog/T-220.md` (epic, corrected
+frame) + **ADR-033** in
 `docs/r1/adr.md` (line ~1187) FIRST — they hold the full rationale. Key correction this session: cleanmuzik
 already identifies with 3 senses + Shazam-every-track + 2-of-3 vote (ADR-021/024) and already *fetches*
 Shazam's tags + `art_url` every track, then **throws them away** and re-derives via MusicBrainz hydration +
@@ -128,10 +153,12 @@ fetchart. The epic is a **subtraction** — use what we already fetch — NOT a 
 3. **T-223 — mutagen ID3/MP3-320 writer + art embed** (replaces beets tag-write + fetchart). ⚠ Note: T-222
    leaves the WRITER as beets (item override + `embed_cover`); T-223 swaps to mutagen ID3 (APIC), owns the
    ISRC/lyrics write, and does the YouTube-thumbnail centre-crop-to-square that T-222 deferred. → then
-4. **T-224 — retire beets + drop slow fetchers.** ⚠ **TRAP:** dedup (ADR-009) + NTFS/`%aunique` path
-   sanitization lived in beets `choose_item` — carry them forward or acquire regresses. Do this LAST.
-   Epic acceptance = generalised `t219_compare.py` before/after (faster, covers correct, outcomes unchanged,
-   Frank Ocean/Coldplay still parks).
+4. **T-224 — drop the dead tag plugins (beets kept as framework). DONE 2026-08-27, RE-SCOPED.** The "retire
+   beets entirely" premise was wrong (beets = import framework, not tagger) — see the Current State entry.
+   Shipped: dropped lastgenre/fetchart/embedart/lyrics; lyrics wired from Shazam; Pillow pinned; ADR-033
+   decision 3 amended. ⚠ **The dedup (ADR-009) + NTFS/`%aunique` sanitization TRAP is NOT triggered here** —
+   those live in beets, which is retained; they move to **T-226** (full removal), where the `t219_compare.py`
+   before/after acceptance bar also lives (this scope can't move outcomes — identification is untouched).
 
 - **Identification is UNTOUCHED** by this epic (senses, 2-of-3, LLM adjudicator, T-219 fast-path all stand).
 - **T-035 is SUPERSEDED by T-220** (its evidence — 4/5 rescue, Frank Ocean fixture — carried into ADR-033).

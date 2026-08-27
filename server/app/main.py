@@ -27,11 +27,12 @@ async def lifespan(app: FastAPI):
     # boot-time receipt that the `.env` was found and parsed (T-001 done-when).
     s = get_settings()
     logger.info(
-        "config loaded: jellyfin_url=%s jellyfin_api_key=%s lastfm_apikey=%s "
+        # lastfm_apikey is deliberately absent: T-224 retired `lastgenre`, so the key is
+        # inert (genre comes from Shazam) — logging it would falsely signal a live capability.
+        "config loaded: jellyfin_url=%s jellyfin_api_key=%s "
         "acoustid_apikey=%s anthropic_apikey=%s",
         s.jellyfin_url,
         "set" if s.jellyfin_api_key else "unset",
-        "set" if s.lastfm_apikey else "unset",
         "set" if s.acoustid_apikey else "unset",
         # T-200: reconcile is live iff this is set — otherwise the R1 fingerprint gate.
         "set" if s.anthropic_apikey else "unset",

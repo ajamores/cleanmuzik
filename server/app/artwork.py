@@ -4,8 +4,10 @@ beets' `fetchart` plugin only decorates *albums* — its `fetch_art` opens with
 `if task.is_album:` and returns for anything else. Every YouTube song imports as a
 singleton (ADR-006), so fetchart never runs for us and a landed file has no cover.
 This module fills that one gap: fetch the front cover from an official source using
-the identity the fingerprint already earned, and embed it with beets' own art
-helper (so we don't hand-roll tag writing — ADR-005).
+the identity the fingerprint already earned. It only *fetches* the bytes — the mutagen
+writer (`app/tagwriter.py`, T-223/ADR-033) embeds them as the APIC frame. (Until then
+this module also embedded via beets' `embedart` helper; that path is retired with the
+tag-writing plugins in T-224.)
 
 Two sources, best-quality first:
 
@@ -21,11 +23,8 @@ song, so the caller treats a False return as "no art", not a failure.
 """
 
 import logging
-import os
-import tempfile
 
 import requests
-from beetsplug._utils import art
 
 from app import normalize
 from app.config import MUSICBRAINZ_USER_AGENT
@@ -58,11 +57,6 @@ def _artist_matches(candidate: str, wanted: str) -> bool:
     for the wrong artist without over-rejecting real ones.
     """
     return normalize.loose_match(candidate, wanted)
-
-
-def _image_suffix(image_bytes: bytes) -> str:
-    """`.png` for PNG magic bytes, else `.jpg` (CAA/iTunes serve one or the other)."""
-    return ".png" if image_bytes[:8] == _PNG_MAGIC else ".jpg"
 
 
 def _looks_like_image(data: bytes) -> bool:
@@ -239,31 +233,3 @@ def crop_to_square(image_bytes: bytes) -> bytes:
     except Exception as exc:  # noqa: BLE001 — a crop failure falls back to the raw image
         logger.debug("thumbnail crop failed (%s) — using the uncropped image", exc)
         return image_bytes
-
-
-def embed_cover(item, image_bytes: bytes, *, log: logging.Logger = logger) -> bool:
-    """Embed `image_bytes` into a landed beets Item's file via beets' art helper.
-
-    **No longer used on the land path (T-223, ADR-033):** cover embedding moved to the
-    mutagen writer (`app.tagwriter.write_tags`, direct APIC), and this beets-native helper
-    is retired with the rest of the beets teardown in T-224 — kept until then so the wave
-    stays reversible (T-223 "Not"). Still covered by its own round-trip tests.
-
-    Writes the bytes to a temp file (embed_item takes a path), then delegates to
-    `beetsplug._utils.art.embed_item` — the same writer the `embedart` plugin uses
-    — so tag handling stays beets-native. `ifempty=True` so we never clobber art
-    that is somehow already present.
-
-    Returns whether the file actually carries a cover afterwards: `embed_item` is
-    silent when it declines (unreadable or unsupported image bytes), so we confirm
-    from disk rather than report a cover that was never written.
-    """
-    suffix = _image_suffix(image_bytes)
-    fd, tmp = tempfile.mkstemp(suffix=suffix)
-    try:
-        with os.fdopen(fd, "wb") as handle:
-            handle.write(image_bytes)
-        art.embed_item(log, item, tmp, ifempty=True)
-    finally:
-        os.unlink(tmp)
-    return bool(art.get_art(log, item))

@@ -23,8 +23,11 @@ FastAPI             (job queue, SSE, review-queue state)
 Jellyfin library folder (local disk) → Jellyfin serves + plays
 ```
 
-- **beets is the tagging engine** — plugins do the work: `chroma` (AcoustID), `lastgenre`
-  (Last.fm genres), `fetchart` + `embedart` (cover art). No hand-rolled tagger.
+- **beets is the import framework** — `chroma` (AcoustID candidates) + `musicbrainz` (hydration) +
+  `ftintitle` (feat. fold) + organize/dedup. Since the T-220 epic (ADR-033) it is **no longer the
+  tagger**: genre + lyrics come from the Shazam record, the cover from Shazam's `art_url`, and every
+  tag is written by mutagen (`app/tagwriter.py`). The `lastgenre` / `fetchart` / `embedart` / `lyrics`
+  plugins were retired in T-224; full beets removal is a separate sub-wave (T-226).
 - **No Node/Express bridge** — the engine is Python, so the backend is Python.
 
 ## The seams (settled + built)

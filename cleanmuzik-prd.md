@@ -104,10 +104,10 @@ Jellyfin library folder (local disk)  →  Jellyfin serves + plays
 | Backend | **Python, FastAPI** | Replaces Express. Native async + SSE fits real-time progress. |
 | Download | **yt-dlp** | Handles single tracks and playlists (expands to N tracks). |
 | Transcode | **ffmpeg** | Extract/encode to MP3 320. |
-| Tag engine | **beets** | Identify, fetch metadata + art, organize. See §6. |
+| Import framework | **beets** | Candidate generation + MusicBrainz hydration + organize/dedup. **Not the tagger** since the T-220 epic (ADR-033): tags/art come from Shazam and are written by mutagen. See §6. |
 | Fingerprint | beets `chroma` plugin (AcoustID / Chromaprint `fpcalc`) | Identifies rips with poor/missing tags. |
-| Genre | beets `lastgenre` plugin (Last.fm) | MusicBrainz alone is thin on genre. |
-| Artwork | beets `fetchart` + `embedart` | High-res art, embedded into the MP3. |
+| Genre | Shazam record (`genres.primary`) | ADR-033: written free from the identity we already accept; `lastgenre`/Last.fm retired (T-224). |
+| Artwork | Shazam `art_url` → YouTube thumbnail, embedded by **mutagen** (APIC) | ADR-033: the cover we already fetch; `fetchart`/`embedart` retired (T-224). Removes the wrong-cover class. |
 | Library/player | **Jellyfin** | Central hub. Finamp is a good mobile client. |
 | Remote access | **Tailscale** (phase 1) | Mesh VPN to reach the home server. Not a VPS. |
 
