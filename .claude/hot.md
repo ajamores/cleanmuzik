@@ -36,7 +36,8 @@ CleanMuzik — personal YouTube → Jellyfin music tool. Purpose, stack, constra
   **Pillow pinned directly** (rode in via embedart). Dead `artwork.embed_cover` + its tests deleted;
   `lastfm_apikey` retained-but-inert. **Full beets removal split out to new [`T-226`](../../docs/backlog/T-226.md)**
   (spine rewrite, the 3-agent research captured there); **ADR-033 decision 3 amended** (2026-08-27).
-  **Not yet committed / not merged to `main`.** Next action: `/code-review` the diff, then integrate.
+  **DONE + integrated to `main` 2026-08-27** — merge `ea37da4` (+ `4d6406a`), 789 green on `main`,
+  reviewed (3 minor findings all fixed). **Not pushed.** The T-220 epic is now COMPLETE.
 
 - **T-223 DONE — built + committed to `main` 2026-08-26 (this session). 792 green on `main`.** Wave 3 of the
   T-220 epic: **beets is retired from tag-writing.** `_configure_import_options` sets import **`write` off** —
@@ -128,12 +129,17 @@ CleanMuzik — personal YouTube → Jellyfin music tool. Purpose, stack, constra
 - **On `main`:** T-219 merged + about to push; **756 green on `main`**. **R2.5** (migrate/clean) is still the
   designated next *release*. **Roadmap R3 line still stale** (Navidrome pivot reshape pending — owner edit).
 
-## ⟹ NEXT — integrate T-224, then the T-220 epic is DONE
+## ⟹ NEXT — T-220 epic DONE; pick the next lever
 
-**T-224 is built on its branch (789 green) — the immediate next action is `/code-review` the diff, then
-merge to `main` (suite green there), which closes the T-220 epic.** After that the beets *tag path* is
-fully retired (Shazam sources tags/art, mutagen writes); beets remains only as the import framework, and
-**full removal is the future [`T-226`](../../docs/backlog/T-226.md) sub-wave** (not scheduled — owner call).
+**The T-220 epic is COMPLETE and integrated to `main` (T-224 merged 2026-08-27, 789 green).** The beets
+*tag path* is fully retired — Shazam sources tags/art, mutagen writes; beets remains only as the import
+framework. Open threads, owner's pick:
+- **[`T-226`](../../docs/backlog/T-226.md)** — full beets removal (spine rewrite, not scheduled — the
+  research is captured in the ticket; payoff is dead-weight removal, not user-facing).
+- **T-210 correctness half** (shared MB rate-limiter / ISRC) · **T-225** codec reconsideration (MP3-320
+  vs remux) · **R2.5** migrate/clean release · reshape **roadmap R3** (Navidrome).
+- Docs tail T-224 left: retire the inert `lastfm_apikey` from spec §6 / `.env.example` / README (→ T-226).
+- **Not pushed** — `main` is ahead of `origin/main` by the T-224 merge (+ the earlier T-22x wave).
 
 Historical wave context (all four waves now built):
 
