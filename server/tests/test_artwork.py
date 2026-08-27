@@ -17,10 +17,40 @@ import pytest
 from app.artwork import (
     _MAX_CAA_RELEASES,
     _image_suffix,
+    crop_to_square,
     embed_cover,
     fetch_cover_art,
     fetch_url_image,
 )
+
+
+def _jpeg(width: int, height: int) -> bytes:
+    from io import BytesIO
+
+    from PIL import Image
+
+    buf = BytesIO()
+    Image.new("RGB", (width, height), (10, 20, 30)).save(buf, format="JPEG")
+    return buf.getvalue()
+
+
+def test_crop_to_square_centre_crops_a_wide_thumbnail():
+    from io import BytesIO
+
+    from PIL import Image
+
+    out = crop_to_square(_jpeg(480, 360))  # the 4:3 hqdefault shape
+    assert Image.open(BytesIO(out)).size == (360, 360)
+
+
+def test_crop_to_square_leaves_a_square_image_untouched():
+    src = _jpeg(300, 300)
+    assert crop_to_square(src) == src  # already square — returned byte-for-byte
+
+
+def test_crop_to_square_falls_back_to_original_on_undecodable_bytes():
+    junk = b"\xff\xd8not-a-real-jpeg"
+    assert crop_to_square(junk) == junk  # never raises, never drops the cover
 
 
 def test_image_suffix_detects_png_vs_jpeg():

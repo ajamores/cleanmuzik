@@ -61,12 +61,13 @@ from app import isrc as isrc_lookup
 from app import normalize
 from app import reconcile as reconcile_seam
 from app import shazam as shazam_sense
-from app.artwork import embed_cover, fetch_cover_art, fetch_url_image
+from app.artwork import crop_to_square, fetch_cover_art, fetch_url_image
 from app.beets_engine import LIBRARY_DIRECTORY, configure_beets
 from app.config import Settings, get_settings
 from app.db import Review, Store
 from app.events import candidate_row
 from app.source_signals import SourceSignals
+from app.tagwriter import write_tags
 
 logger = logging.getLogger("cleanmuzik")
 
@@ -479,6 +480,7 @@ class FingerprintTrustSession(ImportSession):
         dominance_fn=fingerprint_dominance,
         art_fn=fetch_cover_art,
         shazam_art_fn=fetch_url_image,
+        tag_writer_fn=write_tags,
         date_fn=fetch_original_date,
         source_signals: SourceSignals | None = None,
         shazam_fn=None,
@@ -500,6 +502,10 @@ class FingerprintTrustSession(ImportSession):
         # T-222 (ADR-033): the cover fetcher for the Shazam/thumbnail source — a plain
         # URL GET, distinct from `art_fn`'s CAA/iTunes release lookup. Injected for tests.
         self.shazam_art_fn = shazam_art_fn
+        # T-223 (ADR-033): the mutagen ID3 tag+art writer that lands a track's tags,
+        # replacing beets' `write` stage + `embedart` (import `write` is now off). Injected
+        # so the decision tests stub it offline; the on-disk seam tests use the real writer.
+        self.tag_writer_fn = tag_writer_fn
         self.date_fn = date_fn
         # R1.5 reconcile seam (T-204), each stubbable offline exactly as dominance_fn is.
         # source_signals is sense 1 (T-201); shazam_fn is sense 3 (T-202, called once per
@@ -914,7 +920,7 @@ class FingerprintTrustSession(ImportSession):
                 # fingerprint's pick. When fp is among the agreeing senses its
                 # recording IS the chosen one, so its release ids give correct cover
                 # art; otherwise (an ISRC correction the fingerprint dissented from)
-                # zero it so `_embed_art` falls back to artist/title instead of
+                # zero it so `_resolve_cover` falls back to artist/title instead of
                 # embedding the wrong recording's cover (as ResolveSession does).
                 land_dominance = dominance if "fp" in agreeing else Dominance(0.0, 0.0, ())
                 return self._accept(
@@ -1095,22 +1101,26 @@ class FingerprintTrustSession(ImportSession):
                     "accepted %s but beets skipped it (duplicate) — not landed",
                     self.staging_path,
                 )
-            # T-222 (ADR-033): year/genre are non-path tags, set here from the resolved
-            # source. Shazam-backed → the widened Shazam record (no MusicBrainz);
+            # T-222 (ADR-033): year/genre are non-path tags, resolved onto the item
+            # in-memory from the source (no file write here — the mutagen writer below
+            # persists them). Shazam-backed → the widened Shazam record (no MusicBrainz);
             # AcoustID-only → the ADR-014 MusicBrainz release-year stamp, as before.
-            # Before art so the tag write can't race the cover embed; only for a landing.
             if not skipped:
                 if source["kind"] == "shazam":
                     self._apply_shazam_year_genre(task.item, source["record"])
                 else:
                     self._stamp_original_year(task.item, match.info.track_id)
-            # Door B: fetchart skips singletons, so embed the cover ourselves — but only
-            # for a track that actually landed, and never let it un-land one. The cover
-            # comes from the resolved source: Shazam's `art_url` → YouTube thumbnail
-            # (T-222), or the AcoustID recording's releases via Cover Art Archive.
-            art_embedded = False if skipped else self._embed_landed_art(
-                task.item, dominance, source
-            )
+            # T-223 (ADR-033): the ONE write on the land path — mutagen writes the
+            # authoritative ID3 tags + APIC cover (no beets `write`, no `embedart`). The
+            # cover comes from the resolved source: Shazam's `art_url` → the YouTube
+            # thumbnail (centre-cropped square), or the AcoustID recording's releases via
+            # Cover Art Archive. Best-effort: it never un-lands a track, and `art_embedded`
+            # reflects whether the APIC frame actually landed.
+            if skipped:
+                art_embedded = False
+            else:
+                image = self._resolve_cover(task.item, dominance, source)
+                art_embedded = self._write_landed_tags(task.item, image)
             # T-013 rich payloads, read at the one moment they're all true: post-run,
             # so task.item carries the applied tags AND its final organized path, and
             # match.info is the candidate we chose to apply. Only for a real landing —
@@ -1133,13 +1143,13 @@ class FingerprintTrustSession(ImportSession):
         return self.outcomes
 
     def _stamp_original_year(self, item, recording_id: str | None) -> None:
-        """Stamp the accepted recording's original-ish release year (ADR-014).
+        """Set the accepted recording's original-ish release year on the item (ADR-014).
 
-        Best-effort, mirroring `_embed_art`: a lookup failure, a recording with no
-        dated release, or a write error all leave the year blank and log — none of
-        them un-lands a correctly-tagged song. Writes the tag to the file and stores
-        the item so the beets DB agrees; the item is re-read by `_landed_tags` for the
-        `track.done` payload, so the SSE event carries the stamped year too.
+        In-memory only (T-223): the mutagen writer persists it — this just resolves the
+        value onto the item that `_landed_tags` and the writer both read. Best-effort: a
+        lookup failure or a recording with no dated release leaves the year blank and logs,
+        never un-landing a correctly-tagged song. The AcoustID-only tag source; the Shazam
+        source uses `_apply_shazam_year_genre` instead.
         """
         try:
             year, month, day = self.date_fn(recording_id)
@@ -1160,111 +1170,95 @@ class FingerprintTrustSession(ImportSession):
         item.year = year
         item.month = month or 0
         item.day = day or 0
-        try:
-            if callable(write := getattr(item, "try_write", None)):
-                write()
-            if callable(store := getattr(item, "store", None)):
-                store()
-        except Exception as exc:  # noqa: BLE001 — persisting the year is best-effort
-            # Roll the in-memory value back to beets' "no year" sentinel so the
-            # track.done payload (which reads item.year) can't report a year the
-            # file on disk never got — the reconciliation _embed_art does via its
-            # bool return (review F2).
-            item.year = item.month = item.day = 0
-            logger.warning(
-                "could not persist year %d for %s (%s) — reporting no year",
-                year,
-                self.staging_path,
-                exc,
-            )
-
-    def _embed_art(self, item, dominance: Dominance) -> bool:
-        """Fetch + embed a cover for a landed item. Best-effort (Door B).
-
-        Broad except by design: cover art is decorative, so a fetch/parse/embed
-        failure logs and yields False — it must never turn a correctly-tagged,
-        already-landed song into a failure.
-        """
-        try:
-            image = self.art_fn(
-                artist=getattr(item, "artist", "") or "",
-                title=getattr(item, "title", "") or "",
-                release_ids=dominance.top_release_ids,
-            )
-            if not image:
-                return False
-            embed_cover(item, image, log=logger)
-            return True
-        except Exception as exc:  # noqa: BLE001 — art must not un-land a track
-            logger.warning(
-                "cover art failed for %s (%s) — landed without a cover",
-                self.staging_path,
-                exc,
-            )
-            return False
 
     def _apply_shazam_year_genre(self, item, record: dict) -> None:
-        """Write the Shazam record's year + genre onto a landed item (T-222, ADR-033).
+        """Set the Shazam record's year + genre on a landed item (T-222/T-223, ADR-033).
 
         The non-path half of the Shazam tag source (artist/album/title already rode the
         applied match). Year comes from the widened record (a 4-digit int, T-221); genre
-        from Shazam's `genres.primary`, overriding whatever `lastgenre` wrote (that plugin
-        is retired in T-224). Best-effort, mirroring `_stamp_original_year`: a write error
-        rolls the in-memory values back so the `track.done` payload never reports a tag the
-        file did not get, and never un-lands the track. A field Shazam omits is left as-is.
+        from Shazam's `genres.primary`. In-memory only — the mutagen writer (T-223)
+        persists both, so there is no separate file write to roll back here. A field
+        Shazam omits is left as-is.
         """
-        year = record.get("year")
-        genre = record.get("genre")
-        if not (year or genre):
-            return
-        prev = (
-            getattr(item, "year", 0),
-            getattr(item, "month", 0),
-            getattr(item, "day", 0),
-            getattr(item, "genre", None),
-        )
-        if year:
-            item.year = year
+        if record.get("year"):
+            item.year = record["year"]
             item.month = 0
             item.day = 0
-        if genre:
-            item.genre = genre
-        try:
-            if callable(write := getattr(item, "try_write", None)):
-                write()
-            if callable(store := getattr(item, "store", None)):
-                store()
-        except Exception as exc:  # noqa: BLE001 — persisting tags is best-effort, never fatal
-            item.year, item.month, item.day, item.genre = prev
-            logger.warning(
-                "could not persist Shazam year/genre for %s (%s) — reporting the prior tags",
-                self.staging_path,
-                exc,
-            )
+        if record.get("genre"):
+            item.genre = record["genre"]
 
-    def _embed_landed_art(self, item, dominance: Dominance, source: dict) -> bool:
-        """Embed a cover from the resolved tag source. Best-effort (Door B, T-222).
+    def _resolve_cover(self, item, dominance: Dominance, source: dict) -> bytes | None:
+        """Fetch cover bytes from the resolved tag source (Door B, T-223). Best-effort.
 
         Shazam-backed → Shazam's `art_url` (the `coverarthq` already fetched), falling
-        back to the YouTube thumbnail — both plain URLs, no release-picking, which is what
-        removes the wrong-cover class. AcoustID-only → the existing Cover Art Archive /
-        iTunes fetch by the landed recording's releases. Broad except like `_embed_art`:
-        art is decorative, so any failure logs and yields False, never un-lands a track.
+        back to the YouTube thumbnail centre-cropped square — both plain URLs, no
+        release-picking, which is what removes the wrong-cover class. AcoustID-only → the
+        Cover Art Archive / iTunes fetch by the landed recording's releases. Returns the
+        raw image bytes for the writer to embed, or `None`; any fetch failure logs and
+        yields `None` (art is decorative — a hiccup never un-lands a track).
         """
         if source["kind"] != "shazam":
-            return self._embed_art(item, dominance)
+            try:
+                return self.art_fn(
+                    artist=getattr(item, "artist", "") or "",
+                    title=getattr(item, "title", "") or "",
+                    release_ids=dominance.top_release_ids,
+                )
+            except Exception as exc:  # noqa: BLE001 — art must not un-land a track
+                logger.warning(
+                    "cover art failed for %s (%s) — landed without a cover",
+                    self.staging_path,
+                    exc,
+                )
+                return None
         record = source["record"] or {}
         try:
             image = self.shazam_art_fn(record.get("art_url"))
-            if not image:
-                image = self.shazam_art_fn(_thumbnail_url(self.source_signals))
-            if not image:
-                return False
-            embed_cover(item, image, log=logger)
-            return True
+            if image:
+                return image  # Shazam's coverarthq is already square album art
+            thumb = self.shazam_art_fn(_thumbnail_url(self.source_signals))
+            return crop_to_square(thumb) if thumb else None
         except Exception as exc:  # noqa: BLE001 — art must not un-land a track
             logger.warning(
                 "shazam cover failed for %s (%s) — landed without a cover",
+                self.staging_path,
+                exc,
+            )
+            return None
+
+    def _write_landed_tags(self, item, image: bytes | None) -> bool:
+        """Write the item's tags + `image` onto the landed file with mutagen (T-223).
+
+        The single write on the land path — ID3 frames + APIC, no beets `write`/`embedart`
+        (ADR-033). Returns whether a cover was embedded. Best-effort at the file level: a
+        write failure (or a missing path) never un-lands the already-copied file — it rolls
+        the **year** back to beets' sentinel so the `track.done` payload, which reads year
+        from the in-memory item, can't report a year the file never got (the F2 discipline
+        `_stamp_original_year` used to own). Genre is NOT rolled back: `_landed_tags` reads
+        genre straight off the file (`_genre_on_disk`, T-309), so on a failure it already
+        reports the file's true genre — a memory rollback there would be a no-op that only
+        reads as if it did something (review F3).
+        """
+        path = getattr(item, "path", None)
+        try:
+            if not path:
+                raise OSError("landed item has no path to tag")
+            return self.tag_writer_fn(
+                os.fsdecode(path),
+                artist=getattr(item, "artist", None),
+                albumartist=getattr(item, "albumartist", None),
+                album=getattr(item, "album", None),
+                title=getattr(item, "title", None),
+                year=getattr(item, "year", None) or None,
+                genre=getattr(item, "genre", None),
+                lyrics=getattr(item, "lyrics", None),
+                isrc=getattr(item, "isrc", None),
+                image=image,
+            )
+        except Exception as exc:  # noqa: BLE001 — a write failure must not un-land a track
+            item.year = item.month = item.day = 0
+            logger.warning(
+                "tag write failed for %s (%s) — landed with degraded tags",
                 self.staging_path,
                 exc,
             )
@@ -1832,7 +1826,11 @@ def _configure_import_options() -> None:
     imp["autotag"].set(True)
     imp["copy"].set(True)
     imp["move"].set(False)
-    imp["write"].set(True)
+    # T-223 (ADR-033): beets is retired from tag-writing. It still copies + organizes the
+    # file (by the item's applied fields), but the tags + cover are written by the mutagen
+    # ID3 writer in finalize (`_write_landed_tags`), NOT beets' `write` stage / `embedart`.
+    # "No beets tag-write on the path" is this line. (Plugin teardown is T-224.)
+    imp["write"].set(False)
     imp["resume"].set(False)
     imp["incremental"].set(False)
     imp["quiet"].set(False)
@@ -1927,10 +1925,12 @@ class ResolveSession(FingerprintTrustSession):
     handles characters that are illegal on disk.
 
     Inherits `finalize_outcomes` (so a landed/skipped receipt is settled post-`run()`
-    exactly as on the acquire path) and `_embed_art`. Art degrades to the iTunes
-    artist+title fallback here: Cover Art Archive is keyed by the *release* MBIDs the
-    fingerprint lookup returns, and we deliberately don't run one — a cover is
-    decorative and doesn't justify an AcoustID round-trip on a settled identity.
+    exactly as on the acquire path) and its mutagen writer (T-223). Its `_tag_sources`
+    is never set, so it takes the AcoustID branch — tags stamped from the applied match +
+    the ADR-014 year, cover via `_resolve_cover`. Art degrades to the iTunes artist+title
+    fallback here: Cover Art Archive is keyed by the *release* MBIDs the fingerprint
+    lookup returns, and we deliberately don't run one — a cover is decorative and doesn't
+    justify an AcoustID round-trip on a settled identity.
     """
 
     def __init__(self, lib, *, recording_id: str, suffix: str | None = None, **kwargs):
@@ -2164,6 +2164,14 @@ class KeepUntaggedSession(FingerprintTrustSession):
                     "keep-untagged %s but beets skipped it — not landed",
                     self.staging_path,
                 )
+            else:
+                # T-223 (ADR-033): beets' `write` is off, so re-persist the item's tags
+                # with mutagen post-run. This is load-bearing here, not just tidy: the
+                # `imported` stage runs `ftintitle` (ADR-012), which splits a "feat." credit
+                # out of the artist field IN MEMORY during run() — with beets no longer
+                # writing, that split would otherwise never reach the file. `_write_manual_tags`
+                # seeded the staging copy; this writes the final, ftintitle-adjusted tags.
+                self._write_landed_tags(task.item, None)
             art_embedded = False
             self.outcomes.append(
                 Outcome(

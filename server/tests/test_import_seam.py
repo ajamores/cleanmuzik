@@ -331,6 +331,10 @@ def _session(store, dominance, **kw):
     # T-222: the Shazam/thumbnail cover fetcher, defaulted offline too so a
     # Shazam-source land never reaches the real network; art tests override it.
     kw.setdefault("shazam_art_fn", lambda *_a, **_k: None)
+    # T-223: an offline mutagen writer so decision tests never touch a real file — it
+    # reports a cover embedded iff an image came through (what `art_embedded` reflects).
+    # The on-disk seam tests inject the REAL writer against a real temp MP3 instead.
+    kw.setdefault("tag_writer_fn", lambda _path, *, image=None, **_kw: image is not None)
     # date_fn no-op by default so decision tests never touch MusicBrainz; the
     # year tests inject their own.
     kw.setdefault("date_fn", lambda _rid: (None, None, None))
@@ -466,31 +470,31 @@ def test_no_candidates_parks_with_empty_ids(store):
 # --- Door B: cover art on landed tracks -------------------------------------
 
 
-def test_landed_track_gets_cover_embedded(store, monkeypatch):
+def test_landed_track_gets_cover_embedded(store):
+    # T-223: the AcoustID cover (art_fn) is handed to the mutagen writer, which reports
+    # it embedded. The writer is the seam here — assert the bytes it received.
     embedded = []
-    monkeypatch.setattr(
-        seam, "embed_cover", lambda item, img, **k: embedded.append(img) or True
-    )
     session = _session(
         store,
         Dominance(0.96, 0.30, ("rec-A",), ("rel-1",)),
         art_fn=lambda **kw: b"\xff\xd8jpeg-bytes",
+        tag_writer_fn=lambda _p, *, image=None, **_kw: embedded.append(image) or True,
     )
     session.choose_item(_task(["rec-A"]))
     outcomes = session.finalize_outcomes()
 
     assert outcomes[-1].action == "landed"
     assert outcomes[-1].art_embedded is True
-    assert embedded == [b"\xff\xd8jpeg-bytes"]
+    assert embedded == [b"\xff\xd8jpeg-bytes"]  # the writer got the cover
 
 
-def test_skipped_duplicate_gets_no_art(store, monkeypatch):
+def test_skipped_duplicate_gets_no_art(store):
     called = []
-    monkeypatch.setattr(seam, "embed_cover", lambda *a, **k: called.append(1) or True)
     session = _session(
         store,
         Dominance(0.97, 0.30, ("rec-A",), ("rel-1",)),
         art_fn=lambda **kw: b"img",
+        tag_writer_fn=lambda *a, **k: called.append(1) or True,
     )
     task = _task(["rec-A"])
     task.skip = True
@@ -646,26 +650,26 @@ def test_year_lookup_failure_does_not_unland_the_track(store):
     assert outcomes[-1].tags["year"] is None
 
 
-def test_year_write_failure_reports_no_year(store):
-    # Review F2: the year is set in memory before the file write; if that write
-    # fails, the track.done payload must NOT keep reporting a year the disk lacks.
+def test_tag_write_failure_reports_no_year(store):
+    # Review F2 (T-223): the year is resolved onto the item in memory, then the mutagen
+    # writer persists it. If that write fails the file gets no tags, so the track.done
+    # payload must NOT keep reporting a year the disk lacks — the writer rolls it back.
+    def boom(*a, **k):
+        raise OSError("read-only filesystem")
+
     session = _session(
         store,
         Dominance(0.96, 0.30, ("rec-A",)),
         date_fn=lambda _rid: (1996, 6, 25),
+        tag_writer_fn=boom,
     )
     task = _task(["rec-A"])
-
-    def boom():
-        raise OSError("read-only filesystem")
-
-    task.item.try_write = boom
-    task.item.store = lambda: None
     session.choose_item(task)
     outcomes = session.finalize_outcomes()
 
-    assert outcomes[-1].action == "landed"  # still landed
-    assert outcomes[-1].tags["year"] is None  # but rolled back — no phantom year
+    assert outcomes[-1].action == "landed"  # still landed — a write failure never un-lands
+    assert outcomes[-1].art_embedded is False
+    assert outcomes[-1].tags["year"] is None  # rolled back — no phantom year
 
 
 def test_skipped_duplicate_gets_no_year_lookup(store):
@@ -733,6 +737,7 @@ def _session_with_lib(store, dominance, lib, **kw):
     job = store.create_job("https://youtu.be/x")
     kw.setdefault("art_fn", lambda **_: None)
     kw.setdefault("shazam_art_fn", lambda *_a, **_k: None)  # T-222: offline by default
+    kw.setdefault("tag_writer_fn", lambda _p, *, image=None, **_kw: image is not None)  # T-223
     # date_fn no-op by default so decision tests never touch MusicBrainz; the
     # year tests inject their own.
     kw.setdefault("date_fn", lambda _rid: (None, None, None))
@@ -1017,13 +1022,12 @@ def _isrc_recording(mbid="mb-real", artist="Pa Salieu", title="Frontline"):
     return SimpleNamespace(mbid=mbid, artist=artist, title=title)
 
 
-def test_fast_path_dominant_fp_and_yt_agree_lands_without_llm(store, monkeypatch):
+def test_fast_path_dominant_fp_and_yt_agree_lands_without_llm(store):
     # T-219: a dominant fingerprint whose recording is a beets candidate AND whose
     # artist/title the YouTube source corroborates is fp+yt = the 2-of-3 bar in code —
     # so the ~3-6s reconcile LLM (and the ISRC resolve) is skipped entirely and the track
     # lands. T-222 (ADR-033): Shazam IS now gathered once here (the cheap recognition is
     # the land tail's tag/art source), but the expensive LLM + ISRC stay skipped.
-    monkeypatch.setattr(seam, "embed_cover", lambda item, img, **k: True)
     art_seen: list = []
     shz_art_seen: list = []
     reconcile_calls: list = []
@@ -1063,12 +1067,11 @@ def test_fast_path_dominant_fp_and_yt_agree_lands_without_llm(store, monkeypatch
     assert store.list_reviews() == []
 
 
-def test_degrade_gate_still_sources_tags_from_shazam(store, monkeypatch):
+def test_degrade_gate_still_sources_tags_from_shazam(store):
     # T-222 (ADR-033): with no reconcile_fn wired (no ANTHROPIC_APIKEY — the spec §6
     # degrade path), the R1 fingerprint gate makes the land DECISION, but the tag/art
     # SOURCE is still Shazam when it corroborates. The degrade path loses the LLM, not the
     # Shazam tags — Shazam is gathered on every track independent of reconcile_fn.
-    monkeypatch.setattr(seam, "embed_cover", lambda item, img, **k: True)
     shz_art_seen: list = []
     art_seen: list = []
     session = _session(
@@ -1092,10 +1095,9 @@ def test_degrade_gate_still_sources_tags_from_shazam(store, monkeypatch):
     assert outcomes[-1].chosen["album"] == "Send Them to Coventry"
 
 
-def test_shazam_land_falls_back_to_youtube_thumbnail_when_no_art_url(store, monkeypatch):
+def test_shazam_land_falls_back_to_youtube_thumbnail_when_no_art_url(store):
     # T-222: a Shazam-corroborated land whose record has no art_url embeds the YouTube
     # thumbnail (built from the source's video_id) instead — the documented fallback tier.
-    monkeypatch.setattr(seam, "embed_cover", lambda item, img, **k: True)
     shz_art_seen: list = []
     session = _session(
         store,
@@ -1764,3 +1766,198 @@ def test_park_persists_at_most_three_candidates(store):
     choice = session.choose_item(_task(["r1", "r2", "r3", "r4", "r5"]))
     assert choice is Action.SKIP
     assert store.list_reviews()[0].candidate_ids == ["r1", "r2", "r3"]
+
+
+# --- T-223: the mutagen ID3 writer lands real tags + art on disk -------------
+#
+# The Done-when is a disk assertion per accepted branch (Shazam land, AcoustID-only
+# land, thumbnail fallback): drive choose_item + finalize with the REAL writer against
+# a real MP3, then read the frames back with the MediaFile/ID3 the app and Jellyfin use.
+# beets' apply doesn't run offline, so the item carries the fields apply would have set.
+
+import shutil  # noqa: E402
+import subprocess  # noqa: E402
+
+from mediafile import MediaFile  # noqa: E402
+from mutagen.id3 import ID3  # noqa: E402
+
+_no_ffmpeg = pytest.mark.skipif(
+    shutil.which("ffmpeg") is None,
+    reason="ffmpeg required to synthesize a real MP3 to tag",
+)
+
+
+def _real_jpeg(width=480, height=360):
+    """A real JPEG (4:3 like a YouTube thumbnail) so crop_to_square can decode it."""
+    from io import BytesIO
+
+    from PIL import Image
+
+    buf = BytesIO()
+    Image.new("RGB", (width, height), (30, 60, 90)).save(buf, format="JPEG")
+    return buf.getvalue()
+
+
+def _real_mp3(path):
+    """A real 1s MP3 pre-tagged with yt-dlp-style junk, to prove the clean slate."""
+    subprocess.run(
+        ["ffmpeg", "-y", "-f", "lavfi", "-i", "sine=frequency=440:duration=1", str(path)],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    media = MediaFile(str(path))
+    media.artist = "JunkChannelVEVO"
+    media.genre = "Entertainment"
+    media.save()
+    return path
+
+
+def _applied_task(mp3_path, *, artist, title, album, isrc=None):
+    """A task whose item points at a real landed file with the fields beets apply would
+    have set (offline apply doesn't run) — the writer reads these off the item."""
+    item = SimpleNamespace(
+        path=str(mp3_path).encode(),
+        artist=artist,
+        albumartist=None,
+        album=album,
+        title=title,
+        isrc=isrc,
+        genre=None,
+        lyrics=None,
+    )
+    return SimpleNamespace(
+        item=item,
+        candidates=[_rich_candidate("rec-A", artist, title)],
+        rec=Recommendation.medium,
+    )
+
+
+@_no_ffmpeg
+def test_shazam_land_writes_id3_tags_and_cover_to_disk(store, tmp_path):
+    mp3 = _real_mp3(tmp_path / "song.mp3")
+    cover = _real_jpeg()
+    session = _session(
+        store,
+        Dominance(0.95, 0.20, ("rec-A",), ("rel-A",)),
+        source_signals=_signals("Pa Salieu", "Frontline"),
+        shazam_fn=lambda _p: _matched_shazam(),
+        isrc_fn=lambda _isrc: None,
+        reconcile_fn=lambda _ev: Verdict(verdict="park", chosen_candidate=None),
+        shazam_art_fn=lambda url: cover if url == "https://shz/cover.jpg" else None,
+        tag_writer_fn=seam.write_tags,  # the REAL mutagen writer
+    )
+    task = _applied_task(
+        mp3, artist="Pa Salieu", title="Frontline", album="Send Them to Coventry",
+        isrc="GB123",
+    )
+
+    session.choose_item(task)
+    outcomes = session.finalize_outcomes()
+
+    assert outcomes[-1].action == "landed"
+    assert outcomes[-1].art_embedded is True
+    media = MediaFile(str(mp3))
+    assert media.artist == "Pa Salieu"
+    assert media.album == "Send Them to Coventry"
+    assert media.title == "Frontline"
+    assert media.year == 2020  # from the Shazam record (T-221 widening)
+    assert media.genre == "Hip-Hop/Rap"  # Shazam genre, not the junk "Entertainment"
+    assert media.isrc == "GB123"
+    assert ID3(str(mp3)).getall("APIC")[0].data == cover  # Shazam's art_url on disk
+
+
+@_no_ffmpeg
+def test_acoustid_only_land_writes_tags_and_caa_cover_to_disk(store, tmp_path):
+    # Shazam missed → AcoustID branch: tags stamped from the applied match + the ADR-014
+    # year, cover via the CAA/iTunes fetch (art_fn). No Shazam art path.
+    mp3 = _real_mp3(tmp_path / "song.mp3")
+    cover = _real_jpeg(600, 600)
+    shz_art_seen = []
+    session = _session(
+        store,
+        Dominance(0.95, 0.20, ("rec-A",), ("rel-A",)),
+        source_signals=_signals("Pa Salieu", "Frontline"),
+        shazam_fn=lambda _p: {"matched": False, "error": "no match"},
+        isrc_fn=lambda _isrc: None,
+        reconcile_fn=lambda _ev: Verdict(verdict="park", chosen_candidate=None),
+        art_fn=lambda **kw: cover,
+        shazam_art_fn=lambda url: shz_art_seen.append(url) or None,
+        date_fn=lambda _rid: (1996, 6, 25),
+        tag_writer_fn=seam.write_tags,
+    )
+    task = _applied_task(mp3, artist="Pa Salieu", title="Frontline", album="Coventry")
+
+    session.choose_item(task)
+    outcomes = session.finalize_outcomes()
+
+    assert outcomes[-1].action == "landed"
+    assert outcomes[-1].art_embedded is True
+    assert shz_art_seen == []  # the Shazam art path was NOT taken
+    media = MediaFile(str(mp3))
+    assert media.artist == "Pa Salieu"
+    assert media.title == "Frontline"
+    assert media.year == 1996  # MB original-year stamp (AcoustID-only path)
+    assert ID3(str(mp3)).getall("APIC")[0].data == cover
+
+
+@_no_ffmpeg
+def test_shazam_land_thumbnail_fallback_writes_cropped_square_cover(store, tmp_path):
+    # Shazam matched but has no art_url → the YouTube thumbnail, centre-cropped square,
+    # lands as the APIC cover on disk.
+    mp3 = _real_mp3(tmp_path / "song.mp3")
+    thumb = _real_jpeg(480, 360)  # 4:3, like hqdefault.jpg
+    session = _session(
+        store,
+        Dominance(0.95, 0.20, ("rec-A",), ("rel-A",)),
+        source_signals=_signals("Pa Salieu", "Frontline"),  # video_id="vid"
+        shazam_fn=lambda _p: _matched_shazam(art_url=None),
+        isrc_fn=lambda _isrc: None,
+        reconcile_fn=lambda _ev: Verdict(verdict="park", chosen_candidate=None),
+        shazam_art_fn=lambda url: thumb if url and "ytimg" in url else None,
+        tag_writer_fn=seam.write_tags,
+    )
+    task = _applied_task(
+        mp3, artist="Pa Salieu", title="Frontline", album="Send Them to Coventry",
+    )
+
+    session.choose_item(task)
+    outcomes = session.finalize_outcomes()
+
+    assert outcomes[-1].action == "landed"
+    assert outcomes[-1].art_embedded is True
+    from io import BytesIO
+
+    from PIL import Image
+
+    apic = ID3(str(mp3)).getall("APIC")[0]
+    w, h = Image.open(BytesIO(apic.data)).size
+    assert w == h == 360  # centre-cropped to a square, not the 480x360 letterbox
+
+
+@_no_ffmpeg
+def test_keep_untagged_persists_post_run_tags_to_disk(store, tmp_path):
+    # T-223 finding 4: beets `write` is off, so KeepUntaggedSession must re-persist the
+    # item's post-run tags with mutagen — otherwise ftintitle's in-memory feat.-split
+    # (ADR-012) never reaches the file. Simulate the item as ftintitle left it post-run.
+    mp3 = _real_mp3(tmp_path / "song.mp3")
+    job = store.create_job("https://youtu.be/x")
+    session = seam.KeepUntaggedSession(
+        None, store=store, job_id=job.id, staging_path=str(mp3), query="q",
+        manual_title="Frontline (feat. X)", manual_artist="Pa Salieu",
+    )
+    item = SimpleNamespace(
+        path=str(mp3).encode(),
+        artist="Pa Salieu",  # ftintitle already split the feat. out of the artist
+        title="Frontline (feat. X)",
+        album=None, albumartist=None, year=0, genre=None, lyrics=None, isrc=None,
+    )
+    session._accepted.append((SimpleNamespace(item=item), None, Dominance(0.0, 0.0, ())))
+
+    outcomes = session.finalize_outcomes()
+
+    assert outcomes[-1].action == "landed"
+    media = MediaFile(str(mp3))
+    assert media.artist == "Pa Salieu"  # the split PERSISTED to disk
+    assert media.title == "Frontline (feat. X)"
+    assert media.genre != "Entertainment"  # the yt-dlp junk was cleared

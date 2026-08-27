@@ -1,7 +1,7 @@
 ---
 type: meta
 title: "Hot — cleanmuzik"
-updated: 2026-08-25
+updated: 2026-08-26
 tags:
   - meta
   - hot-cache
@@ -21,6 +21,21 @@ CleanMuzik — personal YouTube → Jellyfin music tool. Purpose, stack, constra
 
 ## Current State (2026-08-26)
 
+- **T-223 DONE — built + committed to `main` 2026-08-26 (this session). 792 green on `main`.** Wave 3 of the
+  T-220 epic: **beets is retired from tag-writing.** `_configure_import_options` sets import **`write` off** —
+  beets still copies + organizes (by the item's applied fields), but writes no tags. New **`app/tagwriter.py`**
+  (`write_tags`) writes the authoritative ID3 frames (TIT2/TPE1/TPE2/TALB/TDRC/TCON/TSRC/USLT) + an APIC cover
+  with mutagen, `clear()`-ing the yt-dlp junk first (ADR-013 clean slate; `clear()` not `delete()` — a
+  headerless MP3 would raise). The land tail (`finalize_outcomes`) resolves the cover (`_resolve_cover`: Shazam
+  `art_url` → YouTube thumbnail **centre-cropped square** via `artwork.crop_to_square`, or CAA/iTunes for
+  AcoustID-only) and writes once (`_write_landed_tags`, injected `tag_writer_fn`). Year/genre now set in-memory
+  only; the writer persists them, and a write failure rolls the **year** back (F2) without un-landing (genre is
+  read off disk, needs none). **KeepUntagged/ASIS re-persists post-run via `_write_landed_tags`** so ftintitle's
+  feat.-split still lands (write=False coupling). beets/plugins still LOADED — teardown is T-224. Code-review's
+  5 findings all addressed (headerless `delete()` = the load-bearing one). Isolated real-beets smoke confirmed
+  write-off still organizes; on-disk seam tests assert ID3+APIC for Shazam / AcoustID-only / thumbnail lands.
+  **Next action: build T-224** (retire beets + plugins; the epic live compare rides there).
+
 - **T-222 DONE — built + committed to `main` 2026-08-26 (this session). 779 green on `main`.** Wave 2 (the
   HEART) of the T-220 epic: the tag/art SOURCE on a land is now the accepted identity, not a MusicBrainz
   re-derivation. **Owner-approved Option 1** (this session): Shazam is gathered ONCE per track in
@@ -32,8 +47,7 @@ CleanMuzik — personal YouTube → Jellyfin music tool. Purpose, stack, constra
   year/genre set in finalize, cover from `art_url`→YouTube-thumbnail (`artwork.fetch_url_image`, image-magic
   validated), **no `_ensure_full_match` MB hydration**. **Land decision, 2-of-3 gate, Frank Ocean/Coldplay
   park all UNTOUCHED.** beets still WRITES (writer swap = T-223; genre still via lastgenre until T-224).
-  Code-review's 6 findings addressed. **Next action: build T-223** (mutagen ID3 writer). Epic live compare
-  rides at T-224.
+  Code-review's 6 findings addressed. (T-223 now DONE — see above.)
 
 - **T-221 DONE — built + committed to `main` 2026-08-26 (this session). 770 green on `main`.** Wave 1 of the
   T-220 epic: widened the Shazam §6 record with **album / year / genre** (runner `shazam_runner.py` +

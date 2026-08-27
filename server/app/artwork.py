@@ -208,8 +208,46 @@ def fetch_url_image(
     return None
 
 
+def crop_to_square(image_bytes: bytes) -> bytes:
+    """Centre-crop `image_bytes` to a square — the YouTube-thumbnail fallback (T-223).
+
+    Shazam's `art_url` is already square album art, but the YouTube thumbnail fallback
+    (`hqdefault.jpg`, 4:3) lands letterboxed in a square library grid. Centre-crop it to
+    the largest centred square so the cover reads like real album art. Best-effort: any
+    decode/encode failure (or an already-square image) returns the original bytes
+    unchanged — a non-square cover is better than none, and never un-lands a track.
+    """
+    try:
+        from io import BytesIO
+
+        from PIL import Image
+
+        img = Image.open(BytesIO(image_bytes))
+        width, height = img.size
+        if width == height:
+            return image_bytes
+        side = min(width, height)
+        left = (width - side) // 2
+        top = (height - side) // 2
+        cropped = img.crop((left, top, left + side, top + side))
+        fmt = img.format or "JPEG"
+        if fmt == "JPEG" and cropped.mode not in ("RGB", "L"):
+            cropped = cropped.convert("RGB")
+        buf = BytesIO()
+        cropped.save(buf, format=fmt)
+        return buf.getvalue()
+    except Exception as exc:  # noqa: BLE001 — a crop failure falls back to the raw image
+        logger.debug("thumbnail crop failed (%s) — using the uncropped image", exc)
+        return image_bytes
+
+
 def embed_cover(item, image_bytes: bytes, *, log: logging.Logger = logger) -> bool:
     """Embed `image_bytes` into a landed beets Item's file via beets' art helper.
+
+    **No longer used on the land path (T-223, ADR-033):** cover embedding moved to the
+    mutagen writer (`app.tagwriter.write_tags`, direct APIC), and this beets-native helper
+    is retired with the rest of the beets teardown in T-224 — kept until then so the wave
+    stays reversible (T-223 "Not"). Still covered by its own round-trip tests.
 
     Writes the bytes to a temp file (embed_item takes a path), then delegates to
     `beetsplug._utils.art.embed_item` — the same writer the `embedart` plugin uses
