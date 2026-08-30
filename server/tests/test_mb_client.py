@@ -1,8 +1,14 @@
 """The direct-HTTP MusicBrainz client + shared rate limiter (T-226 step C, `app/mb_client.py`)."""
 
+import json
+from pathlib import Path
+
 import pytest
 
+import app.import_seam as seam
 from app import mb_client
+
+_FIXTURE = Path(__file__).parent / "fixtures" / "mb_recording_bohemian_rhapsody.json"
 
 
 @pytest.fixture(autouse=True)
@@ -35,6 +41,21 @@ class _FakeHTTP:
         if self._exc:
             raise self._exc
         return self._resp
+
+
+class _SeqHTTP:
+    """Returns a queued sequence of responses/exceptions across successive `get` calls."""
+
+    def __init__(self, *outcomes):
+        self._outcomes = list(outcomes)
+        self.calls = []
+
+    def get(self, url, **kw):
+        self.calls.append((url, kw))
+        outcome = self._outcomes.pop(0)
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
 
 
 # A clock/sleep pair that never really sleeps: sleeping advances the fake clock.
@@ -103,6 +124,49 @@ class TestGetRecording:
         http = _FakeHTTP(resp=_Resp(200, ["not", "a", "dict"]))
         clock = _Clock()
         assert mb_client.get_recording("rec-A", http=http, clock_fn=clock.now, sleep_fn=clock.sleep) is None
+
+
+class TestRetry:
+    def test_transient_503_then_200_succeeds(self):
+        # MB answers 503 under load (seen live) — one retry absorbs it (beets-ladder parity).
+        http = _SeqHTTP(_Resp(503, None), _Resp(200, {"id": "rec-A"}))
+        clock = _Clock()
+        out = mb_client.get_recording("rec-A", http=http, clock_fn=clock.now, sleep_fn=clock.sleep)
+        assert out == {"id": "rec-A"}
+        assert len(http.calls) == 2
+
+    def test_exception_then_200_succeeds(self):
+        http = _SeqHTTP(RuntimeError("reset"), _Resp(200, {"id": "rec-A"}))
+        clock = _Clock()
+        assert mb_client.get_recording("rec-A", http=http, clock_fn=clock.now, sleep_fn=clock.sleep) == {"id": "rec-A"}
+
+    def test_two_transient_failures_give_up(self):
+        http = _SeqHTTP(_Resp(503, None), _Resp(503, None))
+        clock = _Clock()
+        assert mb_client.get_recording("rec-A", http=http, clock_fn=clock.now, sleep_fn=clock.sleep) is None
+        assert len(http.calls) == 2  # bounded — never a third attempt
+
+    def test_404_is_not_retried(self):
+        # A 404 is a real answer (unknown recording), not transient — no retry.
+        http = _SeqHTTP(_Resp(404, None), _Resp(200, {"id": "should-not-be-reached"}))
+        clock = _Clock()
+        assert mb_client.get_recording("rec-A", http=http, clock_fn=clock.now, sleep_fn=clock.sleep) is None
+        assert len(http.calls) == 1
+
+
+class TestRealFixtureShape:
+    """Guards the raw MB WS/2 recording shape `fetch_original_date` reads, against a CAPTURED
+    real response (like isrc.py's fixture) — not just hand-authored dicts. If MB's nesting
+    ever shifts, this trips instead of silently degrading the year to recording-level only."""
+
+    def test_fetch_original_date_reads_the_real_nesting(self, monkeypatch):
+        data = json.loads(_FIXTURE.read_text())
+        # The real response nests release-group.first-release-date inside each release.
+        assert "first-release-date" in data
+        assert "release-group" in (data["releases"][0])
+        monkeypatch.setattr(seam.mb_client, "get_recording", lambda _rid, includes=None: data)
+        # Bohemian Rhapsody's 1975 recording — the authoritative first-release-date.
+        assert seam.fetch_original_date("rec-A") == (1975, 11, 21)
 
 
 class TestSharedLimiter:

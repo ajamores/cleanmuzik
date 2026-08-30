@@ -1,0 +1,256 @@
+{
+  "isrcs": [
+    "GBCEE0100112",
+    "GBCEE0500364",
+    "GBCEE0900148",
+    "GBCEE7500015",
+    "GBCEE9300005",
+    "GBCEE9800022",
+    "GBUM71029604"
+  ],
+  "disambiguation": "",
+  "first-release-date": "1975-11-21",
+  "releases": [
+    {
+      "id": "6defd963-fe91-4550-b18e-82c685603c2b",
+      "release-events": [
+        {
+          "area": {
+            "id": "8a754a16-0027-3a29-b6d7-2b40ea0481ed",
+            "sort-name": "United Kingdom",
+            "type": null,
+            "iso-3166-1-codes": [
+              "GB"
+            ],
+            "type-id": null,
+            "disambiguation": "",
+            "name": "United Kingdom"
+          },
+          "date": "1975-11-21"
+        }
+      ],
+      "disambiguation": "",
+      "status": "Official",
+      "packaging-id": "e724a489-a7e8-30a1-a17c-30dfd6831202",
+      "packaging": "Gatefold Cover",
+      "artist-credit": [
+        {
+          "joinphrase": "",
+          "name": "Queen",
+          "artist": {
+            "sort-name": "Queen",
+            "type": "Group",
+            "id": "0383dadf-2a4e-4d10-a46a-e9e041da8eb3",
+            "type-id": "e431f5f6-b5d2-343d-8b36-72607fffb74b",
+            "disambiguation": "UK rock group",
+            "country": "GB",
+            "name": "Queen"
+          }
+        }
+      ],
+      "text-representation": {
+        "script": "Latn",
+        "language": "eng"
+      },
+      "status-id": "4e304316-386d-3409-af2e-78857eec5cfe",
+      "date": "1975-11-21",
+      "barcode": "",
+      "quality": "normal",
+      "release-group": {
+        "disambiguation": "",
+        "primary-type": "Album",
+        "first-release-date": "1975-11-21",
+        "releases": [],
+        "title": "A Night at the Opera",
+        "artist-credit": [
+          {
+            "joinphrase": "",
+            "name": "Queen",
+            "artist": {
+              "disambiguation": "UK rock group",
+              "country": "GB",
+              "name": "Queen",
+              "type": "Group",
+              "sort-name": "Queen",
+              "id": "0383dadf-2a4e-4d10-a46a-e9e041da8eb3",
+              "type-id": "e431f5f6-b5d2-343d-8b36-72607fffb74b"
+            }
+          }
+        ],
+        "secondary-type-ids": [],
+        "id": "6b47c9a0-b9e1-3df9-a5e8-50a6ce0dbdbd",
+        "primary-type-id": "f529b476-6e62-324f-b0aa-1f3e33d313fc",
+        "secondary-types": []
+      },
+      "country": "GB",
+      "title": "A Night at the Opera"
+    },
+    {
+      "id": "65263734-d3a6-49d7-af49-03480581ab1c",
+      "release-events": [
+        {
+          "date": "1975-11-21",
+          "area": {
+            "type-id": null,
+            "iso-3166-1-codes": [
+              "CA"
+            ],
+            "sort-name": "Canada",
+            "type": null,
+            "id": "71bbafaa-e825-3e15-8ca9-017dcad1748b",
+            "name": "Canada",
+            "disambiguation": ""
+          }
+        }
+      ],
+      "artist-credit": [
+        {
+          "artist": {
+            "id": "0383dadf-2a4e-4d10-a46a-e9e041da8eb3",
+            "type": "Group",
+            "sort-name": "Queen",
+            "type-id": "e431f5f6-b5d2-343d-8b36-72607fffb74b",
+            "disambiguation": "UK rock group",
+            "name": "Queen",
+            "country": "GB"
+          },
+          "name": "Queen",
+          "joinphrase": ""
+        }
+      ],
+      "text-representation": {
+        "language": "eng",
+        "script": "Latn"
+      },
+      "status-id": "4e304316-386d-3409-af2e-78857eec5cfe",
+      "packaging": null,
+      "packaging-id": null,
+      "status": "Official",
+      "disambiguation": "",
+      "release-group": {
+        "secondary-types": [],
+        "primary-type-id": "f529b476-6e62-324f-b0aa-1f3e33d313fc",
+        "id": "6b47c9a0-b9e1-3df9-a5e8-50a6ce0dbdbd",
+        "secondary-type-ids": [],
+        "artist-credit": [
+          {
+            "artist": {
+              "id": "0383dadf-2a4e-4d10-a46a-e9e041da8eb3",
+              "type": "Group",
+              "sort-name": "Queen",
+              "type-id": "e431f5f6-b5d2-343d-8b36-72607fffb74b",
+              "disambiguation": "UK rock group",
+              "name": "Queen",
+              "country": "GB"
+            },
+            "name": "Queen",
+            "joinphrase": ""
+          }
+        ],
+        "title": "A Night at the Opera",
+        "releases": [],
+        "first-release-date": "1975-11-21",
+        "primary-type": "Album",
+        "disambiguation": ""
+      },
+      "quality": "normal",
+      "date": "1975-11-21",
+      "barcode": "",
+      "title": "A Night at the Opera",
+      "country": "CA"
+    },
+    {
+      "release-group": {
+        "title": "A Night at the Opera",
+        "artist-credit": [
+          {
+            "artist": {
+              "id": "0383dadf-2a4e-4d10-a46a-e9e041da8eb3",
+              "type": "Group",
+              "sort-name": "Queen",
+              "type-id": "e431f5f6-b5d2-343d-8b36-72607fffb74b",
+              "disambiguation": "UK rock group",
+              "name": "Queen",
+              "country": "GB"
+            },
+            "name": "Queen",
+            "joinphrase": ""
+          }
+        ],
+        "disambiguation": "",
+        "primary-type": "Album",
+        "releases": [],
+        "first-release-date": "1975-11-21",
+        "primary-type-id": "f529b476-6e62-324f-b0aa-1f3e33d313fc",
+        "secondary-types": [],
+        "secondary-type-ids": [],
+        "id": "6b47c9a0-b9e1-3df9-a5e8-50a6ce0dbdbd"
+      },
+      "quality": "normal",
+      "barcode": "",
+      "date": "1975-11-21",
+      "title": "A Night at the Opera",
+      "country": "NL",
+      "release-events": [
+        {
+          "area": {
+            "disambiguation": "",
+            "name": "Netherlands",
+            "id": "ef1b7cc0-cd26-36f4-8ea0-04d9623786c7",
+            "sort-name": "Netherlands",
+            "type": null,
+            "type-id": null,
+            "iso-3166-1-codes": [
+              "NL"
+            ]
+          },
+          "date": "1975-11-21"
+        }
+      ],
+      "id": "492511c2-bc58-4f0c-ba73-7de3befc9710",
+      "status-id": "4e304316-386d-3409-af2e-78857eec5cfe",
+      "text-representation": {
+        "language": "eng",
+        "script": "Latn"
+      },
+      "artist-credit": [
+        {
+          "name": "Queen",
+          "joinphrase": "",
+          "artist": {
+            "type-id": "e431f5f6-b5d2-343d-8b36-72607fffb74b",
+            "type": "Group",
+            "sort-name": "Queen",
+            "id": "0383dadf-2a4e-4d10-a46a-e9e041da8eb3",
+            "country": "GB",
+            "name": "Queen",
+            "disambiguation": "UK rock group"
+          }
+        }
+      ],
+      "packaging": null,
+      "status": "Official",
+      "packaging-id": null,
+      "disambiguation": ""
+    }
+  ],
+  "title": "Bohemian Rhapsody",
+  "artist-credit": [
+    {
+      "artist": {
+        "type-id": "e431f5f6-b5d2-343d-8b36-72607fffb74b",
+        "id": "0383dadf-2a4e-4d10-a46a-e9e041da8eb3",
+        "sort-name": "Queen",
+        "type": "Group",
+        "name": "Queen",
+        "country": "GB",
+        "disambiguation": "UK rock group"
+      },
+      "name": "Queen",
+      "joinphrase": ""
+    }
+  ],
+  "id": "b1a9c0e9-d987-4042-ae91-78d6a3267d69",
+  "length": 355106,
+  "video": false
+}

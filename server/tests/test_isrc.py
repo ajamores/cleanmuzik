@@ -20,7 +20,6 @@ from pathlib import Path
 import pytest
 import requests
 
-import app.isrc as isrc_mod
 from app.isrc import ISRCRecording, isrc_to_mb
 
 FIXTURE = Path(__file__).parent / "fixtures" / "isrc_GBAHT1901215.json"
