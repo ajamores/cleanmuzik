@@ -52,13 +52,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import acoustid
-from beets import config, library, metadata_plugins, plugins, util
+from beets import config, library, metadata_plugins, util
 from beets.autotag import Distance, Recommendation, TrackMatch
 from beets.importer import Action, DuplicateAction, ImportSession
-from beetsplug.musicbrainz import _get_date
 
 from app import isrc as isrc_lookup
 from app import library_scan
+from app import mb_client
 from app import normalize
 from app import reconcile as reconcile_seam
 from app import shazam as shazam_sense
@@ -392,65 +392,44 @@ class _Reconciliation:
 
 # --- original release year (ADR-014) ----------------------------------------
 
-_mb_api_cache = None
-
-
-def _musicbrainz_api():
-    """The loaded `musicbrainz` plugin's rate-limited API client, or None.
-
-    Reuses beets' own client (its session, config, and MusicBrainz rate limiter)
-    rather than standing up a second one, and caches it: the plugin is a
-    process-lifetime singleton, so re-scanning `find_plugins()` on every landed
-    track is pure waste (review F6). None (uncached) only until plugins load —
-    which happens before the pipeline path via `configure_beets`.
-    """
-    global _mb_api_cache
-    if _mb_api_cache is not None:
-        return _mb_api_cache
-    for plugin in plugins.find_plugins():
-        if plugin.name == "musicbrainz":
-            _mb_api_cache = getattr(plugin, "mb_api", None)
-            return _mb_api_cache
-    return None
-
-
 def fetch_original_date(
     recording_id: str | None,
 ) -> tuple[int | None, int | None, int | None]:
     """Original-ish release date for a MusicBrainz recording, as (year, month, day).
 
-    ADR-014's proxy for a track's original year: a singleton's `TrackInfo` carries
-    no date (a recording lookup fetches no releases), so we look the accepted
-    recording up ONCE (releases + release-groups) and read a date from it:
+    ADR-014's proxy for a track's original year: a singleton match carries no date, so we
+    look the accepted recording up ONCE (releases + release-groups) and read a date from it:
 
-    1. the recording's own `first_release_date` — MusicBrainz's authoritative
+    1. the recording's own `first-release-date` — MusicBrainz's authoritative
        "when this recording first came out" (review F4); failing that,
     2. the earliest date across the recording's releases (the release-group
-       `first_release_date` preferred, else the per-release `date`), and for a tie
+       `first-release-date` preferred, else the per-release `date`), and for a tie
        on year the most complete date wins (review F3).
 
     A proxy, not a guarantee: MusicBrainz models each remaster as its own recording,
     so this is the true original year only when the fingerprint matched the original
     master. Best-effort — any failure returns all-None and the track lands with a
     blank year, never an error (the caller treats it like a missing cover).
+
+    T-226 step C: hydrated by the direct-HTTP `mb_client` (raw MB WS/2 JSON, hyphenated
+    keys) behind the shared 1-req/s limiter, not beets' `mb_api`.
     """
     if not recording_id:
         return None, None, None
-    api = _musicbrainz_api()
-    if api is None:
-        return None, None, None
-    recording = api.get_recording(
+    recording = mb_client.get_recording(
         recording_id, includes=["releases", "release-groups"]
     )
-    year, month, day = _get_date(recording.get("first_release_date"))
+    if not recording:
+        return None, None, None
+    year, month, day = mb_client.parse_date(recording.get("first-release-date"))
     if year:
         return year, month, day
 
     dated: list[tuple[int, int | None, int | None]] = []
     for release in recording.get("releases") or []:
-        release_group = release.get("release_group") or {}
-        for raw in (release_group.get("first_release_date"), release.get("date")):
-            y, m, d = _get_date(raw)
+        release_group = release.get("release-group") or {}
+        for raw in (release_group.get("first-release-date"), release.get("date")):
+            y, m, d = mb_client.parse_date(raw)
             if y:
                 dated.append((y, m, d))
                 break  # prefer the release-group date for this release

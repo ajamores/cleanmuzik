@@ -23,15 +23,12 @@ offline exactly as `dominance_fn` is (`import_seam.py`). T-204 builds a syntheti
 1. **User-Agent REQUIRED.** MusicBrainz refuses/throttles anonymous clients. We send the
    same descriptive UA `app.artwork` already uses for its CAA/iTunes calls (kept in sync
    here rather than imported, to avoid pulling beets in at module scope).
-2. **1 request/second — its OWN gate, not yet coordinated with beets.** ADR-001 caps
-   identification traffic at 1/sec. This is a *direct* MusicBrainz call outside beets' own
-   MB limiter, and it keeps its OWN monotonic-clock throttle (a module-level gate) so its
-   calls never self-collide. **Caveat:** that gate does not share state with beets'
-   `LimiterTimeoutSession`, so within one track a beets MB candidate call followed
-   immediately by this lookup can put two requests to `musicbrainz.org` inside one second.
-   The 26-track spike ran both paths against live MB with *no* throttle and never tripped
-   MB's limiter, so the practical risk is low; a true shared limiter is deferred to
-   `docs/backlog/` (T-210) and the collision is watched for in the T-209 verify sweep.
+2. **1 request/second — the shared `mb_client` gate (T-226 step C).** ADR-001 caps
+   identification traffic at 1/sec. This lookup and `mb_client.get_recording` now share ONE
+   monotonic-clock throttle (`mb_client.respect_rate_limit`), so the two direct MB paths can
+   no longer self-collide — the T-210 correctness half, for the direct calls. (beets' own
+   `LimiterTimeoutSession` still governs whatever candidate hydration rides beets until it is
+   retired in step D, at which point every MB request funnels through the one gate.)
 
 **Fail-soft:** any network error, non-200 status (a well-formed but unknown ISRC returns a
 real HTTP 404), or unparseable body → `None`, treated as "no ISRC entry". Never raises for
@@ -39,13 +36,13 @@ a lookup failure.
 """
 
 import logging
-import threading
 import time
 import urllib.parse
 from dataclasses import dataclass
 
 import requests
 
+from app import mb_client
 from app.config import MUSICBRAINZ_USER_AGENT
 
 logger = logging.getLogger("cleanmuzik")
@@ -60,14 +57,7 @@ _QUERY = {"fmt": "json", "inc": "artist-credits"}
 # importing it here is cheap (unlike importing `artwork`).
 _UA = MUSICBRAINZ_USER_AGENT
 
-# MusicBrainz's rate limit (ADR-001). We never issue two requests closer than this.
-_MIN_INTERVAL_S = 1.0
 _TIMEOUT_S = 15
-
-# The one piece of shared state the 1/sec gate needs: when the last request went out, on
-# the monotonic clock. Guarded by the lock so a future non-serial caller can't race it.
-_rate_lock = threading.Lock()
-_last_request_monotonic: float | None = None
 
 
 @dataclass(frozen=True)
@@ -82,24 +72,6 @@ class ISRCRecording:
     mbid: str
     artist: str
     title: str
-
-
-def _respect_rate_limit(clock_fn, sleep_fn) -> None:
-    """Block until at least `_MIN_INTERVAL_S` has passed since the last request (ADR-001).
-
-    Injectable `clock_fn`/`sleep_fn` so tests can assert the throttle without waiting a
-    real second. Records the send time *after* any sleep, so back-to-back calls space
-    out by the interval rather than drifting.
-    """
-    global _last_request_monotonic
-    with _rate_lock:
-        now = clock_fn()
-        if _last_request_monotonic is not None:
-            wait = _MIN_INTERVAL_S - (now - _last_request_monotonic)
-            if wait > 0:
-                sleep_fn(wait)
-                now = clock_fn()
-        _last_request_monotonic = now
 
 
 def _artist_credit_phrase(credit) -> str:
@@ -166,7 +138,7 @@ def isrc_to_mb(
         return None
     isrc = str(isrc).strip()
 
-    _respect_rate_limit(clock_fn, sleep_fn)
+    mb_client.respect_rate_limit(clock_fn, sleep_fn)
 
     url = _ISRC_URL.format(isrc=urllib.parse.quote(isrc, safe=""))
     try:

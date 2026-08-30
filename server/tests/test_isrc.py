@@ -57,10 +57,13 @@ class _FakeHTTP:
 
 @pytest.fixture(autouse=True)
 def _reset_rate_gate():
-    """Each test starts from a clean throttle — the gate is module-level global state."""
-    isrc_mod._last_request_monotonic = None
+    """Each test starts from a clean throttle — the gate is module-level global state, now
+    shared with mb_client (T-226 step C)."""
+    from app import mb_client
+
+    mb_client._last_request_monotonic = None
     yield
-    isrc_mod._last_request_monotonic = None
+    mb_client._last_request_monotonic = None
 
 
 # A clock/sleep pair that never really sleeps: sleeping advances the fake clock instead.

@@ -533,19 +533,18 @@ def test_import_options_set_from_scratch(monkeypatch):
 
 
 def _fake_mb(recording, monkeypatch):
-    """Point `_musicbrainz_api` at a stub whose get_recording returns `recording`."""
-    api = SimpleNamespace(get_recording=lambda _rid, includes=None: recording)
-    monkeypatch.setattr(seam, "_musicbrainz_api", lambda: api)
-    return api
+    """Point `mb_client.get_recording` at a stub returning the raw MB JSON `recording`
+    (hyphenated WS/2 keys — T-226 step C)."""
+    monkeypatch.setattr(seam.mb_client, "get_recording", lambda _rid, includes=None: recording)
 
 
 def test_fetch_original_date_prefers_recording_level_first_date(monkeypatch):
-    # The recording's own first_release_date is MusicBrainz's authoritative original
+    # The recording's own first-release-date is MusicBrainz's authoritative original
     # date (review F4) — used ahead of any per-release scan, even if releases exist.
     _fake_mb(
         {
-            "first_release_date": "1975-10-31",
-            "releases": [{"date": "2020", "release_group": {"first_release_date": "2020"}}],
+            "first-release-date": "1975-10-31",
+            "releases": [{"date": "2020", "release-group": {"first-release-date": "2020"}}],
         },
         monkeypatch,
     )
@@ -554,12 +553,12 @@ def test_fetch_original_date_prefers_recording_level_first_date(monkeypatch):
 
 def test_fetch_original_date_picks_earliest_across_releases(monkeypatch):
     # No recording-level date, so fall back to releases: earliest wins, and the
-    # release-group `first_release_date` is preferred over a later per-release `date`.
+    # release-group `first-release-date` is preferred over a later per-release `date`.
     _fake_mb(
         {
             "releases": [
-                {"date": "2020-01-15", "release_group": {"first_release_date": "2020"}},
-                {"date": "1975-11-21", "release_group": {"first_release_date": "1975-10-31"}},
+                {"date": "2020-01-15", "release-group": {"first-release-date": "2020"}},
+                {"date": "1975-11-21", "release-group": {"first-release-date": "1975-10-31"}},
             ]
         },
         monkeypatch,
@@ -573,8 +572,8 @@ def test_fetch_original_date_keeps_fullest_date_on_year_tie(monkeypatch):
     _fake_mb(
         {
             "releases": [
-                {"date": None, "release_group": {"first_release_date": "1975"}},
-                {"date": "1975-10-31", "release_group": {}},
+                {"date": None, "release-group": {"first-release-date": "1975"}},
+                {"date": "1975-10-31", "release-group": {}},
             ]
         },
         monkeypatch,
@@ -585,7 +584,7 @@ def test_fetch_original_date_keeps_fullest_date_on_year_tie(monkeypatch):
 def test_fetch_original_date_falls_back_to_release_date(monkeypatch):
     # No recording-level or release-group date, but the release itself carries one.
     _fake_mb(
-        {"releases": [{"date": "1982-01-02", "release_group": {}}]}, monkeypatch
+        {"releases": [{"date": "1982-01-02", "release-group": {}}]}, monkeypatch
     )
     assert seam.fetch_original_date("rec-A") == (1982, 1, 2)
 
@@ -601,7 +600,7 @@ def test_fetch_original_date_no_dated_release_returns_none(monkeypatch):
 def test_fetch_original_date_no_recording_id_makes_no_call(monkeypatch):
     called = []
     monkeypatch.setattr(
-        seam, "_musicbrainz_api", lambda: called.append(1) or SimpleNamespace()
+        seam.mb_client, "get_recording", lambda _rid, includes=None: called.append(1) or {}
     )
     assert seam.fetch_original_date(None) == (None, None, None)
     assert called == []  # short-circuits before touching MusicBrainz
