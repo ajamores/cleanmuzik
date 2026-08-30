@@ -31,9 +31,15 @@ from mutagen.id3 import (
     TPE1,
     TPE2,
     TSRC,
+    UFID,
     USLT,
     ID3NoHeaderError,
 )
+
+# The UFID owner MusicBrainz/Picard/beets use for a recording id, and the one
+# `mediafile.MediaFile.mb_trackid` reads/writes. The library-scan dedup (T-226) finds a
+# re-acquired track by matching this frame, so the writer must stamp it in the same shape.
+_MB_UFID_OWNER = "http://musicbrainz.org"
 
 logger = logging.getLogger("cleanmuzik")
 
@@ -56,6 +62,7 @@ def write_tags(
     genre: str | None = None,
     lyrics: str | None = None,
     isrc: str | None = None,
+    recording_id: str | None = None,
     image: bytes | None = None,
 ) -> bool:
     """Write authoritative ID3 frames (+ an APIC cover) onto the MP3 at `path`.
@@ -100,6 +107,11 @@ def write_tags(
         tags.add(TSRC(encoding=3, text=isrc))
     if lyrics:
         tags.add(USLT(encoding=3, lang="eng", desc="", text=lyrics))
+    # The MusicBrainz recording id (T-226): stamped so the library-scan dedup can find a
+    # re-acquire of this recording by reading the file, not a beets side DB. `mediafile`
+    # maps `mb_trackid` to exactly this UFID frame, so the scan reads it back cleanly.
+    if recording_id:
+        tags.add(UFID(owner=_MB_UFID_OWNER, data=recording_id.encode("utf-8")))
 
     art_embedded = False
     if image:

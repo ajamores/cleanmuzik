@@ -50,6 +50,7 @@ from pathlib import Path
 import acoustid
 from mediafile import MediaFile
 
+from app import pathing
 from app.config import Settings, get_settings
 from app.db import (
     REVIEW_REJECTED,
@@ -1308,12 +1309,19 @@ def _replace_existing(lib, recording_id: str, before_ids: set, landed) -> str | 
     confirmed present before anything is removed; if the confirmation fails we raise
     with both copies still on disk.
 
-    Returns the new copy's final path. beets refuses to clobber, so the upgrade first
+    Returns the new copy's final path. The mover refuses to clobber, so the upgrade first
     lands beside the old file under a uniquified name (`Title.1.mp3`); once the old
-    file is gone the canonical path is free, so the item is re-organized onto it and
+    file is gone the canonical path is free, so the file is re-organized onto it and
     the library isn't left with a cosmetic `.1`. That last step is best-effort — a
     failure there leaves a correctly-tagged file at a slightly ugly path, which is not
     worth failing an otherwise-complete replace over.
+
+    T-226: the library items are `LibraryItem`s from a filesystem scan (path identity),
+    not beets `Item`s, so the delete and the reclaim are plain-Python file ops — `os.remove`
+    + empty-dir prune (was beets `item.remove(delete=True)`) and an `os.rename` onto the
+    freed canonical slot (was beets `new_item.move()`). The caller's `len(before) > 1`
+    guard means at most one old copy reaches here, and a single landed copy always sits at
+    the canonical path, so that freed path IS the reclaim target.
     """
     after = items_for_recording(lib, recording_id)
     new_items = [item for item in after if item.id not in before_ids]
@@ -1336,22 +1344,42 @@ def _replace_existing(lib, recording_id: str, before_ids: set, landed) -> str | 
 
     for item in old_items:
         old_path = os.fsdecode(item.path)
-        # delete=True removes the file AND the row, and prunes a now-empty artist
-        # directory. This is the owner's explicit click, not the app's initiative.
-        item.remove(delete=True)
+        # The owner's explicit click, not the app's initiative: remove the file and prune
+        # a now-empty artist directory (what beets' delete=True used to do).
+        _delete_and_prune(old_path)
         logger.info("replace: removed the superseded copy at %s", old_path)
 
+    # Reclaim the canonical path now the old copy has freed it: the new copy landed as
+    # `Title.1.mp3` beside it, so strip the `.N` (was beets `new_item.move()`). No suffix
+    # means it already landed at its own canonical — nothing to reclaim.
+    final_path = str(new_path)
+    canonical = pathing.strip_collision_suffix(final_path)
+    if canonical != final_path and not os.path.exists(canonical):
+        try:
+            os.rename(final_path, canonical)
+            final_path = canonical
+        except OSError as exc:
+            logger.warning(
+                "replace: could not re-organize %s onto its canonical path %s (%s) — "
+                "the upgrade is landed and correct, just not tidily named",
+                final_path, canonical, exc,
+            )
+    return final_path
+
+
+def _delete_and_prune(path: str) -> None:
+    """Delete a library file and prune its artist directory if that leaves it empty.
+
+    Reproduces beets `Item.remove(delete=True)`'s file removal + empty-parent prune, in
+    plain Python (T-226). The prune is best-effort — a non-empty or vanished directory is
+    left alone."""
+    os.remove(path)
+    parent = os.path.dirname(path)
     try:
-        new_item.move()  # the canonical path is free now — reclaim it
-    except Exception as exc:  # noqa: BLE001 — cosmetic only, the file is landed
-        logger.warning(
-            "replace: could not re-organize %s onto its canonical path (%s) — "
-            "the upgrade is landed and correct, just not tidily named",
-            new_path, exc,
-        )
-    # Re-read AFTER the move: the whole point of it is that the path changed, so the
-    # landed_path the import reported is stale by now and would misname track.done.
-    return os.fsdecode(new_item.path) if new_item.path else None
+        if parent and os.path.isdir(parent) and not os.listdir(parent):
+            os.rmdir(parent)
+    except OSError:
+        pass
 
 
 def _release(store: Store, review_id: str, last_error: str) -> Review | None:

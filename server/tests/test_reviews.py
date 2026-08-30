@@ -67,30 +67,6 @@ def _parked(store, tmp_path, *, rec="medium", candidate_ids=("rec-A", "rec-B")):
     return job, review, staging_dir
 
 
-class _FakeItem:
-    """Stand-in for a beets library Item — the few attributes the code reads."""
-
-    def __init__(self, item_id, path, *, bitrate=320000, title="Song", artist="Band"):
-        self.id = item_id
-        self.path = str(path).encode()
-        self.bitrate = bitrate
-        self.title = title
-        self.artist = artist
-        self.album = "LP"
-        self.removed = False
-        self.moved = False
-
-    def remove(self, delete=False):
-        self.removed = True
-        if delete:
-            from pathlib import Path
-
-            Path(self.path.decode()).unlink(missing_ok=True)
-
-    def move(self):
-        self.moved = True
-
-
 # --- 1. validation: the body must answer the question the row is asking ------
 
 
@@ -994,71 +970,98 @@ def test_staging_outside_a_cleanmuzik_dir_is_not_rmtreed(tmp_path):
 # actually holds under failure, which is the only condition that can prove it.
 
 
-def test_replace_refuses_to_delete_when_the_new_copy_is_not_in_the_library(tmp_path):
+# T-226: the library items are `LibraryItem`s from a filesystem scan (path identity), and
+# the delete/reclaim are plain-Python file ops. These stub the scan to reflect what is on
+# disk (the real scan is covered in test_library_scan.py) and assert against real files.
+def _stub_scan(monkeypatch, *paths_by_state):
+    """Stub `items_for_recording` to return a `LibraryItem` for each currently-existing
+    file in `paths_by_state`, so before/after snapshots track the disk as `land` writes."""
+    from app import library_scan
+
+    def scan(_lib, recording_id):
+        if not recording_id:
+            return []
+        return [
+            library_scan.LibraryItem(str(p).encode(), recording_id, 320000)
+            for p in paths_by_state
+            if p.exists()
+        ]
+
+    monkeypatch.setattr(jobs_mod, "items_for_recording", scan)
+
+
+def test_replace_refuses_to_delete_when_the_new_copy_is_not_in_the_library(tmp_path, monkeypatch):
     old_file = tmp_path / "old.mp3"
     old_file.write_bytes(b"old")
-    old = _FakeItem(1, old_file, bitrate=192000)
-    lib = _FakeLib([old])  # the import landed nothing new
+    _stub_scan(monkeypatch, old_file)  # the import landed nothing new
 
     with pytest.raises(jobs_mod._StageFailure, match="never leave zero copies"):
-        jobs_mod._replace_existing(lib, "rec-E", {1}, Outcome("landed", 0.0, 0.0))
+        jobs_mod._replace_existing(None, "rec-E", {str(old_file)}, Outcome("landed", 0.0, 0.0))
 
-    assert not old.removed, "the owner's file must survive an unconfirmed replace"
-    assert old_file.exists()
+    assert old_file.exists(), "the owner's file must survive an unconfirmed replace"
 
 
-def test_replace_refuses_to_delete_when_the_new_copy_is_not_on_disk(tmp_path):
-    # The library row exists but the file doesn't — beets recorded it and the copy
-    # failed. Deleting the old one here is exactly ADR-009's data-loss window.
+def test_replace_refuses_to_delete_when_the_new_copy_is_not_on_disk(tmp_path, monkeypatch):
+    # The scan reports a new copy but the file isn't there — a copy failed after landing.
+    # Deleting the old one here is exactly ADR-009's data-loss window.
     old_file = tmp_path / "old.mp3"
     old_file.write_bytes(b"old")
-    old = _FakeItem(1, old_file, bitrate=192000)
-    ghost = _FakeItem(2, tmp_path / "never-written.mp3", bitrate=320000)
-    lib = _FakeLib([old, ghost])
+    ghost = tmp_path / "never-written.mp3"  # not created
+
+    from app import library_scan
+
+    def scan(_lib, rid):
+        return [
+            library_scan.LibraryItem(str(old_file).encode(), rid, 192000),
+            library_scan.LibraryItem(str(ghost).encode(), rid, 320000),  # not on disk
+        ]
+
+    monkeypatch.setattr(jobs_mod, "items_for_recording", scan)
 
     with pytest.raises(jobs_mod._StageFailure, match="not on disk"):
-        jobs_mod._replace_existing(lib, "rec-E", {1}, Outcome("landed", 0.0, 0.0))
+        jobs_mod._replace_existing(None, "rec-E", {str(old_file)}, Outcome("landed", 0.0, 0.0))
 
-    assert not old.removed, "the owner's file must survive an unconfirmed replace"
-    assert old_file.exists()
+    assert old_file.exists(), "the owner's file must survive an unconfirmed replace"
 
 
-def test_replace_deletes_the_old_copy_only_after_the_new_one_is_confirmed(tmp_path):
-    old_file = tmp_path / "old.mp3"
+def test_replace_deletes_the_old_copy_only_after_the_new_one_is_confirmed(tmp_path, monkeypatch):
+    # Old at the canonical slot, new landed beside it as Title.1.mp3 (mover refused to
+    # clobber). After deleting old, the new copy reclaims the freed canonical path.
+    old_file = tmp_path / "Artist" / "Title.mp3"
+    new_file = tmp_path / "Artist" / "Title.1.mp3"
+    old_file.parent.mkdir()
     old_file.write_bytes(b"old")
-    new_file = tmp_path / "new.1.mp3"
     new_file.write_bytes(b"new")
-    old = _FakeItem(1, old_file, bitrate=192000)
-    new = _FakeItem(2, new_file, bitrate=320000)
-    lib = _FakeLib([old, new])
+    _stub_scan(monkeypatch, old_file, new_file)
 
-    path = jobs_mod._replace_existing(lib, "rec-E", {1}, Outcome("landed", 0.0, 0.0))
+    path = jobs_mod._replace_existing(None, "rec-E", {str(old_file)}, Outcome("landed", 0.0, 0.0))
 
-    assert old.removed and not old_file.exists(), "the superseded copy is gone"
-    assert new_file.exists(), "the upgrade is still there"
-    assert new.moved, "the new copy reclaims the canonical path once it is free"
-    assert path == str(new_file)
+    assert not new_file.exists(), "the `.1` copy was reclaimed onto the canonical path"
+    assert path == str(old_file), "the new copy now sits at the freed canonical path"
+    assert old_file.read_bytes() == b"new", "and it is the upgrade, not the old copy"
 
 
-def test_replace_never_leaves_zero_copies_even_if_reorganize_fails(tmp_path):
-    old_file = tmp_path / "old.mp3"
+def test_replace_never_leaves_zero_copies_even_if_reorganize_fails(tmp_path, monkeypatch):
+    old_file = tmp_path / "Artist" / "Title.mp3"
+    new_file = tmp_path / "Artist" / "Title.1.mp3"
+    old_file.parent.mkdir()
     old_file.write_bytes(b"old")
-    new_file = tmp_path / "new.1.mp3"
     new_file.write_bytes(b"new")
-    old = _FakeItem(1, old_file, bitrate=192000)
-    new = _FakeItem(2, new_file, bitrate=320000)
+    _stub_scan(monkeypatch, old_file, new_file)
 
-    def bad_move():
+    def bad_rename(*_a, **_k):
         raise OSError("permission denied")
 
-    new.move = bad_move
-    path = jobs_mod._replace_existing(lib := _FakeLib([old, new]), "rec-E", {1}, Outcome("landed", 0.0, 0.0))
-    # A tidy-up failure must not fail an otherwise-complete replace.
+    monkeypatch.setattr(jobs_mod.os, "rename", bad_rename)
+    path = jobs_mod._replace_existing(None, "rec-E", {str(old_file)}, Outcome("landed", 0.0, 0.0))
+
+    # A tidy-up (reclaim) failure must not fail an otherwise-complete replace: the upgrade
+    # stays landed at its `.1` path.
     assert new_file.exists()
     assert path == str(new_file)
 
 
-def test_replace_refuses_when_two_library_files_share_the_recording_id(tmp_path):
+def test_replace_refuses_when_two_library_files_share_the_recording_id(tmp_path, monkeypatch):
     # Caught by /verify, not by review: `keep_both` is what CREATES this state (two
     # files, one recording id, different titles — a remaster shares a recording id).
     # A later `replace` used to delete BOTH, destroying the copy the owner had
@@ -1070,12 +1073,11 @@ def test_replace_refuses_when_two_library_files_share_the_recording_id(tmp_path)
     a.write_bytes(b"a")
     b = tmp_path / "orig (Remaster).mp3"
     b.write_bytes(b"b")
-    kept_both = [_FakeItem(1, a, title="Song"), _FakeItem(2, b, title="Song (Remaster)")]
+    _stub_scan(monkeypatch, a, b)  # two files share the recording id
     landed = []
 
     state, bus = _run_resolve(
         store, review, ResolveRequest("replace", recording_id="rec-E"),
-        lib=_FakeLib(kept_both),
         resolve_fn=lambda *a, **k: landed.append(1) or [Outcome("landed", 0.0, 0.0)],
     )
 
@@ -1085,35 +1087,34 @@ def test_replace_refuses_when_two_library_files_share_the_recording_id(tmp_path)
     assert state.status == "review"
     assert "share this recording id" in dict(_events(bus, job.id))["track.review_required"]["message"]
     assert not landed, "it must refuse BEFORE the import lands anything to unwind"
-    assert not any(i.removed for i in kept_both), "neither copy may be deleted"
-    assert a.exists() and b.exists()
+    assert a.exists() and b.exists(), "neither copy may be deleted"
     assert store.get_review(review.id).status == "pending", "still resolvable another way"
     assert staging_dir.exists()
 
 
-def test_replace_still_works_for_the_ordinary_single_copy_case(tmp_path):
+def test_replace_still_works_for_the_ordinary_single_copy_case(tmp_path, monkeypatch):
     # The guard above must not break the everyday path it protects.
     store = _store(tmp_path)
     job, review, staging_dir = _parked(store, tmp_path, rec="duplicate", candidate_ids=("rec-E",))
-    old_file = tmp_path / "old.mp3"
+    old_file = tmp_path / "Artist" / "Title.mp3"
+    new_file = tmp_path / "Artist" / "Title.1.mp3"
+    old_file.parent.mkdir()
     old_file.write_bytes(b"old")
-    new_file = tmp_path / "new.mp3"
-    new_file.write_bytes(b"new")
-    old = _FakeItem(1, old_file, bitrate=192000)
-    new = _FakeItem(2, new_file, bitrate=320000)
-    lib = _FakeLib([old])
+    # The scan sees the new copy once `land` writes it: before → [old], after → [old, new].
+    _stub_scan(monkeypatch, old_file, new_file)
 
     def land(*a, **k):
-        lib._items.append(new)  # the import adds the upgrade to the library
+        new_file.write_bytes(b"new")  # the import lands the upgrade beside the old copy
         return [Outcome("landed", 0.0, 0.0, landed_path=str(new_file), tags={}, chosen={})]
 
     state, _ = _run_resolve(
-        store, review, ResolveRequest("replace", recording_id="rec-E"),
-        lib=lib, resolve_fn=land,
+        store, review, ResolveRequest("replace", recording_id="rec-E"), resolve_fn=land,
     )
     assert state.status == "done"
-    assert old.removed and not old_file.exists()
-    assert new_file.exists()
+    assert not new_file.exists(), "the `.1` was reclaimed onto the canonical path"
+    assert old_file.exists() and old_file.read_bytes() == b"new", (
+        "the superseded copy is gone and the upgrade now sits at the canonical path"
+    )
     assert store.get_review(review.id).status == "resolved"
 
 

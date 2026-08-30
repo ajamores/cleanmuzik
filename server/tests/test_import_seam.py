@@ -715,22 +715,27 @@ def _dup_task(bitrate, *, track_ids=("rec-A",), mb_trackid="rec-A", **tags):
     )
 
 
-def _lib_item(mb_trackid="rec-A", bitrate=320000, *, path=None, **tags):
-    """A real beets library Item — the existing landed copy we detect against."""
-    return library.Item(
-        mb_trackid=mb_trackid,
-        bitrate=bitrate,
-        path=path or f"/lib/{mb_trackid}-{bitrate}.mp3".encode(),
-        **tags,
+def _dup(mb_trackid="rec-A", bitrate=320000, *, path=None):
+    """A scanned library duplicate (T-226 `LibraryItem`) — the existing landed copy the
+    dedup detects. Real detection against files is covered in `test_library_scan.py`; here
+    the scan is stubbed so the PARK decision is tested without touching disk."""
+    from app import library_scan
+
+    return library_scan.LibraryItem(
+        path or f"/lib/{mb_trackid}-{bitrate}.mp3".encode(), mb_trackid, bitrate
     )
 
 
-def _lib_with(*items) -> library.Library:
-    lib = library.Library(":memory:")
-    for item in items:
-        lib.add(item)
-    lib._connection().commit()
-    return lib
+def _empty_lib(isolated_library) -> library.Library:
+    """A real (empty) beets library rooted at the isolated temp dir, for session
+    construction. The scan is stubbed in the dedup tests, so its contents don't matter —
+    only that a real `Library` satisfies `ImportSession.__init__`."""
+    return library.Library(":memory:", str(isolated_library))
+
+
+def _stub_duplicates(monkeypatch, items):
+    """Make the acquire-time dedup scan return `items` (a park-decision stub)."""
+    monkeypatch.setattr(seam, "items_for_recording", lambda _lib, rid: list(items) if rid else [])
 
 
 def _session_with_lib(store, dominance, lib, **kw):
@@ -752,20 +757,24 @@ def _session_with_lib(store, dominance, lib, **kw):
     )
 
 
-def test_library_duplicates_matches_by_recording_id(store):
-    # Detection is by mb_trackid — the same recording, not a title collision.
-    lib = _lib_with(_lib_item("rec-A", 320000))
-    session = _session_with_lib(store, Dominance(0.96, 0.2, ("rec-A",)), lib)
+def test_library_duplicates_delegates_to_the_scan(store, monkeypatch, isolated_library):
+    # `_library_duplicates` hands the recording id to the filesystem scan and returns its
+    # result (the real detection-by-recording-id is covered in test_library_scan.py).
+    _stub_duplicates(monkeypatch, [_dup("rec-A", 320000)])
+    session = _session_with_lib(
+        store, Dominance(0.96, 0.2, ("rec-A",)), _empty_lib(isolated_library)
+    )
 
     assert [d.mb_trackid for d in session._library_duplicates("rec-A")] == ["rec-A"]
-    assert session._library_duplicates("rec-OTHER") == []  # a different recording
-    assert session._library_duplicates(None) == []  # no id → no query
+    assert session._library_duplicates(None) == []  # no id → no match
 
 
-def test_choose_item_no_library_duplicate_accepts(store):
+def test_choose_item_no_library_duplicate_accepts(store, monkeypatch, isolated_library):
     # Empty library → nothing to dedup against → the dominant match lands.
-    lib = _lib_with()
-    session = _session_with_lib(store, Dominance(0.96, 0.2, ("rec-A",)), lib)
+    _stub_duplicates(monkeypatch, [])
+    session = _session_with_lib(
+        store, Dominance(0.96, 0.2, ("rec-A",)), _empty_lib(isolated_library)
+    )
     task = _dup_task(320000)
 
     choice = session.choose_item(task)
@@ -777,13 +786,15 @@ def test_choose_item_no_library_duplicate_accepts(store):
     assert store.list_reviews() == []
 
 
-def test_choose_item_dedup_parks_equal_bitrate(store):
+def test_choose_item_dedup_parks_equal_bitrate(store, monkeypatch, isolated_library):
     # The everyday re-paste: same recording already in the library at the same 320
     # bitrate. Always parks (ADR-009 amendment) so the owner can verify the match
     # and catch AcoustID false positives — a silent skip showed "Done" with no
     # feedback, and a wrong match lost the song.
-    lib = _lib_with(_lib_item("rec-A", 320000, artist="A", title="T"))
-    session = _session_with_lib(store, Dominance(0.96, 0.2, ("rec-A",)), lib)
+    _stub_duplicates(monkeypatch, [_dup("rec-A", 320000)])
+    session = _session_with_lib(
+        store, Dominance(0.96, 0.2, ("rec-A",)), _empty_lib(isolated_library)
+    )
 
     choice = session.choose_item(_dup_task(320000))
 
@@ -795,11 +806,13 @@ def test_choose_item_dedup_parks_equal_bitrate(store):
     assert store.list_reviews()[0].rec == "duplicate"
 
 
-def test_choose_item_dedup_parks_higher_bitrate_existing(store):
+def test_choose_item_dedup_parks_higher_bitrate_existing(store, monkeypatch, isolated_library):
     # Existing is strictly better (320 vs an incoming 128) → still parks (ADR-009
     # amendment). The owner sees the comparison and clicks "Keep existing".
-    lib = _lib_with(_lib_item("rec-A", 320000))
-    session = _session_with_lib(store, Dominance(0.96, 0.2, ("rec-A",)), lib)
+    _stub_duplicates(monkeypatch, [_dup("rec-A", 320000)])
+    session = _session_with_lib(
+        store, Dominance(0.96, 0.2, ("rec-A",)), _empty_lib(isolated_library)
+    )
 
     choice = session.choose_item(_dup_task(128000))
 
@@ -809,11 +822,13 @@ def test_choose_item_dedup_parks_higher_bitrate_existing(store):
     assert len(store.list_reviews()) == 1
 
 
-def test_choose_item_dedup_parks_higher_bitrate_upgrade(store):
+def test_choose_item_dedup_parks_higher_bitrate_upgrade(store, monkeypatch, isolated_library):
     # Incoming out-qualities every existing copy on bitrate (320 vs 256). A genuine
     # upgrade — but R1 never auto-deletes, so park it for the owner to confirm.
-    lib = _lib_with(_lib_item("rec-A", 256000))
-    session = _session_with_lib(store, Dominance(0.96, 0.2, ("rec-A",)), lib)
+    _stub_duplicates(monkeypatch, [_dup("rec-A", 256000)])
+    session = _session_with_lib(
+        store, Dominance(0.96, 0.2, ("rec-A",)), _empty_lib(isolated_library)
+    )
 
     choice = session.choose_item(_dup_task(320000))
 
@@ -827,14 +842,16 @@ def test_choose_item_dedup_parks_higher_bitrate_upgrade(store):
     assert not session._accepted  # dedup returns before the accept
 
 
-def test_choose_item_dedup_parks_even_with_multiple_existing(store):
+def test_choose_item_dedup_parks_even_with_multiple_existing(store, monkeypatch, isolated_library):
     # Two existing copies of the recording (256 + 320). The incoming 320 is covered by
     # the 320, but we still park (ADR-009 amendment) — the owner verifies.
-    lib = _lib_with(
-        _lib_item("rec-A", 256000, path=b"/lib/a-256.mp3"),
-        _lib_item("rec-A", 320000, path=b"/lib/a-320.mp3"),
+    _stub_duplicates(
+        monkeypatch,
+        [_dup("rec-A", 256000, path=b"/lib/a-256.mp3"), _dup("rec-A", 320000, path=b"/lib/a-320.mp3")],
     )
-    session = _session_with_lib(store, Dominance(0.96, 0.2, ("rec-A",)), lib)
+    session = _session_with_lib(
+        store, Dominance(0.96, 0.2, ("rec-A",)), _empty_lib(isolated_library)
+    )
 
     choice = session.choose_item(_dup_task(320000))
 
@@ -844,11 +861,13 @@ def test_choose_item_dedup_parks_even_with_multiple_existing(store):
     assert len(store.list_reviews()) == 1
 
 
-def test_choose_item_dedup_single_outcome_then_finalize(store):
+def test_choose_item_dedup_single_outcome_then_finalize(store, monkeypatch, isolated_library):
     # A deduped song must end with EXACTLY one outcome: the dedup returns before the
     # accept, so finalize (which only settles _accepted) adds nothing more.
-    lib = _lib_with(_lib_item("rec-A", 256000))
-    session = _session_with_lib(store, Dominance(0.96, 0.2, ("rec-A",)), lib)
+    _stub_duplicates(monkeypatch, [_dup("rec-A", 256000)])
+    session = _session_with_lib(
+        store, Dominance(0.96, 0.2, ("rec-A",)), _empty_lib(isolated_library)
+    )
 
     session.choose_item(_dup_task(320000))  # parks (upgrade)
     outcomes = session.finalize_outcomes()
@@ -1865,6 +1884,9 @@ def test_shazam_land_writes_id3_tags_and_cover_to_disk(store, tmp_path):
     assert media.year == 2020  # from the Shazam record (T-221 widening)
     assert media.genre == "Hip-Hop/Rap"  # Shazam genre, not the junk "Entertainment"
     assert media.isrc == "GB123"
+    # T-226: the accepted recording id is stamped onto the file so the library-scan dedup
+    # finds a re-acquire of it (mediafile reads it from the UFID frame the writer wrote).
+    assert media.mb_trackid == "rec-A"
     # T-224 (ADR-033): lyrics ride straight from the Shazam record — the lyrics plugin
     # is retired, so this is the only path lyrics now reach the file.
     assert media.lyrics == "first line\nsecond line"

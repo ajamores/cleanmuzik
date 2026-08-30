@@ -574,13 +574,13 @@ def _duplicate_detail(review: Review, lib=None) -> dict:
     """The "keep which?" payload: what's already in the library vs. what was downloaded.
 
     A duplicate row's `candidate_ids` are the EXISTING copy's recording id(s), so this
-    resolves them against the beets library — real files with real bitrates — rather
+    resolves them against the library files — real files with real bitrates — rather
     than against MusicBrainz. That contrast (existing 192k vs incoming 320k) IS the
     question the owner is answering, and neither side of it is a "candidate".
 
     Both loops are de-duplicated, and neither is paranoia: `_park_duplicate` builds
     `candidate_ids` with one entry per duplicate *item*, and every duplicate it found
-    carries the SAME `mb_trackid` (they were found by a MatchQuery on exactly that id).
+    carries the SAME `mb_trackid` (they were found by a library scan on exactly that id).
     So two library copies of one recording — the state `keep_both` creates — store
     `["rec-X", "rec-X"]`, and a naive ids x items loop would report each file twice.
     """

@@ -95,6 +95,20 @@ def unique_path(path: str, exists: Callable[[str], bool] = os.path.exists) -> st
             return candidate
 
 
+def strip_collision_suffix(path: str) -> str:
+    """Remove a trailing `.N` collision suffix from a path (`Title.1.mp3` → `Title.mp3`).
+
+    The inverse of `unique_path`, for the upgrade-path reclaim (T-009/T-014): a `replace`
+    lands the new copy beside the old under `Title.1.mp3`, and once the old file is deleted
+    the canonical `Title.mp3` slot is free again. When the new copy landed at its own
+    canonical (no collision), there is no suffix and the path is returned unchanged — so
+    this is faithful to beets `Item.move()` in both cases.
+    """
+    base, ext = os.path.splitext(path)
+    match = re.search(r"\.\d+$", base)
+    return base[: match.start()] + ext if match else path
+
+
 def relative_destination(artist: str | None, title: str | None, *, ext: str = ".mp3") -> str:
     """The library-relative `artist/title.mp3` fragment for the applied identity.
 

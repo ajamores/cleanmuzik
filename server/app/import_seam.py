@@ -52,12 +52,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import acoustid
-from beets import config, dbcore, library, metadata_plugins, plugins, util
+from beets import config, library, metadata_plugins, plugins, util
 from beets.autotag import Distance, Recommendation, TrackMatch
 from beets.importer import Action, DuplicateAction, ImportSession
 from beetsplug.musicbrainz import _get_date
 
 from app import isrc as isrc_lookup
+from app import library_scan
 from app import normalize
 from app import reconcile as reconcile_seam
 from app import shazam as shazam_sense
@@ -1121,7 +1122,9 @@ class FingerprintTrustSession(ImportSession):
                 art_embedded = False
             else:
                 image = self._resolve_cover(task.item, dominance, source)
-                art_embedded = self._write_landed_tags(task.item, image)
+                art_embedded = self._write_landed_tags(
+                    task.item, image, match.info.track_id
+                )
             # T-013 rich payloads, read at the one moment they're all true: post-run,
             # so task.item carries the applied tags AND its final organized path, and
             # match.info is the candidate we chose to apply. Only for a real landing —
@@ -1234,7 +1237,9 @@ class FingerprintTrustSession(ImportSession):
             )
             return None
 
-    def _write_landed_tags(self, item, image: bytes | None) -> bool:
+    def _write_landed_tags(
+        self, item, image: bytes | None, recording_id: str | None = None
+    ) -> bool:
         """Write the item's tags + `image` onto the landed file with mutagen (T-223).
 
         The single write on the land path — ID3 frames + APIC, no beets `write`/`embedart`
@@ -1261,6 +1266,7 @@ class FingerprintTrustSession(ImportSession):
                 genre=getattr(item, "genre", None),
                 lyrics=getattr(item, "lyrics", None),
                 isrc=getattr(item, "isrc", None),
+                recording_id=recording_id or getattr(item, "mb_trackid", None) or None,
                 image=image,
             )
         except Exception as exc:  # noqa: BLE001 — a write failure must not un-land a track
@@ -1465,6 +1471,20 @@ class FingerprintTrustSession(ImportSession):
         return self._record_review(existing_ids, "duplicate", dominance)
 
 
+def _library_dir(lib) -> str:
+    """The library root to scan for duplicates.
+
+    Prefers `lib.directory` (a beets `Library` still carries it, and the tests point it at
+    a temp dir for isolation); falls back to the configured `LIBRARY_DIRECTORY`. Decoded
+    from beets' bytes when present. When beets is retired (T-226 step D) this collapses to
+    the constant / an injected dir.
+    """
+    directory = getattr(lib, "directory", None)
+    if directory:
+        return os.fsdecode(directory)
+    return LIBRARY_DIRECTORY
+
+
 def items_for_recording(lib, recording_id: str | None) -> list:
     """Library items whose MusicBrainz recording id is `recording_id` (or []).
 
@@ -1472,10 +1492,12 @@ def items_for_recording(lib, recording_id: str | None) -> list:
     the acquire-time gate (`_library_duplicates`, T-009) and T-014's `replace`, which
     must name the exact existing files it is about to delete. Module-level so the
     resolve orchestration can ask without standing up a session.
+
+    T-226: answered by scanning the library files for the recording-id frame the writer
+    stamps, not a beets-DB `MatchQuery` — see `app/library_scan.py`. `lib` is kept only to
+    locate the library root (and for test isolation); the scan does not touch the DB.
     """
-    if lib is None or not recording_id:
-        return []
-    return list(lib.items(dbcore.query.MatchQuery("mb_trackid", recording_id)))
+    return library_scan.scan_for_recording(recording_id, _library_dir(lib))
 
 
 def _shazam_corroborates(record: dict, info) -> bool:
