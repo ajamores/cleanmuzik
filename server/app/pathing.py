@@ -95,28 +95,16 @@ def unique_path(path: str, exists: Callable[[str], bool] = os.path.exists) -> st
             return candidate
 
 
-def strip_collision_suffix(path: str) -> str:
-    """Remove a trailing `.N` collision suffix from a path (`Title.1.mp3` → `Title.mp3`).
-
-    The inverse of `unique_path`, for the upgrade-path reclaim (T-009/T-014): a `replace`
-    lands the new copy beside the old under `Title.1.mp3`, and once the old file is deleted
-    the canonical `Title.mp3` slot is free again. When the new copy landed at its own
-    canonical (no collision), there is no suffix and the path is returned unchanged — so
-    this is faithful to beets `Item.move()` in both cases.
-    """
-    base, ext = os.path.splitext(path)
-    match = re.search(r"\.\d+$", base)
-    return base[: match.start()] + ext if match else path
-
-
 def relative_destination(artist: str | None, title: str | None, *, ext: str = ".mp3") -> str:
     """The library-relative `artist/title.mp3` fragment for the applied identity.
 
     Reproduces beets' singleton `$artist/$title` template + legalization: sanitize each
-    component, NFC-normalize, append the (lowercased) extension, then byte-truncate each
-    component preserving the extension. No collision handling here (that needs the absolute
-    path — see `destination`). An absent artist/title lands the file with an empty component,
-    exactly as beets' `os.path.join(*comps)` would; every land supplies both.
+    component, NFC-normalize, byte-truncate preserving the extension, then **re-sanitize** —
+    beets legalizes in stages (sanitize → truncate → sanitize) precisely because a byte cut
+    can expose a trailing space or dot, the illegal-on-Windows/drvfs form that causes the
+    NOT_INDEXED trap. No collision handling here (that needs the absolute path — see
+    `destination`). An absent artist/title lands an empty component, exactly as beets'
+    `os.path.join(*comps)` would; every land supplies both.
     """
     comps = [_sanitize_component(artist or ""), _sanitize_component(title or "")]
     # NFC (non-darwin branch of Item.destination): the /mnt/c filename must match the byte
@@ -127,6 +115,10 @@ def relative_destination(artist: str | None, title: str | None, *, ext: str = ".
     *parents, stem = comps
     parents = [_truncate_component(p, _MAX_COMPONENT_BYTES) for p in parents]
     stem = _truncate_component(stem, _MAX_COMPONENT_BYTES - len(_FS_ENCODING(ext)))
+    # Re-sanitize post-truncation (beets' second legalize stage): strip a trailing space/dot
+    # a byte-boundary cut may have exposed. This only shrinks, so no re-truncation is needed.
+    parents = [_sanitize_component(p) for p in parents]
+    stem = _sanitize_component(stem)
     return os.path.join(*parents, stem + ext)
 
 

@@ -57,6 +57,22 @@ class TestTruncation:
         assert len(filename.encode()) == 200
         assert filename.endswith(".mp3")
 
+    def test_truncation_exposing_a_trailing_space_is_re_sanitized(self):
+        # Regression (A+B review): beets legalizes sanitize→truncate→sanitize. A byte-budget cut
+        # landing right after a space must not leave a trailing space (illegal on Windows/drvfs,
+        # the NOT_INDEXED trap). Place the space on the stem's byte boundary.
+        budget = pathing._MAX_COMPONENT_BYTES - len(b".mp3")
+        title = "A" * (budget - 1) + " " + "B" * 50  # the cut lands right after the space
+        stem_no_ext = pathing.relative_destination("artist", title).split("/")[1][: -len(".mp3")]
+        assert not stem_no_ext.endswith(" "), "a truncation-exposed trailing space must be stripped"
+        assert len(stem_no_ext.encode()) == budget - 1  # the space was trimmed, not kept
+
+    def test_truncation_exposing_a_trailing_dot_is_re_sanitized(self):
+        budget = pathing._MAX_COMPONENT_BYTES - len(b".mp3")
+        title = "A" * (budget - 1) + "." + "B" * 50  # the cut lands right after the dot
+        stem_no_ext = pathing.relative_destination("artist", title).split("/")[1][: -len(".mp3")]
+        assert not stem_no_ext.endswith("."), "a truncation-exposed trailing dot must be replaced"
+
     def test_multibyte_truncation_drops_half_char(self):
         # 100 × "🎹" (4 bytes each) = 400 bytes; truncating to 200 bytes lands on a boundary
         # (50 chars) with no half-cut codepoint left behind.

@@ -973,16 +973,18 @@ def test_staging_outside_a_cleanmuzik_dir_is_not_rmtreed(tmp_path):
 # T-226: the library items are `LibraryItem`s from a filesystem scan (path identity), and
 # the delete/reclaim are plain-Python file ops. These stub the scan to reflect what is on
 # disk (the real scan is covered in test_library_scan.py) and assert against real files.
-def _stub_scan(monkeypatch, *paths_by_state):
+def _stub_scan(monkeypatch, *paths_by_state, artist="Artist", title="Title"):
     """Stub `items_for_recording` to return a `LibraryItem` for each currently-existing
-    file in `paths_by_state`, so before/after snapshots track the disk as `land` writes."""
+    file in `paths_by_state`, so before/after snapshots track the disk as `land` writes.
+    Carries artist/title so the reclaim can recompute the canonical (as beets' move did) —
+    the files in the reclaim tests live at `<root>/{artist}/{title}.mp3`."""
     from app import library_scan
 
     def scan(_lib, recording_id):
         if not recording_id:
             return []
         return [
-            library_scan.LibraryItem(str(p).encode(), recording_id, 320000)
+            library_scan.LibraryItem(str(p).encode(), recording_id, 320000, title=title, artist=artist)
             for p in paths_by_state
             if p.exists()
         ]
@@ -1039,6 +1041,24 @@ def test_replace_deletes_the_old_copy_only_after_the_new_one_is_confirmed(tmp_pa
     assert not new_file.exists(), "the `.1` copy was reclaimed onto the canonical path"
     assert path == str(old_file), "the new copy now sits at the freed canonical path"
     assert old_file.read_bytes() == b"new", "and it is the upgrade, not the old copy"
+
+
+def test_replace_does_not_mangle_a_title_ending_in_dot_digits(tmp_path, monkeypatch):
+    # Regression (A+B review): the reclaim must recompute the canonical from the tags, not
+    # string-strip a `.N`. A title genuinely ending in `.<digits>` ("Song 2.0") landed at its
+    # OWN canonical (no collision) must be left exactly where it is — never renamed to "Song 2".
+    old_file = tmp_path / "Artist" / "Old.mp3"
+    new_file = tmp_path / "Artist" / "Song 2.0.mp3"  # new copy, different canonical, no `.N`
+    old_file.parent.mkdir()
+    old_file.write_bytes(b"old")
+    new_file.write_bytes(b"new")
+    _stub_scan(monkeypatch, old_file, new_file, artist="Artist", title="Song 2.0")
+
+    path = jobs_mod._replace_existing(None, "rec-E", {str(old_file)}, Outcome("landed", 0.0, 0.0))
+
+    assert new_file.exists(), "the `.0` is part of the title — the file must NOT be renamed"
+    assert path == str(new_file)
+    assert not (tmp_path / "Artist" / "Song 2.mp3").exists(), "no mangled name was created"
 
 
 def test_replace_never_leaves_zero_copies_even_if_reorganize_fails(tmp_path, monkeypatch):

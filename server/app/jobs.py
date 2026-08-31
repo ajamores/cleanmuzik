@@ -1342,41 +1342,67 @@ def _replace_existing(lib, recording_id: str, before_ids: set, landed) -> str | 
             f"the existing file (ADR-009: never leave zero copies)",
         )
 
+    # The library root = the parent of the artist dir (singleton `$artist/$title.mp3`). Used
+    # to recompute the reclaim target and to guard the prune against removing the root itself.
+    final_path = str(new_path)
+    library_root = os.path.dirname(os.path.dirname(final_path))
+
     for item in old_items:
         old_path = os.fsdecode(item.path)
         # The owner's explicit click, not the app's initiative: remove the file and prune
         # a now-empty artist directory (what beets' delete=True used to do).
-        _delete_and_prune(old_path)
+        _delete_and_prune(old_path, library_root)
         logger.info("replace: removed the superseded copy at %s", old_path)
 
-    # Reclaim the canonical path now the old copy has freed it: the new copy landed as
-    # `Title.1.mp3` beside it, so strip the `.N` (was beets `new_item.move()`). No suffix
-    # means it already landed at its own canonical — nothing to reclaim.
-    final_path = str(new_path)
-    canonical = pathing.strip_collision_suffix(final_path)
-    if canonical != final_path and not os.path.exists(canonical):
-        try:
-            os.rename(final_path, canonical)
-            final_path = canonical
-        except OSError as exc:
-            logger.warning(
-                "replace: could not re-organize %s onto its canonical path %s (%s) — "
-                "the upgrade is landed and correct, just not tidily named",
-                final_path, canonical, exc,
-            )
+    # Reclaim the canonical path now the old copy has freed it — recomputed from the new
+    # copy's OWN tags (what beets `new_item.move()` did), NOT by string-stripping a `.N`: a
+    # title that genuinely ends in `.<digits>` (e.g. "Song 2.0") must not be mangled. When
+    # the new copy already sits at its own canonical, this returns the same path → no move.
+    artist, title = getattr(new_item, "artist", None), getattr(new_item, "title", None)
+    if artist and title:
+        # Exclude the new file's OWN path from the collision check — it must not be treated
+        # as colliding with itself (else a file already at its canonical bumps to `.1`).
+        canonical = pathing.destination(
+            artist, title, library_dir=library_root,
+            exists=lambda p: p != final_path and os.path.exists(p),
+        )
+        if canonical != final_path and not os.path.exists(canonical):
+            try:
+                os.rename(final_path, canonical)
+                final_path = canonical
+            except OSError as exc:
+                logger.warning(
+                    "replace: could not re-organize %s onto its canonical path %s (%s) — "
+                    "the upgrade is landed and correct, just not tidily named",
+                    final_path, canonical, exc,
+                )
     return final_path
 
 
-def _delete_and_prune(path: str) -> None:
+# Clutter files the OS drops into a directory that beets' prune_dirs treats as "empty" — on
+# the /mnt/c drvfs mount Windows genuinely leaves these behind.
+_PRUNE_CLUTTER = {".DS_Store", "Thumbs.db", "desktop.ini"}
+
+
+def _delete_and_prune(path: str, root: str) -> None:
     """Delete a library file and prune its artist directory if that leaves it empty.
 
-    Reproduces beets `Item.remove(delete=True)`'s file removal + empty-parent prune, in
-    plain Python (T-226). The prune is best-effort — a non-empty or vanished directory is
-    left alone."""
+    Reproduces beets `Item.remove(delete=True)` → `util.prune_dirs`: remove the file, then
+    prune the now-empty parent — treating a directory holding only OS clutter as empty, and
+    NEVER removing the library `root`. Best-effort — a non-empty or vanished directory, or a
+    parent that is the root, is left alone."""
     os.remove(path)
     parent = os.path.dirname(path)
     try:
-        if parent and os.path.isdir(parent) and not os.listdir(parent):
+        if not parent or parent == root or not os.path.isdir(parent):
+            return
+        entries = os.listdir(parent)
+        if all(entry in _PRUNE_CLUTTER for entry in entries):
+            for entry in entries:  # sweep the clutter beets would have (an empty dir: none)
+                try:
+                    os.remove(os.path.join(parent, entry))
+                except OSError:
+                    pass
             os.rmdir(parent)
     except OSError:
         pass
